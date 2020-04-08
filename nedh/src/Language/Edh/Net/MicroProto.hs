@@ -19,24 +19,27 @@ import           Data.Text.Encoding
 maxHeaderLength :: Int
 maxHeaderLength = 60
 
+
 type PacketDirective = Text
 type PacketPayload = B.ByteString
 type PacketSink = TMVar (PacketDirective, PacketPayload)
 type EndOfStream = TMVar (Either SomeException ())
 
 
+-- | Send out a binary packet.
 sendPacket :: Handle -> PacketDirective -> PacketPayload -> IO ()
 sendPacket !outletHndl !dir !payload = do
-  let pktLen = B.length payload
+  let !pktLen = B.length payload
+      !pktHdr = encodeUtf8 $ T.pack ("[" <> show pktLen <> "#") <> dir <> "]"
+  when (B.length pktHdr > maxHeaderLength) $ throwIO $ userError
+    "packet header too long"
   -- write packet header
-  B.hPut outletHndl
-    $  encodeUtf8
-    $  T.pack ("[" <> show pktLen <> "#")
-    <> dir
-    <> "]"
+  B.hPut outletHndl pktHdr
   -- write packet payload
   B.hPut outletHndl payload
 
+
+-- | Send out a textual packet.
 sendTextPacket :: Handle -> PacketDirective -> Text -> IO ()
 sendTextPacket !outletHndl !dir !txt = sendPacket outletHndl dir payload
  where
@@ -49,8 +52,22 @@ sendTextPacket !outletHndl !dir !txt = sendPacket outletHndl dir payload
   finishLine !t = if "\n" `isSuffixOf` t then t else t <> "\n"
 
 
-servePacketStream :: Handle -> PacketSink -> EndOfStream -> IO ()
-servePacketStream !intakeHndl !pktSink !eos = parsePkts B.empty where
+-- | Receive all packets being streamed to the specified (socket) handle,
+-- or have been streamed into a file then have the specified handle 
+-- opened that file for read.
+--
+-- Reading of the stream will only flow when packets are taken away from
+-- the sink concurrently, and back-pressure will be created by not taking
+-- packets away too quickly.
+--
+-- The caller is responsible to close the handle anyway.
+receivePacketStream :: Handle -> PacketSink -> EndOfStream -> IO ()
+receivePacketStream !intakeHndl !pktSink !eos =
+  catch (parsePkts B.empty) $ \(e :: SomeException) -> do
+    -- mark end-of-stream with the error occurred
+    void $ atomically $ tryPutTMVar eos $ Left e
+    throwIO e -- re-throw the exception
+ where
 
   parsePkts :: B.ByteString -> IO ()
   parsePkts !readahead = do
