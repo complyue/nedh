@@ -23,7 +23,7 @@ import           Language.Edh.EHI
 installNetBatteries :: EdhWorld -> IO ()
 installNetBatteries !world =
 
-  void $ installEdhModule world "net" $ \pgs modu -> do
+  void $ installEdhModule world "net/Server" $ \pgs modu -> do
 
     let ctx       = edh'context pgs
         moduScope = objectScope ctx modu

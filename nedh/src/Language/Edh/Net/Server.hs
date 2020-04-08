@@ -7,9 +7,7 @@ import           Debug.Trace
 import           System.IO
 
 import           Control.Exception
-import           Control.Applicative
 import           Control.Monad
-import           Control.Monad.Reader
 import           Control.Concurrent
 import           Control.Concurrent.STM
 
@@ -22,10 +20,11 @@ import           Network.Socket
 import           Language.Edh.EHI
 
 import           Language.Edh.Net.MicroProto
+import           Language.Edh.Net.Peer
 
 
-servEdhClients :: Context -> Text -> Int -> IO ()
-servEdhClients !ctx !servAddr !servPort = withSocketsDo $ do
+servEdhClients :: Context -> Text -> Int -> (Peer -> EdhProc) -> IO ()
+servEdhClients !ctx !servAddr !servPort !service = do
   addr <- resolveServAddr
   bracket (open addr) close acceptClients
  where
@@ -56,44 +55,48 @@ servEdhClients !ctx !servAddr !servPort = withSocketsDo $ do
 
   servClient :: String -> Handle -> IO ()
   servClient !clientId !hndl = do
-    thClient       <- myThreadId
-    (pktSink, eos) <- atomically $ liftA2 (,) newEmptyTMVar newEmptyTMVar
-    let
-      servPump :: EdhProgState -> STM ()
-      servPump !pgs =
-        edhPerformIO
-            pgs
-            (        atomically
-            $        (   Right
-                     <$> (takeTMVar pktSink >>= \(dir, payload) ->
-                           return (dir, decodeUtf8 payload)
-                         )
-                     )
-            `orElse` (Left <$> readTMVar eos)
-            )
-          $ \case
-          -- client closed connection
-          -- TODO some cleanup here
-              Left  _             -> return ()
-          -- parse & eval
-              Right (dir, edhSrc) -> case dir of
-                "" -> runEdhProc pgs $ evalEdh clientId edhSrc $ \_ ->
-                  contEdhSTM $ servPump pgs -- CPS recursion
-                _ ->
-                  throwEdhSTM pgs UsageError
-                    $  "invalid packet directive: "
-                    <> dir
+    pktSink <- newEmptyTMVarIO
+    eos     <- newEmptyTMVarIO
+    poq     <- newTQueueIO
+
+    let ho :: STM CommCmd
+        ho = do
+          (dir, payload) <- takeTMVar pktSink
+          return $ CommCmd dir $ decodeUtf8 payload
+        po :: CommCmd -> STM ()
+        po    = writeTQueue poq
+
+        !peer = Peer { peer'ident      = T.pack clientId
+                     , peer'eos        = eos
+                     , peer'hosting    = ho
+                     , postPeerCommand = po
+                     }
+
     void
       -- start another Edh program to serve this client
-      $ forkFinally
-          (runEdhProgram' ctx (ask >>= \pgs -> contEdhSTM $ servPump pgs))
-      $ \result -> do
-          case result of
-            -- to cancel socket reading as well as propagate the error
-            Left  e -> throwTo thClient e
-            Right _ -> pure ()
-          -- TODO cleanup client
-          return ()
-    -- pump incoming src commands
-    servePacketStream hndl pktSink eos
+      $ forkFinally (runEdhProgram' ctx $ service peer)
+      $ \case
+          -- mark eos with the error occurred
+          Left  e -> atomically $ void $ tryPutTMVar eos $ Left e
+          -- mark normal eos
+          Right _ -> atomically $ void $ tryPutTMVar eos $ Right ()
+
+    let
+      serializeCmdsOut :: IO ()
+      serializeCmdsOut =
+        atomically
+            ((Right <$> readTQueue poq) `orElse` (Left <$> readTMVar eos))
+          >>= \case
+                Left _ -> return () -- stop on eos any way
+                Right (CommCmd !dir !src) ->
+                  catch (sendTextPacket hndl dir src >> serializeCmdsOut)
+                    $ \(e :: SomeException) -> -- mark eos on error
+                        atomically $ void $ tryPutTMVar eos $ Left e
+    -- pump commands out,
+    -- make this thread the only one writing the handle
+    void $ forkIO serializeCmdsOut
+
+    -- pump commands in, 
+    -- make this thread the only one reading the handle
+    receivePacketStream hndl pktSink eos
 

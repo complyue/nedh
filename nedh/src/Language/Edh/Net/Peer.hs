@@ -27,23 +27,23 @@ instance Hashable CommCmd where
 data Peer = Peer {
       peer'ident :: !Text
     , peer'eos :: !(TMVar (Either SomeException ()))
-    , peer'hosting :: !(TMVar CommCmd)
-    , peer'posting :: !(TQueue CommCmd)
-  } deriving (Eq)
+    , peer'hosting :: !(STM CommCmd)
+    , postPeerCommand :: !(CommCmd -> STM ())
+  }
 
-postPeerCommand :: Peer -> CommCmd -> STM ()
-postPeerCommand = writeTQueue . peer'posting
 
 readPeerCommand :: Peer -> EdhProcExit -> EdhProc
-readPeerCommand (Peer !ident !eos !ho po) !exit = ask >>= \pgs ->
+readPeerCommand (Peer !ident !eos !ho !po) !exit = ask >>= \pgs ->
   contEdhSTM
     $ edhPerformIO
         pgs
-        (atomically $ (Right <$> takeTMVar ho) `orElse` (Left <$> readTMVar eos)
-        )
+        (atomically $ (Right <$> ho) `orElse` (Left <$> readTMVar eos))
     $ \case
+        -- reached normal end-of-stream
         Left (Right ()) -> exitEdhSTM pgs exit nil
+        -- previously eos due to error
         Left (Left ex) -> toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
+        -- got next command incoming
         Right (CommCmd !dir !src) -> case dir of
           "" ->
             runEdhProc pgs
@@ -55,7 +55,7 @@ readPeerCommand (Peer !ident !eos !ho po) !exit = ask >>= \pgs ->
                     then rethrow -- rethrow just passes on in this case
                     else contEdhSTM $ edhValueReprSTM pgs exv $ \exr -> do
                       -- send peer the error details
-                      writeTQueue po $ CommCmd "err" exr
+                      po $ CommCmd "err" exr
                       -- mark eos with this error
                       fromEdhError pgs exv
                         $ \e -> void $ tryPutTMVar eos $ Left e
@@ -70,5 +70,4 @@ readPeerCommand (Peer !ident !eos !ho po) !exit = ask >>= \pgs ->
               $ \exv ex -> do
                   void $ tryPutTMVar eos $ Left $ toException ex
                   edhThrowSTM pgs exv
-
 
