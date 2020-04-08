@@ -1,0 +1,88 @@
+cabal-version: 2.4
+name: nedh
+version: 0.1.0.0
+license: BSD-3-Clause
+copyright: 2020 Compl Yue
+maintainer: compl.yue@icloud.com
+author: Compl Yue
+stability: experimental
+homepage: https://github.com/e-wrks/nedh
+bug-reports: https://github.com/e-wrks/nedh/issues
+synopsis: Networked Edh
+description:
+    Please see the README on Github at <https://github.com/e-wrks/nedh>
+category: Distributed,Network,Language
+build-type: Simple
+extra-source-files:
+    README.md
+
+source-repository head
+    type: git
+    location: https://github.com/e-wrks/nedh
+
+library
+    exposed-modules:
+        Language.Edh.Net
+    hs-source-dirs: pub
+    default-language: Haskell2010
+    default-extensions: NoImplicitPrelude OverloadedStrings LambdaCase
+                        BangPatterns TupleSections ScopedTypeVariables
+    ghc-options: -Wall
+    build-depends:
+        nedh-internal -any,
+        base >=4.12,
+        stm >=2.5,
+        text -any,
+        bytestring -any,
+        mtl -any,
+        transformers -any,
+        edh -any
+
+executable nedh
+    main-is: Main.hs
+    hs-source-dirs: repl
+    other-modules:
+        Repl
+    default-language: Haskell2010
+    default-extensions: NoImplicitPrelude OverloadedStrings LambdaCase
+                        BangPatterns TupleSections ScopedTypeVariables
+    ghc-options: -Wall -threaded
+    build-depends:
+        nedh -any,
+        base >=4.12,
+        stm >=2.5,
+        text -any,
+        bytestring -any,
+        mtl -any,
+        transformers -any,
+        edh -any,
+        lossless-decimal -any
+
+library nedh-internal
+    exposed-modules:
+        Language.Edh.Net.MicroProto
+        Language.Edh.Net.Peer
+        Language.Edh.Net.Server
+    hs-source-dirs: src
+    default-language: Haskell2010
+    default-extensions: NoImplicitPrelude OverloadedStrings LambdaCase
+                        BangPatterns TupleSections ScopedTypeVariables
+    ghc-options: -Wall
+    build-depends:
+        base >=4.12,
+        stm >=2.5,
+        edh -any,
+        lossless-decimal -any,
+        scientific -any,
+        binary -any,
+        hashable -any,
+        unordered-containers -any,
+        containers -any,
+        unix -any,
+        time -any,
+        clock -any,
+        network -any,
+        text -any,
+        bytestring -any,
+        mtl -any,
+        transformers -any
