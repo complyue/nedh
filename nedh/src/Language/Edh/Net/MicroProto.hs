@@ -24,6 +24,31 @@ type PacketPayload = B.ByteString
 type PacketSink = TMVar (PacketDirective, PacketPayload)
 type EndOfStream = TMVar (Either SomeException ())
 
+
+sendPacket :: Handle -> PacketDirective -> PacketPayload -> IO ()
+sendPacket !outletHndl !dir !payload = do
+  let pktLen = B.length payload
+  -- write packet header
+  B.hPut outletHndl
+    $  encodeUtf8
+    $  T.pack ("[" <> show pktLen <> "#")
+    <> dir
+    <> "]"
+  -- write packet payload
+  B.hPut outletHndl payload
+
+sendTextPacket :: Handle -> PacketDirective -> Text -> IO ()
+sendTextPacket !outletHndl !dir !txt = sendPacket outletHndl dir payload
+ where
+  payload = encodeUtf8 $ finishLine $ onSepLine txt
+  onSepLine :: Text -> Text
+  onSepLine "" = ""
+  onSepLine !t = if "\n" `isPrefixOf` t then t else "\n" <> t
+  finishLine :: Text -> Text
+  finishLine "" = ""
+  finishLine !t = if "\n" `isSuffixOf` t then t else t <> "\n"
+
+
 servePacketStream :: Handle -> PacketSink -> EndOfStream -> IO ()
 servePacketStream !intakeHndl !pktSink !eos = parsePkts B.empty where
 
