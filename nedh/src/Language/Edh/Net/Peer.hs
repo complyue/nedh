@@ -28,22 +28,22 @@ instance Hashable CommCmd where
 
 data Peer = Peer {
       peer'ident :: !Text
-    , peer'eos :: !(TMVar (Either SomeException ()))
+    , peer'eol :: !(TMVar (Either SomeException ()))
     , peer'hosting :: !(STM CommCmd)
     , postPeerCommand :: !(CommCmd -> STM ())
   }
 
 
 readPeerCommand :: Peer -> EdhProcExit -> EdhProc
-readPeerCommand (Peer !ident !eos !ho !po) !exit = ask >>= \pgs ->
+readPeerCommand (Peer !ident !eol !ho !po) !exit = ask >>= \pgs ->
   contEdhSTM
     $ edhPerformIO
         pgs
-        (atomically $ (Right <$> ho) `orElse` (Left <$> readTMVar eos))
+        (atomically $ (Right <$> ho) `orElse` (Left <$> readTMVar eol))
     $ \case
         -- reached normal end-of-stream
         Left (Right ()) -> exitEdhSTM pgs exit nil
-        -- previously eos due to error
+        -- previously eol due to error
         Left (Left ex) -> toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
         -- got next command incoming
         Right (CommCmd !dir !src) -> case dir of
@@ -58,14 +58,14 @@ readPeerCommand (Peer !ident !eos !ho !po) !exit = ask >>= \pgs ->
                     else contEdhSTM $ edhValueReprSTM pgs exv $ \exr -> do
                       -- send peer the error details
                       po $ CommCmd "err" exr
-                      -- mark eos with this error
+                      -- mark eol with this error
                       fromEdhError pgs exv
-                        $ \e -> void $ tryPutTMVar eos $ Left e
+                        $ \e -> void $ tryPutTMVar eol $ Left e
                       -- rethrow the error
                       runEdhProc pgs rethrow
           "err" -> do
             let !ex = toException $ EdhPeerError ident src
-            void $ tryPutTMVar eos $ Left ex
+            void $ tryPutTMVar eol $ Left ex
             toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
 
           -- TODO ways to direct to manifested event sinks
@@ -73,7 +73,7 @@ readPeerCommand (Peer !ident !eos !ho !po) !exit = ask >>= \pgs ->
           _ ->
             createEdhError pgs UsageError ("invalid packet directive: " <> dir)
               $ \exv ex -> do
-                  void $ tryPutTMVar eos $ Left $ toException ex
+                  void $ tryPutTMVar eol $ Left $ toException ex
                   edhThrowSTM pgs exv
 
 

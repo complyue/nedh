@@ -5,6 +5,8 @@
 
 # `peer` should have been implanted by host module preparation
 
+console.info<| 'Demo peer connected - ' ++ peer
+
 peer.postCommand( repr("Hello, " ++ peer) )
 
 while true {
