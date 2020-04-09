@@ -1,0 +1,20 @@
+
+{#
+ # a demo service
+ #}
+
+# `peer` should have been implanted by host module preparation
+
+peer.postCommand( repr("Hello, " ++ peer) )
+
+while true {
+  case peer.readCommand() of {
+    nil -> { break }  # end-of-stream
+    { cmdVal } -> {
+      console.debug<| 'Got cmd ' ++ cmdVal ++ ' from ' ++ peer
+
+      # serving as a simple expression evaluator, post the result back
+      peer.postCommand( repr(cmdVal) )
+    }
+  }
+}

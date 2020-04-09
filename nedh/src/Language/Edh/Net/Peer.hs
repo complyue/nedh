@@ -12,6 +12,8 @@ import           Control.Concurrent.STM
 import           Data.Hashable
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
+import qualified Data.HashMap.Strict           as Map
+import           Data.Dynamic
 
 import           Language.Edh.EHI
 
@@ -65,9 +67,113 @@ readPeerCommand (Peer !ident !eos !ho !po) !exit = ask >>= \pgs ->
             let !ex = toException $ EdhPeerError ident src
             void $ tryPutTMVar eos $ Left ex
             toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
+
+          -- TODO ways to direct to manifested event sinks
+
           _ ->
             createEdhError pgs UsageError ("invalid packet directive: " <> dir)
               $ \exv ex -> do
                   void $ tryPutTMVar eos $ Left $ toException ex
                   edhThrowSTM pgs exv
+
+
+-- | host constructor Peer()
+peerCtor
+  :: EdhProgState
+  -> ArgsPack  -- ctor args, if __init__() is provided, will go there too
+  -> TVar (Map.HashMap AttrKey EdhValue)  -- out-of-band attr store
+  -> (Dynamic -> STM ())  -- in-band data to be written to entity store
+  -> STM ()
+peerCtor !pgsCtor _ !obs !ctorExit = do
+  let !scope = contextScope $ edh'context pgsCtor
+  methods <- sequence
+    [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+    | (nm, vc, hp, args) <-
+      [ ("readCommand", EdhMethod, readPeerCmdProc, PackReceiver [])
+      , ( "postCommand"
+        , EdhMethod
+        , postPeerCmdProc
+        , PackReceiver
+          [ RecvArg "cmd" Nothing Nothing
+          , RecvArg "dir" Nothing $ Just $ LitExpr $ StringLiteral ""
+          ]
+        )
+      , ("__repr__", EdhMethod, reprProc, PackReceiver [])
+      ]
+    ]
+  modifyTVar' obs $ Map.union $ Map.fromList methods
+  -- not really constructable from Edh code, relies on host code to fill
+  -- the in-band storage
+  ctorExit $ toDyn nil
+
+ where
+
+  readPeerCmdProc :: EdhProcedure
+  readPeerCmdProc _ !exit = do
+    pgs <- ask
+    let this = thisObject $ contextScope $ edh'context pgs
+        es   = entity'store $ objEntity this
+    contEdhSTM $ do
+      esd <- readTVar es
+      case fromDynamic esd of
+        Nothing ->
+          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+            (show esd)
+        Just (peer :: Peer) -> runEdhProc pgs $ readPeerCommand peer exit
+
+  postPeerCmdProc :: EdhProcedure
+  postPeerCmdProc !apk !exit =
+    case parseArgsPack (Nothing, "") parseArgs apk of
+      Left  err             -> throwEdh UsageError err
+      Right (Nothing , _  ) -> throwEdh UsageError "missing cmd"
+      Right (Just cmd, dir) -> do
+        pgs <- ask
+        let this = thisObject $ contextScope $ edh'context pgs
+            es   = entity'store $ objEntity this
+        contEdhSTM $ do
+          esd <- readTVar es
+          case fromDynamic esd of
+            Nothing ->
+              throwEdhSTM pgs UsageError
+                $  "bug: this is not a peer : "
+                <> T.pack (show esd)
+            Just (peer :: Peer) -> do
+              postPeerCommand peer $ CommCmd dir cmd
+              exitEdhSTM pgs exit nil
+   where
+    parseArgs =
+      ArgsPackParser
+          [ \arg (_, dir') -> case arg of
+            EdhString cmd -> Right (Just cmd, dir')
+            _             -> Left "Invalid cmd"
+          , \arg (cmd', _) -> case arg of
+            EdhString dir -> Right (cmd', dir)
+            _             -> Left "Invalid dir"
+          ]
+        $ Map.fromList
+            [ ( "cmd"
+              , \arg (_, dir') -> case arg of
+                EdhString cmd -> Right (Just cmd, dir')
+                _             -> Left "Invalid cmd"
+              )
+            , ( "dir"
+              , \arg (cmd', _) -> case arg of
+                EdhString dir -> Right (cmd', dir)
+                _             -> Left "Invalid dir"
+              )
+            ]
+
+  reprProc :: EdhProcedure
+  reprProc _ !exit = do
+    pgs <- ask
+    let this = thisObject $ contextScope $ edh'context pgs
+        es   = entity'store $ objEntity this
+    contEdhSTM $ do
+      esd <- readTVar es
+      case fromDynamic esd of
+        Nothing ->
+          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+            (show esd)
+        Just (peer :: Peer) ->
+          exitEdhSTM pgs exit $ EdhString $ "peer:" <> peer'ident peer
 

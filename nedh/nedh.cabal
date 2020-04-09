@@ -30,13 +30,23 @@ library
     ghc-options: -Wall
     build-depends:
         nedh-internal -any,
+        edh -any,
+        lossless-decimal -any,
         base >=4.12,
         stm >=2.5,
+        scientific -any,
+        binary -any,
+        hashable -any,
+        unordered-containers -any,
+        containers -any,
+        unix -any,
+        time -any,
+        clock -any,
+        network -any,
         text -any,
         bytestring -any,
         mtl -any,
-        transformers -any,
-        edh -any
+        transformers -any
 
 executable nedh
     main-is: Main.hs
@@ -49,14 +59,14 @@ executable nedh
     ghc-options: -Wall -threaded
     build-depends:
         nedh -any,
+        edh -any,
+        lossless-decimal -any,
         base >=4.12,
         stm >=2.5,
         text -any,
         bytestring -any,
         mtl -any,
-        transformers -any,
-        edh -any,
-        lossless-decimal -any
+        transformers -any
 
 library nedh-internal
     exposed-modules:
@@ -69,10 +79,10 @@ library nedh-internal
                         BangPatterns TupleSections ScopedTypeVariables
     ghc-options: -Wall
     build-depends:
-        base >=4.12,
-        stm >=2.5,
         edh -any,
         lossless-decimal -any,
+        base >=4.12,
+        stm >=2.5,
         scientific -any,
         binary -any,
         hashable -any,

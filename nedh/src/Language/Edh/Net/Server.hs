@@ -14,6 +14,7 @@ import           Control.Concurrent.STM
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import           Data.Text.Encoding
+import           Data.Dynamic
 
 import           Network.Socket
 
@@ -23,8 +24,12 @@ import           Language.Edh.Net.MicroProto
 import           Language.Edh.Net.Peer
 
 
-servEdhClients :: Context -> Text -> Int -> (Peer -> EdhProc) -> IO ()
-servEdhClients !ctx !servAddr !servPort !service = do
+type ServingAddr = Text
+type ServingPort = Int
+
+servEdhClients
+  :: EdhWorld -> Class -> ServingAddr -> ServingPort -> FilePath -> IO ()
+servEdhClients !world !peerClass !servAddr !servPort !serviceModu = do
   addr <- resolveServAddr
   bracket (open addr) close acceptClients
  where
@@ -71,10 +76,19 @@ servEdhClients !ctx !servAddr !servPort !service = do
                      , peer'hosting    = ho
                      , postPeerCommand = po
                      }
+        prepService :: EdhModulePreparation
+        prepService !pgs !exit =
+          runEdhProc pgs
+            $ createEdhObject peerClass (ArgsPack [] mempty)
+            $ \(OriginalValue ov _ _) -> case ov of
+                EdhObject peerObj -> contEdhSTM $ do
+                  writeTVar (entity'store $ objEntity peerObj) $ toDyn peer
+                  exit
+                _ -> error "bug: createEdhObject returned non-object"
 
     void
       -- start another Edh program to serve this client
-      $ forkFinally (runEdhProgram' ctx $ service peer)
+      $ forkFinally (runEdhModule' world serviceModu prepService)
       $ \case
           -- mark eos with the error occurred
           Left  e -> atomically $ void $ tryPutTMVar eos $ Left e
