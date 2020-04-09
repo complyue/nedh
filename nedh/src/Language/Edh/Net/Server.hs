@@ -239,9 +239,10 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
 
     servClient :: TMVar (Either SomeException ()) -> String -> Handle -> IO ()
     servClient !eol !clientId !hndl = do
-      pktSink <- newEmptyTMVarIO
-      poq     <- newTQueueIO
+      pktSink  <- newEmptyTMVarIO
+      poq      <- newTQueueIO
 
+      peerSlot <- newEmptyTMVarIO
       let
         ho :: STM CommCmd
         ho = do
@@ -262,9 +263,10 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
             $ \(OriginalValue !ov _ _) -> case ov of
                 EdhObject !peerObj -> contEdhSTM $ do
                   writeTVar (entity'store $ objEntity peerObj) $ toDyn peer
-                  modifyTVar' clientsDS
-                    $ setDictItem (EdhString $ peer'ident peer)
-                    $ EdhObject peerObj
+                  void $ tryPutTMVar peerSlot $ EdhObject peerObj
+                  modifyTVar' clientsDS $ setDictItem
+                    (EdhObject peerObj)
+                    (EdhString $ peer'ident peer)
                   if __serv_init__ == nil
                     then exit
                     else
@@ -281,11 +283,13 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       void
         -- run the service module as another program
         $ forkFinally (runEdhModule' world (T.unpack servModu) prepService)
-        $ \case
-            -- mark eol with the error occurred
-            Left  e -> atomically $ void $ tryPutTMVar eol $ Left e
-            -- mark normal eol
-            Right _ -> atomically $ void $ tryPutTMVar eol $ Right ()
+        $ \result -> atomically $ do
+            tryReadTMVar peerSlot >>= \case
+              Nothing -> pure ()
+              Just !peerVal -> -- remove the peer object from client dict
+                void $ modifyTVar' clientsDS $ setDictItem peerVal nil
+            -- mark client end-of-life with the result anyway
+            void $ tryPutTMVar eol $ void result
 
       let
         serializeCmdsOut :: IO ()

@@ -42,7 +42,7 @@ readPeerCommand (Peer !ident !eol !ho !po) !exit = ask >>= \pgs ->
         (atomically $ (Right <$> ho) `orElse` (Left <$> readTMVar eol))
     $ \case
         -- reached normal end-of-stream
-        Left (Right ()) -> exitEdhSTM pgs exit nil
+        Left (Right _) -> exitEdhSTM pgs exit nil
         -- previously eol due to error
         Left (Left ex) -> toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
         -- got next command incoming
