@@ -23,7 +23,7 @@ import * 'net'
 
   # here we use case-of + wild capture pattern to avoid the
   # transaction imposed by assignment, that's to say:
-  #   s = Server ()
+  #   server = Server ()
   # won't work as the assignment transaction will prevent the
   # necessary IO action to be performed during construction of
   # the server instance.
@@ -45,10 +45,10 @@ import * 'net'
     # wait eol of the client, but catch any exception,
     # so as not to crash the whole serving program.
     peer.join() $=> { exc } -> {
-      console.print( 'Demo client ' ++ peer ++ 
-        ' caused some trouble: ' ++ exc )
+      console.warn<| 'Demo client ' ++ peer ++ 
+        ' caused some trouble: ' ++ exc
     }
-    console.print( 'Demo client disconnected - ' ++ peer )
+    console.info<| 'Demo client disconnected - ' ++ peer
   }
 
   for peer from serveClients(
@@ -57,7 +57,7 @@ import * 'net'
     3721,                # local port to bind
     init=__serv_init__,  # per-client service module initialization
   ) do {
-    console.print( 'Tracking demo client - ' ++ peer )
+    console.info<| 'Tracking demo client - ' ++ peer
 
     peer.postCommand(repr( `Note you are tracked, ` ++ peer ))
 
@@ -66,5 +66,5 @@ import * 'net'
     go trackClientLife( peer )
   }
 
-  console.print('Server done.', result=server.eol())
+  console.print( 'Server done.', result=server.eol(), )
 }

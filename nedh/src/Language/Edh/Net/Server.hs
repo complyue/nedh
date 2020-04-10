@@ -170,7 +170,7 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       esd <- readTVar es
       case fromDynamic esd :: Maybe EdhServer of
         Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+          throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
             (show esd)
         Just !server ->
           edhPerformIO pgs (atomically $ readTMVar (edh'serving'addrs server))
@@ -180,6 +180,7 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
                   $   EdhString
                   .   T.pack
                   .   show
+                  .   addrAddress
                   <$> addrs
 
   eolProc :: EdhProcedure
@@ -192,7 +193,7 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       esd <- readTVar es
       case fromDynamic esd :: Maybe EdhServer of
         Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+          throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
             (show esd)
         Just !server -> tryReadTMVar (edh'service'eol server) >>= \case
           Nothing         -> exitEdhSTM pgs exit $ EdhBool False
@@ -209,7 +210,7 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       esd <- readTVar es
       case fromDynamic esd :: Maybe EdhServer of
         Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+          throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
             (show esd)
         Just !server ->
           edhPerformIO pgs (atomically $ readTMVar (edh'service'eol server))
@@ -227,7 +228,7 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       esd <- readTVar es
       case fromDynamic esd :: Maybe EdhServer of
         Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+          throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
             (show esd)
         Just !server -> do
           stopped <- tryPutTMVar (edh'service'eol server) $ Right ()

@@ -1,1 +1,59 @@
 
+import * 'net'
+
+{
+
+  method ack(msg) {
+    console.print( 'Message from the service: ' ++ msg )
+  }
+
+  # a consumer initialization method can be used to inject
+  # artifacts into a server facing consumer module after it is
+  # instantiated but before running. such a consumer module can
+  # obtain globally shared resources by vanilla importing, but
+  # for private resources prepared without global visibility,
+  # injection is the only way to pass them on to there.
+
+  method __cnsmr_init__() {
+    # implant the `ack()` procedure to the consumer module
+    that.ack = ack
+  }
+
+}
+
+  # here we use case-of + wild capture pattern to avoid the
+  # transaction imposed by assignment, that's to say:
+  #   client = Client ()
+  # won't work as the assignment transaction will prevent the
+  # necessary IO action to be performed during construction of
+  # the client instance.
+
+{
+
+  case Client(
+    'net/demo/cli',      # the consumer module
+    '127.0.0.1',         # remote addr to connect
+    3721,                # remote port to connect
+    init=__cnsmr_init__, # per-client consumer module initialization
+  ) of { client } -> {
+    this.client = client
+  }
+
+  case client.addrs() of { addrs } ->
+    console.info<| 'Connected to demo service at: ' ++ addrs
+
+  client.join() $=> { exc } -> {
+    console.info<| 'Demo service caused some trouble: ' ++ exc
+  }
+
+  console.info<| 'Disconnected from demo service.'
+
+}
+
+expr 3*7
+
+wait
+
+quit
+
+quit

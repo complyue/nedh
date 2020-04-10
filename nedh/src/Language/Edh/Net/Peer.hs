@@ -101,7 +101,8 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
           , RecvArg "dir" Nothing $ Just $ LitExpr $ StringLiteral ""
           ]
         )
-      , ("__repr__", EdhMethod, reprProc, PackReceiver [])
+      , ("ident"   , EdhMethod, identProc, PackReceiver [])
+      , ("__repr__", EdhMethod, reprProc , PackReceiver [])
       ]
     ]
   modifyTVar' obs $ Map.union $ Map.fromList methods
@@ -220,6 +221,20 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
               )
             ]
 
+  identProc :: EdhProcedure
+  identProc _ !exit = do
+    pgs <- ask
+    let this = thisObject $ contextScope $ edh'context pgs
+        es   = entity'store $ objEntity this
+    contEdhSTM $ do
+      esd <- readTVar es
+      case fromDynamic esd of
+        Nothing ->
+          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+            (show esd)
+        Just (peer :: Peer) ->
+          exitEdhSTM pgs exit $ EdhString $ edh'peer'ident peer
+
   reprProc :: EdhProcedure
   reprProc _ !exit = do
     pgs <- ask
@@ -232,5 +247,9 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
           throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
             (show esd)
         Just (peer :: Peer) ->
-          exitEdhSTM pgs exit $ EdhString $ "peer:" <> edh'peer'ident peer
+          exitEdhSTM pgs exit
+            $  EdhString
+            $  "peer:<"
+            <> edh'peer'ident peer
+            <> ">"
 

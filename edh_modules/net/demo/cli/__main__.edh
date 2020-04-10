@@ -1,6 +1,70 @@
 
 {#
  # this is the CLI (command line interface) module for nedh demo client
+ # 
+ # this module is instantiated and run per client connection.
+ #
+ # a `{ net.Peer: peer }` object is guaranteed to have been
+ # implanted by per-client host module preparation.
+ #
+ # none or more of other artifacts may have been implanted as well,
+ # according to the per-client consumer module initialization method
+ # (e.g. __cnsmr_init__) specified on construction of the very
+      net.Client( 'net/demo/cli', ..., init=__cnsmr_init__, )
+ # instance.
  #}
 
+console.info<| 'Consuming demo service via ' ++ peer
 
+
+# the demo service will echo this back
+peer.postCommand( repr("Good day, " ++ peer) )
+
+
+# land commands from the service asynchronously, this will never
+# obstruct the flow of incoming commands
+go {
+  defer {
+    console.info<| 'No more commands from demo service - ' ++ peer
+  }
+  { while true {
+    case peer.readCommand() of {
+      nil -> { break }  # end-of-stream from service
+      { cmdVal } -> {
+        console.info<| 'Got cmd ' ++ cmdVal ++ ' from service ' ++ peer
+      }
+    }
+  } } $=> { exc } -> {
+    console.warn<| 'Demo service ' ++ peer ++ ' error: ' ++ exc
+  }
+}
+
+
+# define commands can be used at local console
+wait := Command()
+
+
+# show peer's identity as part of the console prompt
+ps1 = '<'++peer.ident()++'> Đ: '
+
+# pump commands from the console to the service
+while true {
+  case console.readCommand(ps1=ps1) of {
+    wait -> {
+      # wait a second, e.g. to see some async cmd back from service
+      for _ from console.everySeconds(1) do { break }
+    }
+
+    nil -> { break }  # end-of-stream from stdin
+    batteries.quit -> { break }
+
+    { cmdVal } -> {
+      console.info<| 'Posting cmd to service: ' ++ cmdVal
+      peer.postCommand( cmdVal )
+    }
+
+  }
+}
+
+
+console.info<| 'Done with demo service - ' ++ peer

@@ -40,6 +40,8 @@ data EdhClient = EdhClient {
     , edh'service'addr :: !ServiceAddr
     -- local network port to bind
     , edh'service'port :: !ServicePort
+    -- actually connected network addresses
+    , edh'service'addrs :: !(TMVar [AddrInfo])
     -- end-of-life status
     , edh'consumer'eol :: !(TMVar (Either SomeException ()))
     -- consumer module initializer, must callable if not nil
@@ -66,10 +68,12 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       Right (Nothing, _, _, _) ->
         throwEdhSTM pgsCtor UsageError "missing consumer module"
       Right (Just consumer, addr, port, __cnsmr_init__) -> do
-        cnsmrEoL <- newEmptyTMVar
+        serviceAddrs <- newEmptyTMVar
+        cnsmrEoL     <- newEmptyTMVar
         let !client = EdhClient { edh'consumer'modu = consumer
                                 , edh'service'addr  = addr
                                 , edh'service'port  = port
+                                , edh'service'addrs = serviceAddrs
                                 , edh'consumer'eol  = cnsmrEoL
                                 , edh'consumer'init = __cnsmr_init__
                                 }
@@ -77,9 +81,10 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
         methods <- sequence
           [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
           | (nm, vc, hp, args) <-
-            [ ("eol" , EdhMethod, eolProc , PackReceiver [])
-            , ("join", EdhMethod, joinProc, PackReceiver [])
-            , ("stop", EdhMethod, stopProc, PackReceiver [])
+            [ ("addrs", EdhMethod, addrsProc, PackReceiver [])
+            , ("eol"  , EdhMethod, eolProc  , PackReceiver [])
+            , ("join" , EdhMethod, joinProc , PackReceiver [])
+            , ("stop" , EdhMethod, stopProc , PackReceiver [])
             ]
           ]
         modifyTVar' obs
@@ -99,9 +104,15 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
              ]
         edhPerformIO
             pgsCtor
-            (forkFinally (consumerThread client)
-                          -- mark consumer end-of-life anyway after
-                         (atomically . void . tryPutTMVar cnsmrEoL)
+            (forkFinally
+              (consumerThread client)
+              ( void
+              . atomically
+                -- fill empty addrs if the connection has ever failed
+              . (tryPutTMVar serviceAddrs [] <*)
+                -- mark consumer end-of-life anyway finally
+              . tryPutTMVar cnsmrEoL
+              )
             )
           $ \_ -> ctorExit $ toDyn client
  where
@@ -141,6 +152,29 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
             )
           ]
 
+  addrsProc :: EdhProcedure
+  addrsProc _ !exit = do
+    pgs <- ask
+    let ctx  = edh'context pgs
+        this = thisObject $ contextScope ctx
+        es   = entity'store $ objEntity this
+    contEdhSTM $ do
+      esd <- readTVar es
+      case fromDynamic esd :: Maybe EdhClient of
+        Nothing ->
+          throwEdhSTM pgs UsageError $ "bug: this is not a client : " <> T.pack
+            (show esd)
+        Just !client ->
+          edhPerformIO pgs (atomically $ readTMVar (edh'service'addrs client))
+            $ \addrs ->
+                exitEdhSTM pgs exit
+                  $   EdhTuple
+                  $   EdhString
+                  .   T.pack
+                  .   show
+                  .   addrAddress
+                  <$> addrs
+
   eolProc :: EdhProcedure
   eolProc _ !exit = do
     pgs <- ask
@@ -151,7 +185,7 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       esd <- readTVar es
       case fromDynamic esd :: Maybe EdhClient of
         Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+          throwEdhSTM pgs UsageError $ "bug: this is not a client : " <> T.pack
             (show esd)
         Just !client -> tryReadTMVar (edh'consumer'eol client) >>= \case
           Nothing         -> exitEdhSTM pgs exit $ EdhBool False
@@ -168,7 +202,7 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       esd <- readTVar es
       case fromDynamic esd :: Maybe EdhClient of
         Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+          throwEdhSTM pgs UsageError $ "bug: this is not a client : " <> T.pack
             (show esd)
         Just !client ->
           edhPerformIO pgs (atomically $ readTMVar (edh'consumer'eol client))
@@ -186,7 +220,7 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       esd <- readTVar es
       case fromDynamic esd :: Maybe EdhClient of
         Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+          throwEdhSTM pgs UsageError $ "bug: this is not a client : " <> T.pack
             (show esd)
         Just !client -> do
           stopped <- tryPutTMVar (edh'consumer'eol client) $ Right ()
@@ -194,16 +228,28 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
 
 
   consumerThread :: EdhClient -> IO ()
-  consumerThread (EdhClient !cnsmrModu !servAddr !servPort !cnsmrEoL !__cnsmr_init__)
-    = undefined
-{-
+  consumerThread (EdhClient !cnsmrModu !servAddr !servPort !serviceAddrs !cnsmrEoL !__cnsmr_init__)
     = do
       servThId <- myThreadId
-      void $ forkIO $ do -- async terminate the accepter thread on stop signal
+      void $ forkIO $ do -- async terminate the recv thread on stop signal
         _ <- atomically $ readTMVar cnsmrEoL
         killThread servThId
       addr <- resolveServAddr
-      bracket (open addr) close acceptClients
+      sock <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
+      -- TODO prevent leakage of this `sock` on errors before `cnsmService`,
+      --      note after it's converted to a handle, direct close may crash.
+      connect sock $ addrAddress addr
+      atomically
+        $   fromMaybe []
+        <$> tryTakeTMVar serviceAddrs
+        >>= putTMVar serviceAddrs
+        .   (addr :)
+      hndl <- socketToHandle sock ReadWriteMode
+      try (cnsmService (T.pack $ show $ addrAddress addr) hndl)
+        >>= (hClose hndl <*) -- close the socket anyway after the thread done
+        .   atomically
+        .   tryPutTMVar cnsmrEoL
+
    where
     ctx             = edh'context pgsCtor
     world           = contextWorld ctx
@@ -215,33 +261,9 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
                               (Just $ T.unpack servAddr)
                               (Just (show servPort))
       return addr
-    open addr = do
-      sock <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
-      setSocketOption sock ReuseAddr 1
-      bind sock (addrAddress addr)
-      listen sock 30 -- todo make this tunable ?
-      atomically
-        $   fromMaybe []
-        <$> tryTakeTMVar servAddrs
-        >>= putTMVar servAddrs
-        .   (addr :)
-      return sock
-    acceptClients :: Socket -> IO ()
-    acceptClients sock = do
-      (conn, addr) <- accept sock
 
-      hndl         <- socketToHandle conn ReadWriteMode
-      clientEoL    <- newEmptyTMVarIO
-      void
-        $ forkFinally (servClient clientEoL (T.pack $ show addr) hndl)
-        $ (hClose hndl <*) -- close the socket anyway after the thread done
-        . atomically
-        . tryPutTMVar clientEoL
-
-      acceptClients sock -- tail recursion
-
-    servClient :: TMVar (Either SomeException ()) -> Text -> Handle -> IO ()
-    servClient !clientEoL !clientId !hndl = do
+    cnsmService :: Text -> Handle -> IO ()
+    cnsmService !clientId !hndl = do
       pktSink <- newEmptyTMVarIO
       poq     <- newTQueueIO
 
@@ -255,12 +277,12 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
         po    = writeTQueue poq
 
         !peer = Peer { edh'peer'ident   = clientId
-                     , edh'peer'eol     = clientEoL
+                     , edh'peer'eol     = cnsmrEoL
                      , edh'peer'hosting = ho
                      , postPeerCommand  = po
                      }
-        prepService :: EdhModulePreparation
-        prepService !pgs !exit = do
+        prepConsumer :: EdhModulePreparation
+        prepConsumer !pgs !exit = do
           let !modu = thisObject $ contextScope $ edh'context pgs
           runEdhProc pgs
             $ createEdhObject peerClass (ArgsPack [] mempty)
@@ -273,14 +295,12 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
                                    (objEntity modu)
                                    (AttrByName "peer")
                                    peerVal
-                  -- announce this new peer to the event sink
-                  publishEvent clients peerVal
-                  -- insert a tick here, for Service to start in next stm tx
+                  -- insert a tick here, for Consumer to start in next stm tx
                   flip (exitEdhSTM pgs) nil $ \_ ->
                     contEdhSTM $ if __cnsmr_init__ == nil
                       then exit
-              -- call the per-client service module initialization method,
-              -- with the module object as `that`
+                      -- call the consumer module initialization method,
+                      -- with the module object as `that`
                       else
                         edhMakeCall
                             pgs
@@ -292,20 +312,19 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
                 _ -> error "bug: Peer ctor returned non-object"
 
       void
-        -- run the service module as another program
-        $ forkFinally (runEdhModule' world (T.unpack servModu) prepService)
+        -- run the consumer module as another program
+        $ forkFinally (runEdhModule' world (T.unpack cnsmrModu) prepConsumer)
         -- mark client end-of-life with the result anyway
         $ void
         . atomically
-        . tryPutTMVar clientEoL
+        . tryPutTMVar cnsmrEoL
         . void
 
       let
         serializeCmdsOut :: IO ()
         serializeCmdsOut =
           atomically
-              (        (Right <$> readTQueue poq)
-              `orElse` (Left <$> readTMVar clientEoL)
+              ((Right <$> readTQueue poq) `orElse` (Left <$> readTMVar cnsmrEoL)
               )
             >>= \case
                   Left _ -> return () -- stop on eol any way
@@ -315,7 +334,7 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
                         >> serializeCmdsOut
                         )
                       $ \(e :: SomeException) -> -- mark eol on error
-                          atomically $ void $ tryPutTMVar clientEoL $ Left e
+                          atomically $ void $ tryPutTMVar cnsmrEoL $ Left e
       -- pump commands out,
       -- make this thread the only one writing the handle
       void $ forkIO serializeCmdsOut
@@ -323,5 +342,5 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       -- pump commands in, 
       -- make this thread the only one reading the handle
       -- note this won't return, will be asynchronously killed on eol
-      receivePacketStream clientId hndl pktSink clientEoL
--}
+      receivePacketStream clientId hndl pktSink cnsmrEoL
+
