@@ -52,7 +52,7 @@ import * 'net'
   }
 
   for peer from serveClients(
-    'net/demo',          # the service module
+    'net/demo/service',  # the service module
     '127.0.0.1',         # local addr to bind
     3721,                # local port to bind
     init=__serv_init__,  # per-client service module initialization

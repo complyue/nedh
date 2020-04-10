@@ -176,40 +176,43 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
         Just (peer :: Peer) -> runEdhProc pgs $ readPeerCommand peer exit
 
   postPeerCmdProc :: EdhProcedure
-  postPeerCmdProc !apk !exit =
+  postPeerCmdProc !apk !exit = do
+    pgs <- ask
+    let
+      this = thisObject $ contextScope $ edh'context pgs
+      es   = entity'store $ objEntity this
+      postCmd :: Text -> Text -> STM ()
+      postCmd !cmd !dir = do
+        esd <- readTVar es
+        case fromDynamic esd of
+          Nothing ->
+            throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+              (show esd)
+          Just (peer :: Peer) -> do
+            postPeerCommand peer $ CommCmd dir cmd
+            exitEdhSTM pgs exit nil
     case parseArgsPack (Nothing, "") parseArgs apk of
       Left  err             -> throwEdh UsageError err
-      Right (Nothing , _  ) -> throwEdh UsageError "missing cmd"
-      Right (Just cmd, dir) -> do
-        pgs <- ask
-        let this = thisObject $ contextScope $ edh'context pgs
-            es   = entity'store $ objEntity this
-        contEdhSTM $ do
-          esd <- readTVar es
-          case fromDynamic esd of
-            Nothing ->
-              throwEdhSTM pgs UsageError
-                $  "bug: this is not a peer : "
-                <> T.pack (show esd)
-            Just (peer :: Peer) -> do
-              postPeerCommand peer $ CommCmd dir cmd
-              exitEdhSTM pgs exit nil
+      Right (maybeCmd, dir) -> case maybeCmd of
+        Nothing                -> throwEdh UsageError "missing command"
+        Just (EdhString src  ) -> contEdhSTM $ postCmd src dir
+        Just (EdhExpr _ _ src) -> if src == ""
+          then throwEdh UsageError "missing source for the expr as command"
+          else contEdhSTM $ postCmd src dir
+        -- TODO support interpolated expr etc.
+        Just cmdVal ->
+          throwEdh UsageError $ "Unsupported command type: " <> T.pack
+            (edhTypeNameOf cmdVal)
    where
     parseArgs =
       ArgsPackParser
-          [ \arg (_, dir') -> case arg of
-            EdhString cmd -> Right (Just cmd, dir')
-            _             -> Left "Invalid cmd"
+          [ \arg (_, dir') -> Right (Just arg, dir')
           , \arg (cmd', _) -> case arg of
             EdhString dir -> Right (cmd', dir)
             _             -> Left "Invalid dir"
           ]
         $ Map.fromList
-            [ ( "cmd"
-              , \arg (_, dir') -> case arg of
-                EdhString cmd -> Right (Just cmd, dir')
-                _             -> Left "Invalid cmd"
-              )
+            [ ("cmd", \arg (_, dir') -> Right (Just arg, dir'))
             , ( "dir"
               , \arg (cmd', _) -> case arg of
                 EdhString dir -> Right (cmd', dir)

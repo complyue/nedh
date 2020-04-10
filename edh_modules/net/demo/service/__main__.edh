@@ -1,6 +1,6 @@
 
 {#
- # the client-facing module for nedh demo service
+ # this is the client-facing module for nedh demo service
  # 
  # this module is instantiated and run per client connection.
  #
@@ -10,7 +10,7 @@
  # none or more of other artifacts may have been implanted as well,
  # according to the per-client service module initialization method
  # (e.g. __serv_init__) specified on construction of the very
-      net.Server( 'net/demo', ..., init=__serv_init__, )
+      net.Server( 'net/demo/service', ..., init=__serv_init__, )
  # instance.
  #
  #}

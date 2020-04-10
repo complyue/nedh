@@ -2,7 +2,7 @@
 import * 'net'
 
 {
-  case Server( 'net/demo' ) of { server } -> {
+  case Server( 'net/demo/service' ) of { server } -> {
     case server.addrs() of { addrs } ->
       console.print( 'Demo service listening: ' ++ addrs )
     server.join()
