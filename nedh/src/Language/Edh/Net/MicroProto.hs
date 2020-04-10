@@ -8,12 +8,15 @@ import           System.IO
 
 import           Control.Exception
 import           Control.Monad.Reader
+import           Control.Concurrent
 import           Control.Concurrent.STM
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Char8         as C
 import           Data.Text
 import qualified Data.Text                     as T
 import           Data.Text.Encoding
+
+import           Language.Edh.EHI
 
 
 maxHeaderLength :: Int
@@ -27,12 +30,13 @@ type EndOfStream = TMVar (Either SomeException ())
 
 
 -- | Send out a binary packet.
-sendPacket :: Handle -> PacketDirective -> PacketPayload -> IO ()
-sendPacket !outletHndl !dir !payload = do
+sendPacket :: Text -> Handle -> PacketDirective -> PacketPayload -> IO ()
+sendPacket peerSite !outletHndl !dir !payload = do
   let !pktLen = B.length payload
       !pktHdr = encodeUtf8 $ T.pack ("[" <> show pktLen <> "#") <> dir <> "]"
-  when (B.length pktHdr > maxHeaderLength) $ throwIO $ userError
-    "packet header too long"
+  when (B.length pktHdr > maxHeaderLength) $ throwIO $ EdhPeerError
+    peerSite
+    "sending out long packet header"
   -- write packet header
   B.hPut outletHndl pktHdr
   -- write packet payload
@@ -40,8 +44,11 @@ sendPacket !outletHndl !dir !payload = do
 
 
 -- | Send out a textual packet.
-sendTextPacket :: Handle -> PacketDirective -> Text -> IO ()
-sendTextPacket !outletHndl !dir !txt = sendPacket outletHndl dir payload
+sendTextPacket :: Text -> Handle -> PacketDirective -> Text -> IO ()
+sendTextPacket peerSite !outletHndl !dir !txt = sendPacket peerSite
+                                                           outletHndl
+                                                           dir
+                                                           payload
  where
   payload = encodeUtf8 $ finishLine $ onSepLine txt
   onSepLine :: Text -> Text
@@ -61,12 +68,14 @@ sendTextPacket !outletHndl !dir !txt = sendPacket outletHndl dir payload
 -- packets away too quickly.
 --
 -- The caller is responsible to close the handle anyway.
-receivePacketStream :: Handle -> PacketSink -> EndOfStream -> IO ()
-receivePacketStream !intakeHndl !pktSink !eos =
-  catch (parsePkts B.empty) $ \(e :: SomeException) -> do
-    -- mark end-of-stream with the error occurred
-    void $ atomically $ tryPutTMVar eos $ Left e
-    throwIO e -- re-throw the exception
+receivePacketStream :: Text -> Handle -> PacketSink -> EndOfStream -> IO ()
+receivePacketStream peerSite !intakeHndl !pktSink !eos = do
+  recvThId <- myThreadId -- async kill the receiving action on eos
+  void $ forkIO $ atomically (readTMVar eos) >> killThread recvThId
+  catch (parsePkts B.empty)
+    -- mark end-of-stream with the error occurred, and done
+    -- TODO some important errors not suitable to be swallowed here ?
+    $ \(e :: SomeException) -> void $ atomically $ tryPutTMVar eos $ Left e
  where
 
   parsePkts :: B.ByteString -> IO ()
@@ -108,8 +117,9 @@ receivePacketStream !intakeHndl !pktSink !eos =
     if B.null peeked
       then return (-1, "eos", B.empty)
       else do
-        unless ("[" `B.isPrefixOf` peeked) $ throwIO $ userError
-          "no packet header as expected"
+        unless ("[" `B.isPrefixOf` peeked) $ throwIO $ EdhPeerError
+          peerSite
+          "missing packet header"
         let (hdrPart, rest) = C.break (== ']') peeked
         if not $ B.null rest
           then do -- got a full packet header
@@ -122,5 +132,6 @@ receivePacketStream !intakeHndl !pktSink !eos =
             then do
               morePeek <- B.hGetSome intakeHndl maxHeaderLength
               parsePktHdr $ readahead <> morePeek
-            else throwIO $ userError "packet header too long"
+            else throwIO
+              $ EdhPeerError peerSite "incoming packet header too long"
 

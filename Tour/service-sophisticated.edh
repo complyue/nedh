@@ -1,0 +1,70 @@
+
+import * 'net'
+
+{
+
+  method calc(m, n) {
+    m * n + 3.14
+  }
+
+  # a service initialization method can be used to inject
+  # artifacts into a client facing service module after it is
+  # instantiated but before running. such a service module can
+  # obtain globally shared resources by vanilla importing, but
+  # for private resources prepared without global visibility,
+  # injection is the only way to pass them on to there.
+
+  method __serv_init__ () {
+    # implant the `calc()` procedure to the service module
+    that.calc = calc
+  }
+
+}
+
+  # here we use case-of + wild capture pattern to avoid the
+  # transaction imposed by assignment, that's to say:
+  #   s = Server ()
+  # won't work as the assignment transaction will prevent the
+  # necessary IO action to be performed during construction of
+  # the server instance.
+
+  # we use a producer procedure here, so as to consume each
+  # connected client without the race condition to miss any one
+  # of them.
+ 
+{
+  producer serveClients(outlet, ***apk) case Server (
+    ***apk,
+    clients=outlet, # do the production of newly connected peers 
+  ) of { server } -> {
+    this.server = server # assign it to the module level
+    console.info<| 'Demo service listening ' ++ server.addrs()
+  }
+
+  method trackClientLife( peer ) {
+    # wait eol of the client, but catch any exception,
+    # so as not to crash the whole serving program.
+    peer.join() $=> { exc } -> {
+      console.print( 'Demo client ' ++ peer ++ 
+        ' caused some trouble: ' ++ exc )
+    }
+    console.print( 'Demo client disconnected - ' ++ peer )
+  }
+
+  for peer from serveClients(
+    'net/demo',          # the service module
+    '127.0.0.1',         # local addr to bind
+    3721,                # local port to bind
+    init=__serv_init__,  # per-client service module initialization
+  ) do {
+    console.print( 'Tracking demo client - ' ++ peer )
+
+    peer.postCommand(repr( `Note you are tracked, ` ++ peer ))
+
+    # `peer` attribute here is repeatedly changed during the loop,
+    # use a separate procedure to track each peer asynchronously
+    go trackClientLife( peer )
+  }
+
+  console.print('Server done.', result=server.eol())
+}

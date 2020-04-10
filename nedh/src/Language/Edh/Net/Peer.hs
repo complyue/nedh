@@ -27,9 +27,9 @@ instance Hashable CommCmd where
 
 
 data Peer = Peer {
-      peer'ident :: !Text
-    , peer'eol :: !(TMVar (Either SomeException ()))
-    , peer'hosting :: !(STM CommCmd)
+      edh'peer'ident :: !Text
+    , edh'peer'eol :: !(TMVar (Either SomeException ()))
+    , edh'peer'hosting :: !(STM CommCmd)
     , postPeerCommand :: !(CommCmd -> STM ())
   }
 
@@ -89,7 +89,10 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
   methods <- sequence
     [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
     | (nm, vc, hp, args) <-
-      [ ("readCommand", EdhMethod, readPeerCmdProc, PackReceiver [])
+      [ ("eol"        , EdhMethod, eolProc        , PackReceiver [])
+      , ("join"       , EdhMethod, joinProc       , PackReceiver [])
+      , ("stop"       , EdhMethod, stopProc       , PackReceiver [])
+      , ("readCommand", EdhMethod, readPeerCmdProc, PackReceiver [])
       , ( "postCommand"
         , EdhMethod
         , postPeerCmdProc
@@ -107,6 +110,57 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
   ctorExit $ toDyn nil
 
  where
+
+  eolProc :: EdhProcedure
+  eolProc _ !exit = do
+    pgs <- ask
+    let ctx  = edh'context pgs
+        this = thisObject $ contextScope ctx
+        es   = entity'store $ objEntity this
+    contEdhSTM $ do
+      esd <- readTVar es
+      case fromDynamic esd :: Maybe Peer of
+        Nothing ->
+          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+            (show esd)
+        Just !peer -> tryReadTMVar (edh'peer'eol peer) >>= \case
+          Nothing         -> exitEdhSTM pgs exit $ EdhBool False
+          Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
+          Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
+
+  joinProc :: EdhProcedure
+  joinProc _ !exit = do
+    pgs <- ask
+    let ctx  = edh'context pgs
+        this = thisObject $ contextScope ctx
+        es   = entity'store $ objEntity this
+    contEdhSTM $ do
+      esd <- readTVar es
+      case fromDynamic esd :: Maybe Peer of
+        Nothing ->
+          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+            (show esd)
+        Just !peer ->
+          edhPerformIO pgs (atomically $ readTMVar (edh'peer'eol peer)) $ \case
+            Left  e  -> toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+            Right () -> exitEdhSTM pgs exit nil
+
+  stopProc :: EdhProcedure
+  stopProc _ !exit = do
+    pgs <- ask
+    let ctx  = edh'context pgs
+        this = thisObject $ contextScope ctx
+        es   = entity'store $ objEntity this
+    contEdhSTM $ do
+      esd <- readTVar es
+      case fromDynamic esd :: Maybe Peer of
+        Nothing ->
+          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+            (show esd)
+        Just !peer -> do
+          stopped <- tryPutTMVar (edh'peer'eol peer) $ Right ()
+          exitEdhSTM pgs exit $ EdhBool stopped
+
 
   readPeerCmdProc :: EdhProcedure
   readPeerCmdProc _ !exit = do
@@ -175,5 +229,5 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
           throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
             (show esd)
         Just (peer :: Peer) ->
-          exitEdhSTM pgs exit $ EdhString $ "peer:" <> peer'ident peer
+          exitEdhSTM pgs exit $ EdhString $ "peer:" <> edh'peer'ident peer
 

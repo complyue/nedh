@@ -4,7 +4,7 @@ module Language.Edh.Net.Server where
 import           Prelude
 -- import           Debug.Trace
 
-import           GHC.Conc                       ( unsafeIOToSTM )
+-- import           GHC.Conc                       ( unsafeIOToSTM )
 
 import           System.IO
 
@@ -15,7 +15,7 @@ import           Control.Concurrent.STM
 
 import           Control.Monad.Reader
 
-import           Data.Unique
+import           Data.Maybe
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import           Data.Text.Encoding
@@ -42,12 +42,14 @@ data EdhServer = EdhServer {
     , edh'service'addr :: !ServingAddr
     -- local network port to bind
     , edh'service'port :: !ServingPort
+    -- actually listened network addresses
+    , edh'service'addrs :: !(TMVar [AddrInfo])
     -- end-of-life status
     , edh'service'eol :: !(TMVar (Either SomeException ()))
     -- service module initializer, must callable if not nil
     , edh'service'init :: !EdhValue
-    -- connected peers by id
-    , edh'service'clients :: !Dict
+    -- each connected peer is sunk into this
+    , edh'service'clients :: !EventSink
   }
 
 
@@ -62,38 +64,40 @@ serverCtor
 serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
   case
       parseArgsPack
-        (Nothing, "127.0.0.1" :: ServingAddr, 3721 :: ServingPort, nil)
+        (Nothing, "127.0.0.1" :: ServingAddr, 3721 :: ServingPort, nil, Nothing)
         parseCtorArgs
         apk
     of
       Left err -> throwEdhSTM pgsCtor UsageError err
-      Right (Nothing, _, _, _) ->
+      Right (Nothing, _, _, _, _) ->
         throwEdhSTM pgsCtor UsageError "missing service module"
-      Right (Just service, addr, port, __serv_init__) -> do
-        eol <- newEmptyTMVar
-        u   <- unsafeIOToSTM newUnique
-        ds  <- newTVar Map.empty
+      Right (Just service, addr, port, __serv_init__, maybeClients) -> do
+        servAddrs <- newEmptyTMVar
+        servEoL   <- newEmptyTMVar
+        clients   <- maybe newEventSink return maybeClients
         let !server = EdhServer { edh'service'modu    = service
                                 , edh'service'addr    = addr
                                 , edh'service'port    = port
-                                , edh'service'eol     = eol
+                                , edh'service'addrs   = servAddrs
+                                , edh'service'eol     = servEoL
                                 , edh'service'init    = __serv_init__
-                                , edh'service'clients = Dict u ds
+                                , edh'service'clients = clients
                                 }
             !scope = contextScope $ edh'context pgsCtor
         methods <- sequence
           [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
           | (nm, vc, hp, args) <-
-            [ ("eol" , EdhMethod, eolProc , PackReceiver [])
-            , ("join", EdhMethod, joinProc, PackReceiver [])
-            , ("stop", EdhMethod, stopProc, PackReceiver [])
+            [ ("addrs", EdhMethod, addrsProc, PackReceiver [])
+            , ("eol"  , EdhMethod, eolProc  , PackReceiver [])
+            , ("join" , EdhMethod, joinProc , PackReceiver [])
+            , ("stop" , EdhMethod, stopProc , PackReceiver [])
             ]
           ]
         modifyTVar' obs
           $  Map.union
           $  Map.fromList
           $  methods
-          ++ [ (AttrByName "clients", EdhDict $ edh'service'clients server)
+          ++ [ (AttrByName "clients", EdhSink clients)
              , ( AttrByName "__repr__"
                , EdhString
                $  "Server("
@@ -107,46 +111,78 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
              ]
         edhPerformIO
             pgsCtor
-            (forkFinally (serviceThread server)
-                         (void . atomically . tryPutTMVar eol)
+            (forkFinally
+              (serviceThread server)
+              -- mark service end-of-life, client sink end-of-stream, anyway after
+              (atomically . (publishEvent clients nil <*) . tryPutTMVar servEoL)
             )
           $ \_ -> ctorExit $ toDyn server
  where
   parseCtorArgs =
     ArgsPackParser
-        [ \arg (_, addr', port', init') -> case arg of
-          EdhString !service -> Right (Just service, addr', port', init')
-          _                  -> Left "Invalid service"
-        , \arg (service', _, port', init') -> case arg of
-          EdhString addr -> Right (service', addr, port', init')
+        [ \arg (_, addr', port', init', clients') -> case arg of
+          EdhString !service ->
+            Right (Just service, addr', port', init', clients')
+          _ -> Left "Invalid service"
+        , \arg (service', _, port', init', clients') -> case arg of
+          EdhString addr -> Right (service', addr, port', init', clients')
           _              -> Left "Invalid addr"
-        , \arg (service', addr', _, init') -> case arg of
+        , \arg (service', addr', _, init', clients') -> case arg of
           EdhDecimal d -> case D.decimalToInteger d of
-            Just port -> Right (service', addr', fromIntegral port, init')
-            Nothing   -> Left "port must be integer"
+            Just port ->
+              Right (service', addr', fromIntegral port, init', clients')
+            Nothing -> Left "port must be integer"
           _ -> Left "Invalid port"
         ]
       $ Map.fromList
           [ ( "addr"
-            , \arg (service', _, port', init') -> case arg of
-              EdhString addr -> Right (service', addr, port', init')
+            , \arg (service', _, port', init', clients') -> case arg of
+              EdhString addr -> Right (service', addr, port', init', clients')
               _              -> Left "Invalid addr"
             )
           , ( "port"
-            , \arg (service', addr', _, init') -> case arg of
+            , \arg (service', addr', _, init', clients') -> case arg of
               EdhDecimal d -> case D.decimalToInteger d of
-                Just port -> Right (service', addr', fromIntegral port, init')
-                Nothing   -> Left "port must be integer"
+                Just port ->
+                  Right (service', addr', fromIntegral port, init', clients')
+                Nothing -> Left "port must be integer"
               _ -> Left "Invalid port"
             )
           , ( "init"
-            , \arg (service', addr', port', _) -> case arg of
-              EdhNil          -> Right (service', addr', port', nil)
-              mth@EdhMethod{} -> Right (service', addr', port', mth)
-              mth@EdhIntrpr{} -> Right (service', addr', port', mth)
+            , \arg (service', addr', port', _, clients') -> case arg of
+              EdhNil          -> Right (service', addr', port', nil, clients')
+              mth@EdhMethod{} -> Right (service', addr', port', mth, clients')
+              mth@EdhIntrpr{} -> Right (service', addr', port', mth, clients')
               _               -> Left "Invalid init"
             )
+          , ( "clients"
+            , \arg (service', addr', port', init', _) -> case arg of
+              EdhSink sink -> Right (service', addr', port', init', Just sink)
+              _            -> Left "Invalid clients"
+            )
           ]
+
+  addrsProc :: EdhProcedure
+  addrsProc _ !exit = do
+    pgs <- ask
+    let ctx  = edh'context pgs
+        this = thisObject $ contextScope ctx
+        es   = entity'store $ objEntity this
+    contEdhSTM $ do
+      esd <- readTVar es
+      case fromDynamic esd :: Maybe EdhServer of
+        Nothing ->
+          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+            (show esd)
+        Just !server ->
+          edhPerformIO pgs (atomically $ readTMVar (edh'service'addrs server))
+            $ \addrs ->
+                exitEdhSTM pgs exit
+                  $   EdhTuple
+                  $   EdhString
+                  .   T.pack
+                  .   show
+                  <$> addrs
 
   eolProc :: EdhProcedure
   eolProc _ !exit = do
@@ -177,9 +213,11 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
         Nothing ->
           throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
             (show esd)
-        Just !server -> readTMVar (edh'service'eol server) >>= \case
-          Left  e  -> toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-          Right () -> exitEdhSTM pgs exit nil
+        Just !server ->
+          edhPerformIO pgs (atomically $ readTMVar (edh'service'eol server))
+            $ \case
+                Left  e  -> toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+                Right () -> exitEdhSTM pgs exit nil
 
   stopProc :: EdhProcedure
   stopProc _ !exit = do
@@ -199,7 +237,7 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
 
 
   serviceThread :: EdhServer -> IO ()
-  serviceThread (EdhServer !servModu !servAddr !servPort !servEoL !__serv_init__ (Dict _ !clientsDS))
+  serviceThread (EdhServer !servModu !servAddr !servPort !servAddrs !servEoL !__serv_init__ !clients)
     = do
       servThId <- myThreadId
       void $ forkIO $ do -- async terminate the accepter thread on stop signal
@@ -222,91 +260,109 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       sock <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
       setSocketOption sock ReuseAddr 1
       bind sock (addrAddress addr)
-      listen sock 30
+      listen sock 30 -- todo make this tunable ?
+      atomically
+        $   fromMaybe []
+        <$> tryTakeTMVar servAddrs
+        >>= putTMVar servAddrs
+        .   (addr :)
       return sock
     acceptClients :: Socket -> IO ()
     acceptClients sock = do
       (conn, addr) <- accept sock
+
       hndl         <- socketToHandle conn ReadWriteMode
       clientEoL    <- newEmptyTMVarIO
       void
-        $ forkFinally (servClient clientEoL (show addr) hndl)
-        $ (hClose hndl <*) -- close the socket anyway
+        $ forkFinally (servClient clientEoL (T.pack $ show addr) hndl)
+        $ (hClose hndl <*) -- close the socket anyway after the thread done
         . atomically
         . tryPutTMVar clientEoL
 
       acceptClients sock -- tail recursion
 
-    servClient :: TMVar (Either SomeException ()) -> String -> Handle -> IO ()
-    servClient !eol !clientId !hndl = do
-      pktSink  <- newEmptyTMVarIO
-      poq      <- newTQueueIO
+    servClient :: TMVar (Either SomeException ()) -> Text -> Handle -> IO ()
+    servClient !clientEoL !clientId !hndl = do
+      pktSink <- newEmptyTMVarIO
+      poq     <- newTQueueIO
 
-      peerSlot <- newEmptyTMVarIO
       let
         ho :: STM CommCmd
         ho = do
           (dir, payload) <- takeTMVar pktSink
-          return $ CommCmd dir $ decodeUtf8 payload
+          let !src = decodeUtf8 payload
+          return $ CommCmd dir src
         po :: CommCmd -> STM ()
         po    = writeTQueue poq
 
-        !peer = Peer { peer'ident      = T.pack clientId
-                     , peer'eol        = eol
-                     , peer'hosting    = ho
-                     , postPeerCommand = po
+        !peer = Peer { edh'peer'ident   = clientId
+                     , edh'peer'eol     = clientEoL
+                     , edh'peer'hosting = ho
+                     , postPeerCommand  = po
                      }
         prepService :: EdhModulePreparation
-        prepService !pgs !exit =
+        prepService !pgs !exit = do
+          let !modu = thisObject $ contextScope $ edh'context pgs
           runEdhProc pgs
             $ createEdhObject peerClass (ArgsPack [] mempty)
-            $ \(OriginalValue !ov _ _) -> case ov of
+            $ \(OriginalValue !peerVal _ _) -> case peerVal of
                 EdhObject !peerObj -> contEdhSTM $ do
+                  -- actually fill in the in-band entity storage here
                   writeTVar (entity'store $ objEntity peerObj) $ toDyn peer
-                  void $ tryPutTMVar peerSlot $ EdhObject peerObj
-                  modifyTVar' clientsDS $ setDictItem
-                    (EdhObject peerObj)
-                    (EdhString $ peer'ident peer)
-                  if __serv_init__ == nil
-                    then exit
-                    else
-                      edhMakeCall
-                          pgs
-                          __serv_init__
-            -- call the service init method with the module object as `that`
-                          (thisObject $ contextScope $ edh'context pgs)
-                          []
-                        $ \mkCall ->
-                            runEdhProc pgs $ mkCall $ \_ -> contEdhSTM exit
-                _ -> error "bug: createEdhObject returned non-object"
+                  -- implant to the module being prepared
+                  changeEntityAttr pgs
+                                   (objEntity modu)
+                                   (AttrByName "peer")
+                                   peerVal
+                  -- announce this new peer to the event sink
+                  publishEvent clients peerVal
+                  -- insert a tick here, for serving to start in next stm tx
+                  flip (exitEdhSTM pgs) nil $ \_ ->
+                    contEdhSTM $ if __serv_init__ == nil
+                      then exit
+              -- call the per-client service module initialization method,
+              -- with the module object as `that`
+                      else
+                        edhMakeCall
+                            pgs
+                            __serv_init__
+                            (thisObject $ contextScope $ edh'context pgs)
+                            []
+                          $ \mkCall ->
+                              runEdhProc pgs $ mkCall $ \_ -> contEdhSTM exit
+                _ -> error "bug: Peer ctor returned non-object"
 
       void
         -- run the service module as another program
         $ forkFinally (runEdhModule' world (T.unpack servModu) prepService)
-        $ \result -> atomically $ do
-            tryReadTMVar peerSlot >>= \case
-              Nothing -> pure ()
-              Just !peerVal -> -- remove the peer object from client dict
-                void $ modifyTVar' clientsDS $ setDictItem peerVal nil
-            -- mark client end-of-life with the result anyway
-            void $ tryPutTMVar eol $ void result
+        -- mark client end-of-life with the result anyway
+        $ void
+        . atomically
+        . tryPutTMVar clientEoL
+        . void
 
       let
         serializeCmdsOut :: IO ()
         serializeCmdsOut =
           atomically
-              ((Right <$> readTQueue poq) `orElse` (Left <$> readTMVar eol))
+              (        (Right <$> readTQueue poq)
+              `orElse` (Left <$> readTMVar clientEoL)
+              )
             >>= \case
                   Left _ -> return () -- stop on eol any way
                   Right (CommCmd !dir !src) ->
-                    catch (sendTextPacket hndl dir src >> serializeCmdsOut)
+                    catch
+                        (  sendTextPacket clientId hndl dir src
+                        >> serializeCmdsOut
+                        )
                       $ \(e :: SomeException) -> -- mark eol on error
-                          atomically $ void $ tryPutTMVar eol $ Left e
+                          atomically $ void $ tryPutTMVar clientEoL $ Left e
       -- pump commands out,
       -- make this thread the only one writing the handle
       void $ forkIO serializeCmdsOut
 
       -- pump commands in, 
       -- make this thread the only one reading the handle
-      receivePacketStream hndl pktSink eol
+      -- note this won't return, will be asynchronously killed on eol
+      receivePacketStream clientId hndl pktSink clientEoL
 
