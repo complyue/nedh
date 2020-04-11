@@ -5,6 +5,8 @@ cmdLineTo( '127.0.0.1', 3721, )
 
 expr 3*7
 
+expr expr ack( 'Some levels of inception actually works!' )
+
 wait
 
 quit

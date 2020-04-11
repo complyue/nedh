@@ -17,13 +17,13 @@
 
 console.info<| 'Serving demo client - ' ++ peer
 
-peer.postCommand( repr("Hello, " ++ peer) )
+peer.postCommand( repr("Good day, " ++ peer) )
 
-{ while true {
+{ while false == peer.eol() {
   case peer.readCommand() of {
-    nil -> { break }  # end-of-stream
+    # note nil as result cmd is ignored here
     { cmdVal } -> {
-      console.debug<| 'Got cmd ' ++ cmdVal ++ ' from ' ++ peer
+      console.debug<| 'Got cmd from ' ++ peer ++ '\n  ' ++ cmdVal
 
       # serving as a simple expression evaluator, post the result back
       peer.postCommand( repr(cmdVal) )

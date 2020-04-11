@@ -6,7 +6,7 @@
 import * 'net'
 
 method ack(msg) {
-  console.print( 'Message from the service: ' ++ msg )
+  console.info<| 'Message from the service:\n  ' ++ msg
 }
 
 # a consumer initialization method can be used to inject

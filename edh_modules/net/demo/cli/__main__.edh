@@ -24,9 +24,9 @@ go {
   }
   { while false == peer.eol() {
     case peer.readCommand() of {
-      nil -> { break }  # end-of-stream from service
+      # note nil as result cmd is ignored here
       { cmdVal } -> {
-        console.info<| 'Got cmd ' ++ cmdVal ++ ' from service ' ++ peer
+        console.info<| 'Got cmd from service ' ++ peer ++ '\n  ' ++ cmdVal
       }
     }
   } } $=> { exc } -> {
@@ -50,7 +50,6 @@ while false == peer.eol() {
       for _ from console.everySeconds(1) do { break }
     }
 
-    nil -> { break }  # end-of-stream from stdin
     batteries.quit -> { break }
 
     { cmdVal } -> {
