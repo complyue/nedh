@@ -14,20 +14,15 @@
  # instance.
  #}
 
-console.info<| 'Consuming demo service via ' ++ peer
+console.info<| 'Consuming service via ' ++ peer
 
-
-# the demo service will echo this back
-peer.postCommand( repr("Good day, " ++ peer) )
-
-
-# land commands from the service asynchronously, this will never
-# obstruct the flow of incoming commands
+# land commands from the service asynchronously, without any obtacle
+# in the flow of incoming commands
 go {
   defer {
-    console.info<| 'No more commands from demo service - ' ++ peer
+    console.info<| 'No more commands from service - ' ++ peer
   }
-  { while true {
+  { while false == peer.eol() {
     case peer.readCommand() of {
       nil -> { break }  # end-of-stream from service
       { cmdVal } -> {
@@ -35,7 +30,7 @@ go {
       }
     }
   } } $=> { exc } -> {
-    console.warn<| 'Demo service ' ++ peer ++ ' error: ' ++ exc
+    console.warn<| 'The service ' ++ peer ++ ' error: ' ++ exc
   }
 }
 
@@ -48,7 +43,7 @@ wait := Command()
 ps1 = '<'++peer.ident()++'> Đ: '
 
 # pump commands from the console to the service
-while true {
+while false == peer.eol() {
   case console.readCommand(ps1=ps1) of {
     wait -> {
       # wait a second, e.g. to see some async cmd back from service
@@ -67,4 +62,4 @@ while true {
 }
 
 
-console.info<| 'Done with demo service - ' ++ peer
+console.info<| 'Done with the service - ' ++ peer
