@@ -200,7 +200,6 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
         Just (EdhExpr _ _ src) -> if src == ""
           then throwEdh UsageError "missing source for the expr as command"
           else contEdhSTM $ postCmd src dir
-        -- TODO support interpolated expr etc.
         Just cmdVal ->
           throwEdh UsageError $ "Unsupported command type: " <> T.pack
             (edhTypeNameOf cmdVal)
