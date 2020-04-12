@@ -30,52 +30,52 @@ data Peer = Peer {
       edh'peer'ident :: !Text
     , edh'peer'eol :: !(TMVar (Either SomeException ()))
     , edh'peer'hosting :: !(STM CommCmd)
+    , edh'peer'channels :: !(Map.HashMap EdhValue EventSink)
     , postPeerCommand :: !(CommCmd -> STM ())
   }
 
 
-readPeerCommand :: Peer -> EdhProcExit -> EdhProc
-readPeerCommand (Peer !ident !eol !ho !po) !exit = ask >>= \pgs ->
-  contEdhSTM
-    $ edhPerformIO
-        pgs
-        (atomically $ (Right <$> ho) `orElse` (Left <$> readTMVar eol))
+readPeerCommand :: EdhProgState -> Peer -> EdhProcExit -> STM ()
+readPeerCommand !pgs (Peer !ident !eol !ho !chd !po) !exit =
+  edhPerformIO pgs
+               (atomically $ (Right <$> ho) `orElse` (Left <$> readTMVar eol))
     $ \case
         -- reached normal end-of-stream
         Left (Right _) -> exitEdhSTM pgs exit nil
         -- previously eol due to error
         Left (Left ex) -> toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
         -- got next command incoming
-        Right (CommCmd !dir !src) -> case dir of
-          "" ->
-            runEdhProc pgs
-              $ edhCatch (evalEdh (T.unpack ident) src) exit
-              $ \_recover rethrow -> do
-                  pgsPassOn <- ask
-                  let !exv = contextMatch $ edh'context pgsPassOn
-                  if exv == nil -- no exception occurred,
-                    then rethrow -- rethrow just passes on in this case
-                    else contEdhSTM $ edhValueReprSTM pgs exv $ \exr -> do
-                      -- send peer the error details
-                      po $ CommCmd "err" exr
-                      -- mark eol with this error
-                      fromEdhError pgs exv
-                        $ \e -> void $ tryPutTMVar eol $ Left e
-                      -- rethrow the error
-                      runEdhProc pgs rethrow
-          "err" -> do
+        Right (CommCmd !dir !src) -> if "err" == dir
+          then do
             let !ex = toException $ EdhPeerError ident src
             void $ tryPutTMVar eol $ Left ex
             toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
-
-          -- TODO ways to direct to manifested event sinks
-
-          _ ->
-            createEdhError pgs UsageError ("invalid packet directive: " <> dir)
-              $ \exv ex -> do
-                  void $ tryPutTMVar eol $ Left $ toException ex
-                  edhThrowSTM pgs exv
-
+          else
+            edhCatchSTM pgs (landCmd src dir) exit $ \exv _recover rethrow ->
+              if exv == nil -- no exception occurred,
+                then rethrow -- rethrow just passes on in this case
+                else edhValueReprSTM pgs exv $ \exr -> do
+                  -- send peer the error details
+                  po $ CommCmd "err" exr
+                  -- mark eol with this error
+                  fromEdhError pgs exv $ \e -> void $ tryPutTMVar eol $ Left e
+                  -- rethrow the error
+                  rethrow
+ where
+  srcName = T.unpack ident
+  landCmd :: Text -> Text -> EdhProgState -> EdhProcExit -> STM ()
+  landCmd !src !dir !pgs' !exit' =
+    runEdhProc pgs' $ evalEdh srcName src $ \cr@(OriginalValue !cmdVal _ _) ->
+      if T.null dir
+        then exitEdhProc' exit' cr
+        else evalEdh srcName dir $ \(OriginalValue !chVal _ _) ->
+          case Map.lookup chVal chd of
+            Nothing ->
+              throwEdh UsageError $ "Missing command channel: " <> T.pack
+                (show chVal)
+            Just !chSink -> contEdhSTM $ do
+              publishEvent chSink cmdVal
+              exitEdhSTM pgs' exit' nil
 
 -- | host constructor Peer()
 peerCtor
@@ -174,7 +174,7 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
         Nothing ->
           throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
             (show esd)
-        Just (peer :: Peer) -> runEdhProc pgs $ readPeerCommand peer exit
+        Just (peer :: Peer) -> readPeerCommand pgs peer exit
 
   postPeerCmdProc :: EdhProcedure
   postPeerCmdProc !apk !exit = do
@@ -182,6 +182,15 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
     let
       this = thisObject $ contextScope $ edh'context pgs
       es   = entity'store $ objEntity this
+      postCmd' :: Text -> EdhValue -> STM ()
+      postCmd' !cmd !dirVal = case dirVal of
+        EdhNil -> postCmd cmd ""
+        _ ->
+          runEdhProc pgs
+            $ edhValueRepr dirVal
+            $ \(OriginalValue dirRepr _ _) -> case dirRepr of
+                EdhString !dir -> contEdhSTM $ postCmd cmd dir
+                _              -> error "bug: edhValueRepr returned non-string"
       postCmd :: Text -> Text -> STM ()
       postCmd !cmd !dir = do
         esd <- readTVar es
@@ -192,14 +201,14 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
           Just (peer :: Peer) -> do
             postPeerCommand peer $ CommCmd dir cmd
             exitEdhSTM pgs exit nil
-    case parseArgsPack (Nothing, "") parseArgs apk of
-      Left  err             -> throwEdh UsageError err
-      Right (maybeCmd, dir) -> case maybeCmd of
+    case parseArgsPack (Nothing, nil) parseArgs apk of
+      Left  err                -> throwEdh UsageError err
+      Right (maybeCmd, dirVal) -> case maybeCmd of
         Nothing                -> throwEdh UsageError "missing command"
-        Just (EdhString src  ) -> contEdhSTM $ postCmd src dir
+        Just (EdhString src  ) -> contEdhSTM $ postCmd' src dirVal
         Just (EdhExpr _ _ src) -> if src == ""
           then throwEdh UsageError "missing source for the expr as command"
-          else contEdhSTM $ postCmd src dir
+          else contEdhSTM $ postCmd' src dirVal
         Just cmdVal ->
           throwEdh UsageError $ "Unsupported command type: " <> T.pack
             (edhTypeNameOf cmdVal)
@@ -207,17 +216,11 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
     parseArgs =
       ArgsPackParser
           [ \arg (_, dir') -> Right (Just arg, dir')
-          , \arg (cmd', _) -> case arg of
-            EdhString dir -> Right (cmd', dir)
-            _             -> Left "Invalid dir"
+          , \arg (cmd', _) -> Right (cmd', arg)
           ]
         $ Map.fromList
             [ ("cmd", \arg (_, dir') -> Right (Just arg, dir'))
-            , ( "dir"
-              , \arg (cmd', _) -> case arg of
-                EdhString dir -> Right (cmd', dir)
-                _             -> Left "Invalid dir"
-              )
+            , ("dir", \arg (cmd', _) -> Right (cmd', arg))
             ]
 
   identProc :: EdhProcedure

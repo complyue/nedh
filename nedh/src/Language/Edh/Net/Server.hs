@@ -294,10 +294,11 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
         po :: CommCmd -> STM ()
         po    = writeTQueue poq
 
-        !peer = Peer { edh'peer'ident   = clientId
-                     , edh'peer'eol     = clientEoL
-                     , edh'peer'hosting = ho
-                     , postPeerCommand  = po
+        !peer = Peer { edh'peer'ident    = clientId
+                     , edh'peer'eol      = clientEoL
+                     , edh'peer'hosting  = ho
+                     , edh'peer'channels = mempty
+                     , postPeerCommand   = po
                      }
         prepService :: EdhModulePreparation
         prepService !pgs !exit = do
