@@ -322,6 +322,11 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
         . tryPutTMVar cnsmrEoL
         . void
 
+      -- pump commands in, 
+      -- make this thread the only one reading the handle
+      -- note this won't return, will be asynchronously killed on eol
+      void $ forkIO $ receivePacketStream clientId hndl pktSink cnsmrEoL
+
       let
         serializeCmdsOut :: IO ()
         serializeCmdsOut =
@@ -339,10 +344,5 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
                           atomically $ void $ tryPutTMVar cnsmrEoL $ Left e
       -- pump commands out,
       -- make this thread the only one writing the handle
-      void $ forkIO serializeCmdsOut
-
-      -- pump commands in, 
-      -- make this thread the only one reading the handle
-      -- note this won't return, will be asynchronously killed on eol
-      receivePacketStream clientId hndl pktSink cnsmrEoL
+      serializeCmdsOut
 

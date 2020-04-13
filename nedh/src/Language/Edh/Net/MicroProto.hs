@@ -63,18 +63,27 @@ sendTextPacket peerSite !outletHndl !dir !txt = sendPacket peerSite
 -- or have been streamed into a file then have the specified handle 
 -- opened that file for read.
 --
+-- Note this should be forked to run in a dedicated thread, that without 
+-- subsequent actions to perform, as this function will kill its thread
+-- asynchronously on eos by design, in lacking of an otherwise better way
+-- to cancel reading from the handle.
+--
 -- Reading of the stream will only flow when packets are taken away from
 -- the sink concurrently, and back-pressure will be created by not taking
 -- packets away too quickly.
 --
--- The caller is responsible to close the handle anyway.
+-- The caller is responsible to close the handle anyway appropriate, but
+-- only after eos is signaled.
 receivePacketStream :: Text -> Handle -> PacketSink -> EndOfStream -> IO ()
 receivePacketStream peerSite !intakeHndl !pktSink !eos = do
   recvThId <- myThreadId -- async kill the receiving action on eos
   void $ forkIO $ atomically (readTMVar eos) >> killThread recvThId
   catch (parsePkts B.empty)
-    -- mark end-of-stream with the error occurred, and done
-    -- TODO some important errors not suitable to be swallowed here ?
+    -- note this thread can be killed as above due to eos, don't rethrow
+    -- here, some informed thread should rethrow the error in eos if any
+    -- get recorded there.
+    -- here just try mark end-of-stream with the error occurred, i.e.
+    -- previous eos state will be reserved if already signaled. and done.
     $ \(e :: SomeException) -> void $ atomically $ tryPutTMVar eos $ Left e
  where
 
