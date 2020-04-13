@@ -13,10 +13,34 @@
       net.Server( 'net/demo/service', ..., init=__serv_init__, )
  # instance.
  #
+ # procedures available here - no matter imported, adhoc defined, or
+ # implanted - can be called remotely by the peer.
+ #
  #}
+
+# this is an example of asynchronously responsive procedure to be
+# called remotely
+method callThePolice ( telno ) {
+  console.warn<| 'Alerts ringing #tel ' ++ telno ++ ' ...'
+  peer.postCommand(expr  # expr literal is the sane way,
+    # to compose rpc commands.
+
+    # assuming remote peer has a `method ack(msg) ...` procedure made
+    # available, which `net/demo/cli` happens to have
+    ack(
+
+      # the interpolated `{$ telno $}` better to be in parentheses in case
+      # it has complex repr, e.g. a named value - `policeTelNo := 110`
+      'Police alerted via #tel ' ++ ( {$ telno $} )
+
+    )
+  )
+}
 
 console.info<| 'Serving demo client - ' ++ peer
 
+# posting string form repr as an rpc command is not a good idea for most
+# applications, but `net/demo/cli` is happy with such commands.
 peer.postCommand( repr("Good day, " ++ peer) )
 
 { while false == peer.eol() {

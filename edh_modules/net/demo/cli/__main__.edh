@@ -36,7 +36,7 @@ go {
 
 
 # define commands can be used at local console
-wait := Command()
+waSec := Command()
 
 
 # show peer's identity as part of the console prompt
@@ -45,7 +45,7 @@ ps1 = '<'++peer.ident()++'> Đ: '
 # pump commands from the console to the service
 while false == peer.eol() {
   case console.readCommand(ps1=ps1) of {
-    wait -> {
+    waSec -> {
       # wait a second, e.g. to see some async cmd back from service
       for _ from console.everySeconds(1) do { break }
     }
@@ -53,10 +53,11 @@ while false == peer.eol() {
     batteries.quit -> { break }
 
     { cmdVal } -> {
-      console.info<| 'Posting cmd to service: ' ++ cmdVal
+      console.info<| 'Posting cmd to service:\n  ' ++ cmdVal
       peer.postCommand( cmdVal )
     }
 
+    # note nil as cmd value is ignored here, so a nil is effectively nop
   }
 }
 
