@@ -30,13 +30,18 @@ data Peer = Peer {
       edh'peer'ident :: !Text
     , edh'peer'eol :: !(TMVar (Either SomeException ()))
     , edh'peer'hosting :: !(STM CommCmd)
-    , edh'peer'channels :: !(Map.HashMap EdhValue EventSink)
+    , edh'peer'channels :: !(TVar (Map.HashMap EdhValue EventSink))
+      -- todo this ever needs to be in CPS?
     , postPeerCommand :: !(CommCmd -> STM ())
   }
 
 
+-- | Read next command from peer
+--
+-- Note a command may target a specific channel, thus get posted to that 
+--      channel's sink, and nil will be returned by this procedure for it.
 readPeerCommand :: EdhProgState -> Peer -> EdhProcExit -> STM ()
-readPeerCommand !pgs (Peer !ident !eol !ho !chd !po) !exit =
+readPeerCommand !pgs (Peer !ident !eol !ho !chdVar !po) !exit =
   edhPerformIO pgs
                (atomically $ (Right <$> ho) `orElse` (Left <$> readTMVar eol))
     $ \case
@@ -46,11 +51,12 @@ readPeerCommand !pgs (Peer !ident !eol !ho !chd !po) !exit =
         Left (Left ex) -> toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
         -- got next command incoming
         Right (CommCmd !dir !src) -> if "err" == dir
-          then do
+          then do -- unexpected error occurred at peer site, it has sent the
+            -- details back here, mark eol with it at local site, and throw
             let !ex = toException $ EdhPeerError ident src
             void $ tryPutTMVar eol $ Left ex
             toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
-          else
+          else -- treat other directives as the expr of the target channel
             edhCatchSTM pgs (landCmd src dir) exit $ \exv _recover rethrow ->
               if exv == nil -- no exception occurred,
                 then rethrow -- rethrow just passes on in this case
@@ -67,15 +73,23 @@ readPeerCommand !pgs (Peer !ident !eol !ho !chd !po) !exit =
   landCmd !src !dir !pgs' !exit' =
     runEdhProc pgs' $ evalEdh srcName src $ \cr@(OriginalValue !cmdVal _ _) ->
       if T.null dir
+        -- to the default channel, which yields as direct result of 
+        --   `peer.readCommand()`
         then exitEdhProc' exit' cr
-        else evalEdh srcName dir $ \(OriginalValue !chVal _ _) ->
-          case Map.lookup chVal chd of
-            Nothing ->
-              throwEdh UsageError $ "Missing command channel: " <> T.pack
-                (show chVal)
-            Just !chSink -> contEdhSTM $ do
-              publishEvent chSink cmdVal
-              exitEdhSTM pgs' exit' nil
+        -- to a specific channel, which should be located by the directive
+        else evalEdh srcName dir $ \(OriginalValue !chLctr _ _) ->
+          contEdhSTM $ do
+            chd <- readTVar chdVar
+            case Map.lookup chLctr chd of
+              Nothing ->
+                throwEdhSTM pgs UsageError
+                  $  "Missing command channel: "
+                  <> T.pack (show chLctr)
+              Just !chSink -> do
+                publishEvent chSink cmdVal -- post the cmd to channel
+                -- yield nil as for `peer.readCommand()` wrt this cmd packet
+                exitEdhSTM pgs' exit' nil
+
 
 -- | host constructor Peer()
 peerCtor
@@ -89,16 +103,24 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
   methods <- sequence
     [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
     | (nm, vc, hp, args) <-
-      [ ("eol"        , EdhMethod, eolProc        , PackReceiver [])
-      , ("join"       , EdhMethod, joinProc       , PackReceiver [])
-      , ("stop"       , EdhMethod, stopProc       , PackReceiver [])
+      [ ("eol" , EdhMethod, eolProc , PackReceiver [])
+      , ("join", EdhMethod, joinProc, PackReceiver [])
+      , ("stop", EdhMethod, stopProc, PackReceiver [])
+      , ( "armChannel"
+        , EdhMethod
+        , armChannelProc
+        , PackReceiver
+          [ RecvArg "chLctr" Nothing Nothing
+          , RecvArg "chSink" Nothing $ Just $ LitExpr SinkCtor
+          ]
+        )
       , ("readCommand", EdhMethod, readPeerCmdProc, PackReceiver [])
       , ( "postCommand"
         , EdhMethod
         , postPeerCmdProc
         , PackReceiver
           [ RecvArg "cmd" Nothing Nothing
-          , RecvArg "dir" Nothing $ Just $ LitExpr $ StringLiteral ""
+          , RecvArg "dir" Nothing $ Just $ LitExpr NilLiteral
           ]
         )
       , ("ident"   , EdhMethod, identProc, PackReceiver [])
@@ -162,6 +184,45 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
           stopped <- tryPutTMVar (edh'peer'eol peer) $ Right ()
           exitEdhSTM pgs exit $ EdhBool stopped
 
+  armChannelProc :: EdhProcedure
+  armChannelProc !apk !exit = do
+    pgs <- ask
+    let
+      this = thisObject $ contextScope $ edh'context pgs
+      es   = entity'store $ objEntity this
+      armSink :: EdhValue -> EventSink -> STM ()
+      armSink !chLctr !chSink = do
+        esd <- readTVar es
+        case fromDynamic esd of
+          Nothing ->
+            throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+              (show esd)
+          Just (peer :: Peer) -> do
+            modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
+            exitEdhSTM pgs exit $ EdhSink chSink
+    case parseArgsPack (Nothing, nil) parseArgs apk of
+      Left  err                  -> throwEdh UsageError err
+      Right (maybeLctr, sinkVal) -> case maybeLctr of
+        Nothing      -> throwEdh UsageError "Missing channel locator"
+        Just !chLctr -> contEdhSTM $ case edhUltimate sinkVal of
+          EdhNil -> do
+            chSink <- newEventSink
+            armSink chLctr chSink
+          EdhSink !chSink -> armSink chLctr chSink
+          _ ->
+            throwEdhSTM pgs UsageError
+              $  "Invalid command channel type: "
+              <> T.pack (edhTypeNameOf sinkVal)
+   where
+    parseArgs =
+      ArgsPackParser
+          [ \arg (_, chSink') -> Right (Just arg, chSink')
+          , \arg (chLctr', _) -> Right (chLctr', arg)
+          ]
+        $ Map.fromList
+            [ ("chLctr", \arg (_, chSink') -> Right (Just arg, chSink'))
+            , ("chSink", \arg (chLctr', _) -> Right (chLctr', arg))
+            ]
 
   readPeerCmdProc :: EdhProcedure
   readPeerCmdProc _ !exit = do
@@ -182,15 +243,6 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
     let
       this = thisObject $ contextScope $ edh'context pgs
       es   = entity'store $ objEntity this
-      postCmd' :: Text -> EdhValue -> STM ()
-      postCmd' !cmd !dirVal = case dirVal of
-        EdhNil -> postCmd cmd ""
-        _ ->
-          runEdhProc pgs
-            $ edhValueRepr dirVal
-            $ \(OriginalValue dirRepr _ _) -> case dirRepr of
-                EdhString !dir -> contEdhSTM $ postCmd cmd dir
-                _              -> error "bug: edhValueRepr returned non-string"
       postCmd :: Text -> Text -> STM ()
       postCmd !cmd !dir = do
         esd <- readTVar es
@@ -201,13 +253,17 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
           Just (peer :: Peer) -> do
             postPeerCommand peer $ CommCmd dir cmd
             exitEdhSTM pgs exit nil
+      postCmd' :: Text -> EdhValue -> STM ()
+      postCmd' !cmd !dirVal = case dirVal of
+        EdhNil -> postCmd cmd ""
+        _      -> edhValueReprSTM pgs dirVal $ \dir -> postCmd cmd dir
     case parseArgsPack (Nothing, nil) parseArgs apk of
       Left  err                -> throwEdh UsageError err
       Right (maybeCmd, dirVal) -> case maybeCmd of
-        Nothing                -> throwEdh UsageError "missing command"
+        Nothing                -> throwEdh UsageError "Missing command"
         Just (EdhString src  ) -> contEdhSTM $ postCmd' src dirVal
         Just (EdhExpr _ _ src) -> if src == ""
-          then throwEdh UsageError "missing source for the expr as command"
+          then throwEdh UsageError "Missing source from the expr as command"
           else contEdhSTM $ postCmd' src dirVal
         Just cmdVal ->
           throwEdh UsageError $ "Unsupported command type: " <> T.pack

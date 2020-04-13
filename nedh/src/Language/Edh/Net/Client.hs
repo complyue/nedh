@@ -266,6 +266,7 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
     cnsmService !clientId !hndl = do
       pktSink <- newEmptyTMVarIO
       poq     <- newTQueueIO
+      chdVar  <- newTVarIO mempty
 
       let
         ho :: STM CommCmd
@@ -279,7 +280,7 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
         !peer = Peer { edh'peer'ident    = clientId
                      , edh'peer'eol      = cnsmrEoL
                      , edh'peer'hosting  = ho
-                     , edh'peer'channels = mempty
+                     , edh'peer'channels = chdVar
                      , postPeerCommand   = po
                      }
         prepConsumer :: EdhModulePreparation
