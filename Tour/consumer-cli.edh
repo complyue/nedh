@@ -7,14 +7,14 @@ cmdLineTo( '127.0.0.1', 3721, )
 
 
 # `cmdLineTo()` waits until disconnected from service, following
-# lines will be read by the cli loop as console commands, then
+# lines will be read by the cli loop as cli commands, then
 # each posted to the service as peer command, if not nil.
 
 
 # the demo service acts as a remote expression evaluator, post
 # it some expression and it'll post back the eval result into
-# our conout, and the 'net/demo/cli' console loop takes care
-# of proper waiting it before reading next console command.
+# our conout, and the 'net/demo/cli' stdio loop takes care
+# of proper waiting it before reading next cli command.
 expr 3*7
 
 # and the expression can be as any complex as the remote environment
@@ -24,7 +24,7 @@ expr service?calc &> calc(5, 11) |> 'no `calc()` service'
 
 {
   # enclose multiple statements within this block, so they're not
-  # interpreted as multiple console commands, but value of the last
+  # interpreted as multiple cli commands, but value of the last
   # statement will do.
 
   console.info<| 'Doing rpc directly - calling the police ...'

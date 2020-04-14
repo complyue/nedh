@@ -7,7 +7,8 @@ import * 'net'
 
 # an example procedure can be called via rpc by peer
 method ack(msg) {
-  console.info<| 'You are informed by the service that:\n  ' ++ msg
+  console.info<| 'You are informed by the service that:\n  '
+    ++ msg
 }
 
 # a peer initialization method can be used to inject
@@ -30,11 +31,11 @@ method __peer_init__() {
 # the client instance.
 
 method cmdLineTo(
-  addr ='127.0.0.1',         # remote addr to connect
-  port =3721,                # remote port to connect
-  consumer ='net/demo/cli',  # the peer module
-  init =__peer_init__,       # peer module initialization
-  assignTo =None,            # attr ref to assign to the caller
+  addr      ='127.0.0.1',    # remote addr to connect
+  port      =3721,           # remote port to connect
+  consumer  ='net/demo/cli', # the peer module
+  init      =__peer_init__,  # peer module initialization
+  assignTo  =None,           # attr ref to assign to the caller
 ) {
 
   case Client( consumer, addr, port, init=init, ) of { client } -> {
