@@ -5,18 +5,19 @@
 
 import * 'net'
 
+# an example procedure can be called via rpc by peer
 method ack(msg) {
-  console.info<| 'Message from the service:\n  ' ++ msg
+  console.info<| 'You are informed by the service that:\n  ' ++ msg
 }
 
-# a consumer initialization method can be used to inject
-# artifacts into a server facing consumer module after it is
-# instantiated but before running. such a consumer module can
+# a peer initialization method can be used to inject
+# artifacts into a server facing peer module after it is
+# instantiated but before running. such a peer module can
 # obtain globally shared resources by vanilla importing, but
 # for private resources prepared without global visibility,
 # injection is the only way to pass them on to there.
 
-method __cnsmr_init__() {
+method __peer_init__() {
   # implant the `ack()` procedure to the consumer module
   that.ack = ack
 }
@@ -31,13 +32,16 @@ method __cnsmr_init__() {
 method cmdLineTo(
   addr ='127.0.0.1',         # remote addr to connect
   port =3721,                # remote port to connect
-  consumer ='net/demo/cli',  # the consumer module
-  init =__cnsmr_init__, # per-client consumer module initialization
+  consumer ='net/demo/cli',  # the peer module
+  init =__peer_init__,       # peer module initialization
+  assignTo =None,            # attr ref to assign to the caller
 ) {
 
   case Client( consumer, addr, port, init=init, ) of { client } -> {
-    # assign it to the calling module
-    that.client = client
+    # assign the client instance to the caller if it requests so
+    assignTo &> {
+      that $ assignTo = client
+    }
   }
 
   case client.addrs() of { addrs } ->

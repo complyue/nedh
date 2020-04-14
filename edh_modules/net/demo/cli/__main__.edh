@@ -5,28 +5,66 @@
  # this module is instantiated and run per client connection.
  #
  # a `{ net.Peer: peer }` object is guaranteed to have been
- # implanted by per-client host module preparation.
+ # implanted by per-connection host module preparation.
  #
  # none or more of other artifacts may have been implanted as well,
- # according to the per-client consumer module initialization method
- # (e.g. __cnsmr_init__) specified on construction of the very
-      net.Client( 'net/demo/cli', ..., init=__cnsmr_init__, )
+ # according to the per-connection peer module initialization method
+ # (e.g. __peer_init__) specified on construction of the very
+      net.Client( 'net/demo/cli', ..., init=__peer_init__, )
  # instance.
  #}
 
 console.info<| 'Consuming service via ' ++ peer
 
+# channel 1 is named `conout` by convention, commands through it are
+# directed to `console.print()`
+# CAVEAT: the outputting is hung up during reading of console commands
+conout := 1
+conoutSink = peer.armChannel(conout)
+go { while false == peer.eol() {
+  for (***conOutApk) from conoutSink do {
+    console.print(***conOutApk)
+  }
+  console.debug<| 'End of stream for conout'
+  # the pump should restart if peer haven't reached end-of-life,
+  # the end-of-stream of (by posting a nil to) conoutSink is assumed
+  # an accident.
+  peer.eol() |> conoutSink <- '<eos>'
+} }
+
+# channel 2 is named `conmsg` by convention, commands through it are
+# directed to logging at `info` level
+conmsg := 2
+conmsgSink = peer.armChannel(conmsg)
+go { while false == peer.eol() {
+  for (msg, ***conMsgApk) from conmsgSink do {
+    console.info<| if null(conMsgApk)
+      then msg
+      else pkargs(msg, ***conMsgApk)
+  }
+  console.debug<| 'End of stream for conmsg'
+  # the pump should restart if peer haven't reached end-of-life,
+  # the end-of-stream of (by posting a nil to) conmsgSink is assumed
+  # an accident.
+  peer.eol() |> conmsgSink <- '<eos>'
+} }
+
 # land commands from the service asynchronously, without any obtacle
 # in the flow of incoming commands
 go {
   defer {
-    console.info<| 'No more commands from service - ' ++ peer
+    console.debug<| 'No more commands from service - ' ++ peer
   }
   { while false == peer.eol() {
     case peer.readCommand() of {
-      # note nil as result cmd is ignored here
+      # note a command resulting in nil is normal, and should just
+      # pass by here
+
+      # TODO interpret any expected command here
+
       { cmdVal } -> {
-        console.info<| 'Got cmd from service ' ++ peer ++ '\n  ' ++ cmdVal
+        console.info<| 'Unexpected command from service ' ++ peer
+          ++ '\n  ' ++ cmdVal
       }
     }
   } } $=> { exc } -> {
@@ -34,10 +72,16 @@ go {
   }
 }
 
+# this producer procedure is used to guarantee an out going cmd
+# is only posted, after a new subscriber to the outlet appears,
+# which should be the result waiting for-from-do loop, see below
+producer evalRemotely( cmdVal, outlet ) {
+  console.debug<| 'Posting cmd to service:\n  ' ++ cmdVal
+  peer.postCommand( cmdVal )
+}
 
 # define commands can be used at local console
 waSec := Command()
-
 
 # show peer's identity as part of the console prompt
 ps1 = '<'++peer.ident()++'> Đ: '
@@ -53,8 +97,32 @@ while false == peer.eol() {
     batteries.quit -> { break }
 
     { cmdVal } -> {
-      console.info<| 'Posting cmd to service:\n  ' ++ cmdVal
-      peer.postCommand( cmdVal )
+      # the mre (most-recent-event) will linger in an event sink,
+      # detect here whether there is last remote evaluation's 
+      # result lingering in the conout channel, which needs to be
+      # skipped in waiting for the new remote cmd's result
+      case mre(conoutSink) of {
+        nil -> skipIt = false  # no remote cmd has been eval'ed
+        skipIt = true
+      }
+
+      # assuming the 1st incoming cmd to conout after we posted the
+      # cmd out, is the result of evaluation by remote service, use
+      # a producer procedure to make sure the out cmd is only posted
+      # after the following loop has subscribed to conout channel's
+      # event sink, to eliminate race condition.
+      for cmdResult from evalRemotely( cmdVal, outlet = conoutSink, ) do {
+        # should skip last cmd's result by this loop
+        if skipIt then { skipIt = false; continue }
+
+        # the result should have already been printed to console, 
+        # don't repeat here
+        console.debug<| 'Got cmdResult from service:\n  ' ++ cmdResult
+
+        # we're looping against a peer channel here, and only interested
+        # in one of the incoming cmd results, break unconditionally now
+        break
+      }
     }
 
     # note nil as cmd value is ignored here, so a nil is effectively nop

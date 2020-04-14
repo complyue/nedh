@@ -5,11 +5,22 @@ import * 'net/demo/cli'
 #   cabal v2-run nedh < Tour/service-simple.edh
 cmdLineTo( '127.0.0.1', 3721, )
 
+
 # `cmdLineTo()` waits until disconnected from service, following
 # lines will be read by the cli loop as console commands, then
 # each posted to the service as peer command, if not nil.
 
+
+# the demo service acts as a remote expression evaluator, post
+# it some expression and it'll post back the eval result into
+# our conout, and the 'net/demo/cli' console loop takes care
+# of proper waiting it before reading next console command.
 expr 3*7
+
+# and the expression can be as any complex as the remote environment
+# supports
+expr service?calc &> calc(5, 11) |> 'no `calc()` service'
+
 
 {
   # enclose multiple statements within this block, so they're not
@@ -36,9 +47,24 @@ expr 3*7
   # `peer.postCommand()` returns nil, so this whole block is nop to cli
 }
 
-expr expr ack( 'Some levels of inception actually works!' )
 
-waSec # wait a second to see async messages back from service
+{
+  # expression is 1st class citizen in Edh, so we can ask the
+  # remote peer to return some expr to be eval'ed here again
+  expr ( expr {
+    ack( 'Some levels of inception actually works!' )
+
+    # demo service posts a result back into the conout channel,
+    # so if the eval'ed result is nil, it'll effectively mark
+    # <end-of-stream> of conout, we avoid that by giving an
+    # explicit non-nil value as result here.
+    # and after a slight delay so conout output won't interfer
+    # with conmsg output induced by ack() above.
+    for _ from console.everyMillis(80) do { break }
+    "You've been informed."
+  } )
+}
+
 
 # stop the cli loop, i.e. to actively disconnect from service
 quit

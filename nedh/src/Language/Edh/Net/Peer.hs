@@ -106,6 +106,11 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
       [ ("eol" , EdhMethod, eolProc , PackReceiver [])
       , ("join", EdhMethod, joinProc, PackReceiver [])
       , ("stop", EdhMethod, stopProc, PackReceiver [])
+      , ( "armedChannel"
+        , EdhMethod
+        , armedChannelProc
+        , PackReceiver [RecvArg "chLctr" Nothing Nothing]
+        )
       , ( "armChannel"
         , EdhMethod
         , armChannelProc
@@ -183,6 +188,28 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
         Just !peer -> do
           stopped <- tryPutTMVar (edh'peer'eol peer) $ Right ()
           exitEdhSTM pgs exit $ EdhBool stopped
+
+  armedChannelProc :: EdhProcedure
+  armedChannelProc !apk !exit = do
+    pgs <- ask
+    let
+      this = thisObject $ contextScope $ edh'context pgs
+      es   = entity'store $ objEntity this
+      getArmedSink :: EdhValue -> STM ()
+      getArmedSink !chLctr = do
+        esd <- readTVar es
+        case fromDynamic esd of
+          Nothing ->
+            throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+              (show esd)
+          Just (peer :: Peer) ->
+            Map.lookup chLctr <$> readTVar (edh'peer'channels peer) >>= \case
+              Nothing      -> exitEdhSTM pgs exit nil
+              Just !chSink -> exitEdhSTM pgs exit $ EdhSink chSink
+    case apk of
+      ArgsPack [!chLctr] !kwargs | Map.null kwargs ->
+        contEdhSTM $ getArmedSink chLctr
+      _ -> throwEdh UsageError "Invalid args to armedChannelProc"
 
   armChannelProc :: EdhProcedure
   armChannelProc !apk !exit = do

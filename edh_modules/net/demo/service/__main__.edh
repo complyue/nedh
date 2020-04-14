@@ -1,22 +1,26 @@
 
 {#
- # this is the client-facing module for nedh demo service
+ # this is the client-facing peer module for nedh demo service
  # 
  # this module is instantiated and run per client connection.
  #
  # a `{ net.Peer: peer }` object is guaranteed to have been
- # implanted by per-client host module preparation.
+ # implanted by per-connection host module preparation.
  #
  # none or more of other artifacts may have been implanted as well,
- # according to the per-client service module initialization method
- # (e.g. __serv_init__) specified on construction of the very
-      net.Server( 'net/demo/service', ..., init=__serv_init__, )
+ # according to the per-connection peer module initialization method
+ # (e.g. __peer_init__) specified on construction of the very
+      net.Server( 'net/demo/service', ..., init=__peer_init__, )
  # instance.
  #
  # procedures available here - no matter imported, adhoc defined, or
  # implanted - can be called remotely by the peer.
  #
  #}
+
+# alias the peer module so remote client can rpc test what's available
+# in this environment via this attr
+service = this
 
 # this is an example of asynchronously responsive procedure to be
 # called remotely
@@ -39,18 +43,39 @@ method callThePolice ( telno ) {
 
 console.info<| 'Serving demo client - ' ++ peer
 
-# posting string form repr as an rpc command is not a good idea for most
-# applications, but `net/demo/cli` is happy with such commands.
-peer.postCommand( repr("Good day, " ++ peer) )
+peer.postCommand(
+  {#
+   # we'd better use the interpolated expr form to compose the remote
+   # command like this:
+        cmd = (expr "Good day, " ++ {$ peer $}),
+   # but in case the client is not speaking Edh, or at least it does
+   # not support (++) as string concat op, e.g. a Python client, we'd
+   # like to use the string repr form as long as string literal syntax
+   # is universal across all languages the clients speak, like this:
+   #}
+  cmd = repr( "Good day, " ++ peer ),
+
+  # this command is directed to channel `conmsg` which will be 
+  # `conmsg := 2` by convention for cli clients, but here we only
+  # assume the name, regardless the actual value at peer site
+  dir = expr conmsg
+)
 
 { while false == peer.eol() {
   case peer.readCommand() of {
-    # note nil as result cmd is ignored here
+    # note a command resulting in nil is normal, and should just
+    # pass by here
+
     { cmdVal } -> {
+      # serving as a simple expression evaluator, post the result
+      # back as client's cli console output
+
       console.debug<| 'Got cmd from ' ++ peer ++ '\n  ' ++ cmdVal
 
-      # serving as a simple expression evaluator, post the result back
-      peer.postCommand( repr(cmdVal) )
+      # this command is directed to channel `conout` which will be 
+      # `conout := 1` by convention for cli clients, but here we only
+      # assume the name, regardless the actual value at peer site
+      peer.postCommand( repr(cmdVal), expr conout )
     }
   }
 } } $=> { exc } -> {

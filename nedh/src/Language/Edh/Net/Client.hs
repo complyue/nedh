@@ -67,7 +67,7 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       Left err -> throwEdhSTM pgsCtor UsageError err
       Right (Nothing, _, _, _) ->
         throwEdhSTM pgsCtor UsageError "missing consumer module"
-      Right (Just consumer, addr, port, __cnsmr_init__) -> do
+      Right (Just consumer, addr, port, __peer_init__) -> do
         serviceAddrs <- newEmptyTMVar
         cnsmrEoL     <- newEmptyTMVar
         let !client = EdhClient { edh'consumer'modu = consumer
@@ -75,7 +75,7 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
                                 , edh'service'port  = port
                                 , edh'service'addrs = serviceAddrs
                                 , edh'consumer'eol  = cnsmrEoL
-                                , edh'consumer'init = __cnsmr_init__
+                                , edh'consumer'init = __peer_init__
                                 }
             !scope = contextScope $ edh'context pgsCtor
         methods <- sequence
@@ -228,7 +228,7 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
 
 
   consumerThread :: EdhClient -> IO ()
-  consumerThread (EdhClient !cnsmrModu !servAddr !servPort !serviceAddrs !cnsmrEoL !__cnsmr_init__)
+  consumerThread (EdhClient !cnsmrModu !servAddr !servPort !serviceAddrs !cnsmrEoL !__peer_init__)
     = do
       servThId <- myThreadId
       void $ forkIO $ do -- async terminate the recv thread on stop signal
@@ -299,14 +299,14 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
                                    peerVal
                   -- insert a tick here, for Consumer to start in next stm tx
                   flip (exitEdhSTM pgs) nil $ \_ ->
-                    contEdhSTM $ if __cnsmr_init__ == nil
+                    contEdhSTM $ if __peer_init__ == nil
                       then exit
-                      -- call the consumer module initialization method,
+                      -- call the per-connection peer module initialization method,
                       -- with the module object as `that`
                       else
                         edhMakeCall
                             pgs
-                            __cnsmr_init__
+                            __peer_init__
                             (thisObject $ contextScope $ edh'context pgs)
                             []
                           $ \mkCall ->

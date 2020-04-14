@@ -14,7 +14,7 @@ import * 'net'
   # for private resources prepared without global visibility,
   # injection is the only way to pass them on to there.
 
-  method __serv_init__ () {
+  method __peer_init__ () {
     # implant the `calc()` procedure to the service module
     that.calc = calc
   }
@@ -55,11 +55,15 @@ import * 'net'
     'net/demo/service',  # the service module
     '127.0.0.1',         # local addr to bind
     3721,                # local port to bind
-    init=__serv_init__,  # per-client service module initialization
+    init=__peer_init__,  # per-connection peer module initialization
   ) do {
     console.info<| 'Tracking demo client - ' ++ peer
 
-    peer.postCommand(repr( `Note you are tracked, ` ++ peer ))
+    peer.postCommand(
+      repr( `Note you are tracked, ` ++ peer ),
+      # direct this command to the cli peer's conmsg channel
+      expr conmsg
+    )
 
     # `peer` attribute here is repeatedly changed during the loop,
     # use a separate procedure to track each peer asynchronously

@@ -69,7 +69,7 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       Left err -> throwEdhSTM pgsCtor UsageError err
       Right (Nothing, _, _, _, _) ->
         throwEdhSTM pgsCtor UsageError "missing service module"
-      Right (Just service, addr, port, __serv_init__, maybeClients) -> do
+      Right (Just service, addr, port, __peer_init__, maybeClients) -> do
         servAddrs <- newEmptyTMVar
         servEoL   <- newEmptyTMVar
         clients   <- maybe newEventSink return maybeClients
@@ -78,7 +78,7 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
                                 , edh'serving'port    = port
                                 , edh'serving'addrs   = servAddrs
                                 , edh'service'eol     = servEoL
-                                , edh'service'init    = __serv_init__
+                                , edh'service'init    = __peer_init__
                                 , edh'serving'clients = clients
                                 }
             !scope = contextScope $ edh'context pgsCtor
@@ -236,7 +236,7 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
 
 
   serviceThread :: EdhServer -> IO ()
-  serviceThread (EdhServer !servModu !servAddr !servPort !servAddrs !servEoL !__serv_init__ !clients)
+  serviceThread (EdhServer !servModu !servAddr !servPort !servAddrs !servEoL !__peer_init__ !clients)
     = do
       servThId <- myThreadId
       void $ forkIO $ do -- async terminate the accepter thread on stop signal
@@ -319,14 +319,14 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
                   publishEvent clients peerVal
                   -- insert a tick here, for serving to start in next stm tx
                   flip (exitEdhSTM pgs) nil $ \_ ->
-                    contEdhSTM $ if __serv_init__ == nil
+                    contEdhSTM $ if __peer_init__ == nil
                       then exit
-              -- call the per-client service module initialization method,
+              -- call the per-connection peer module initialization method,
               -- with the module object as `that`
                       else
                         edhMakeCall
                             pgs
-                            __serv_init__
+                            __peer_init__
                             (thisObject $ contextScope $ edh'context pgs)
                             []
                           $ \mkCall ->
