@@ -1,6 +1,14 @@
 
-consoleTo( '127.0.0.1', 3721, )
+consoleTo( '127.0.0.1', 3720, )
 
 3*7
 
-:quit
+dir
+
+
+# stop the console client loop, i.e. to actively disconnect
+# from remote console
+quit
+
+# here back to the top level Edh repl, quit gracefully
+quit

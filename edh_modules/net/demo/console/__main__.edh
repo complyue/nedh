@@ -1,0 +1,66 @@
+
+{#
+ # this is the client-facing module for the demo of a networked
+ # console
+ # 
+ # this module is instantiated and run per client connection.
+ #
+ # a `{ net.Peer: peer }` object is guaranteed to have been
+ # implanted by per-connection host module preparation.
+ #
+ # none or more of other artifacts may have been implanted as well,
+ # according to the per-connection peer module initialization method
+ # (e.g. __peer_init__) specified on construction of the very
+      net.Server( 'net/demo/console', ..., init=__peer_init__, )
+ # instance.
+ #}
+
+# change console client's command prompt
+peer.postCommand(
+  # use a tuple to change both ps1 and ps2
+  # repr( ("(rcon)Đ: ", "(rcon)Đ| ") ),
+  # or just ps1
+  repr( "(rcon)Đ: " )
+  0,  # this should direct to channel conin := 0
+)
+
+while true {  # this is the *Loop* in so-called REPL
+  # Read+Eval (peer.readCommand) -> Print (peer.print) -> Loop
+
+  case peer.readCommand() of {
+    batteries.quit -> { break }
+    batteries.dir -> peer.postCommand(
+      repr( sprintDir() ),
+      1, # direct to channel conout := 1
+    )
+    { cmdVal } -> {
+      peer.postCommand(
+        repr( cmdVal ),
+        1, # direct to channel conout := 1
+      )
+      cmdVal = nil  # clear it
+    }
+  }
+
+} $=> {  # catch exceptions
+
+  {{ ProgramHalt: ph }} -> {
+    throw ph  # escalate a halt to the program loop of the
+    # host interpreter, let it decide what to do.
+  }
+
+  {{ IOError:exc }} -> {
+    console.fatal <| 'IO error - ' ++ exc
+    throw exc  # escalate it to the program loop of the
+    # host interpreter, let it decide what to do.
+  }
+
+  { cmdExc } -> {
+    peer.postCommand(
+      repr( 'Recovered from error\n  exception=' ++ cmdExc),
+      1, # direct to channel conout := 1
+    )
+  }
+
+}
+

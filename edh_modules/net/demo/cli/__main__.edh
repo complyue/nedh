@@ -1,6 +1,7 @@
 
 {#
- # this is the CLI (command line interface) module for nedh demo client
+ # this is the client-facing peer module for demo of
+ # CLI (command line interface) as a nedh service client
  # 
  # this module is instantiated and run per client connection.
  #

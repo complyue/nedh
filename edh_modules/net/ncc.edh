@@ -14,7 +14,7 @@ import * 'net'
 
 method consoleTo(
   addr      ='127.0.0.1', # remote addr to connect
-  port      =3721,        # remote port to connect
+  port      =3720,        # remote port to connect
   consumer  ='net/ncc',   # the peer module
   init      =None,        # peer module initialization
   assignTo  =None,        # attr ref to assign to the caller

@@ -1,0 +1,22 @@
+
+{#
+ # networked console server
+ #}
+
+import * 'net'
+
+method consoleOn (
+  conModu,                 # the console service module
+  servAddr  ='127.0.0.1',  # local addr to bind
+  servPort  =3720,         # local port to bind
+  init      =None,         # peer module initialization
+) {
+  case Server (
+    conModu, servAddr, servPort, init=init,
+  ) of { server } -> { pass }
+
+  case server.addrs() of { addrs } ->
+    console.info<| 'Serving console at: ' ++ addrs
+
+  return server
+}

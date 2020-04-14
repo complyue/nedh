@@ -1,0 +1,20 @@
+
+# `server = consoleOn( ... )` won't work,
+# the assignment transaction will prevent necessary IO
+# actions `net.Server()` constructor has to perform
+
+{
+  case 
+
+# following is the only line you really need to paste
+# into an repl to start a working console server
+consoleOn( 'net/demo/console', '127.0.0.1', 3720, )
+
+  of { server } -> { pass }
+}
+
+
+# following line helps to keep the server live if this
+# file is redirected as stdin. 
+# be aware it's no good to be pasted into an repl
+server.join()
