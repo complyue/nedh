@@ -118,14 +118,14 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
  where
   parseCtorArgs =
     ArgsPackParser
-        [ \arg (_, addr', port', init', clients') -> case arg of
+        [ \arg (_, addr', port', init', clients') -> case edhUltimate arg of
           EdhString !service ->
             Right (Just service, addr', port', init', clients')
           _ -> Left "Invalid service"
-        , \arg (service', _, port', init', clients') -> case arg of
+        , \arg (service', _, port', init', clients') -> case edhUltimate arg of
           EdhString addr -> Right (service', addr, port', init', clients')
           _              -> Left "Invalid addr"
-        , \arg (service', addr', _, init', clients') -> case arg of
+        , \arg (service', addr', _, init', clients') -> case edhUltimate arg of
           EdhDecimal d -> case D.decimalToInteger d of
             Just port ->
               Right (service', addr', fromIntegral port, init', clients')
@@ -134,27 +134,33 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
         ]
       $ Map.fromList
           [ ( "addr"
-            , \arg (service', _, port', init', clients') -> case arg of
-              EdhString addr -> Right (service', addr, port', init', clients')
-              _              -> Left "Invalid addr"
+            , \arg (service', _, port', init', clients') ->
+              case edhUltimate arg of
+                EdhString addr ->
+                  Right (service', addr, port', init', clients')
+                _ -> Left "Invalid addr"
             )
           , ( "port"
-            , \arg (service', addr', _, init', clients') -> case arg of
-              EdhDecimal d -> case D.decimalToInteger d of
-                Just port ->
-                  Right (service', addr', fromIntegral port, init', clients')
-                Nothing -> Left "port must be integer"
-              _ -> Left "Invalid port"
+            , \arg (service', addr', _, init', clients') ->
+              case edhUltimate arg of
+                EdhDecimal d -> case D.decimalToInteger d of
+                  Just port ->
+                    Right (service', addr', fromIntegral port, init', clients')
+                  Nothing -> Left "port must be integer"
+                _ -> Left "Invalid port"
             )
           , ( "init"
-            , \arg (service', addr', port', _, clients') -> case arg of
-              EdhNil          -> Right (service', addr', port', nil, clients')
-              mth@EdhMethod{} -> Right (service', addr', port', mth, clients')
-              mth@EdhIntrpr{} -> Right (service', addr', port', mth, clients')
-              _               -> Left "Invalid init"
+            , \arg (service', addr', port', _, clients') ->
+              case edhUltimate arg of
+                EdhNil -> Right (service', addr', port', nil, clients')
+                mth@EdhMethod{} ->
+                  Right (service', addr', port', mth, clients')
+                mth@EdhIntrpr{} ->
+                  Right (service', addr', port', mth, clients')
+                _ -> Left "Invalid init"
             )
           , ( "clients"
-            , \arg (service', addr', port', init', _) -> case arg of
+            , \arg (service', addr', port', init', _) -> case edhUltimate arg of
               EdhSink sink -> Right (service', addr', port', init', Just sink)
               _            -> Left "Invalid clients"
             )

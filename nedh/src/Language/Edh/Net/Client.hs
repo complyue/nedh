@@ -118,13 +118,13 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
  where
   parseCtorArgs =
     ArgsPackParser
-        [ \arg (_, addr', port', init') -> case arg of
+        [ \arg (_, addr', port', init') -> case edhUltimate arg of
           EdhString !consumer -> Right (Just consumer, addr', port', init')
           _                   -> Left "Invalid consumer"
-        , \arg (consumer', _, port', init') -> case arg of
+        , \arg (consumer', _, port', init') -> case edhUltimate arg of
           EdhString addr -> Right (consumer', addr, port', init')
           _              -> Left "Invalid addr"
-        , \arg (consumer', addr', _, init') -> case arg of
+        , \arg (consumer', addr', _, init') -> case edhUltimate arg of
           EdhDecimal d -> case D.decimalToInteger d of
             Just port -> Right (consumer', addr', fromIntegral port, init')
             Nothing   -> Left "port must be integer"
@@ -132,19 +132,19 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
         ]
       $ Map.fromList
           [ ( "addr"
-            , \arg (consumer', _, port', init') -> case arg of
+            , \arg (consumer', _, port', init') -> case edhUltimate arg of
               EdhString addr -> Right (consumer', addr, port', init')
               _              -> Left "Invalid addr"
             )
           , ( "port"
-            , \arg (consumer', addr', _, init') -> case arg of
+            , \arg (consumer', addr', _, init') -> case edhUltimate arg of
               EdhDecimal d -> case D.decimalToInteger d of
                 Just port -> Right (consumer', addr', fromIntegral port, init')
                 Nothing   -> Left "port must be integer"
               _ -> Left "Invalid port"
             )
           , ( "init"
-            , \arg (consumer', addr', port', _) -> case arg of
+            , \arg (consumer', addr', port', _) -> case edhUltimate arg of
               EdhNil          -> Right (consumer', addr', port', nil)
               mth@EdhMethod{} -> Right (consumer', addr', port', mth)
               mth@EdhIntrpr{} -> Right (consumer', addr', port', mth)

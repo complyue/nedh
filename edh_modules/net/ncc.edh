@@ -1,0 +1,40 @@
+
+{#
+ # networked client to remote console
+ #}
+
+import * 'net'
+
+# here we use case-of + wild capture pattern to avoid the
+# transaction imposed by assignment, that's to say:
+#   client = Client ()
+# won't work as the assignment transaction will prevent the
+# necessary IO action to be performed during construction of
+# the client instance.
+
+method consoleTo(
+  addr      ='127.0.0.1', # remote addr to connect
+  port      =3721,        # remote port to connect
+  consumer  ='net/ncc',   # the peer module
+  init      =None,        # peer module initialization
+  assignTo  =None,        # attr ref to assign to the caller
+) {
+
+  case Client( consumer, addr, port, init=init, ) of { client } -> {
+    # assign the client instance to the caller if it requests so
+    assignTo &> {
+      that $ assignTo = client
+    }
+  }
+
+  case client.addrs() of { addrs } ->
+    console.info<| 'Connected to console server at: ' ++ addrs
+
+  client.join() $=> { exc } -> {
+    console.error<| 'Some trouble with the console server:\n' ++ exc
+  }
+
+  console.info<| 'Disconnected from console server.'
+
+}
+

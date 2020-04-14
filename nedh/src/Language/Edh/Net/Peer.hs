@@ -9,6 +9,7 @@ import           Control.Monad
 import           Control.Monad.Reader
 import           Control.Concurrent.STM
 
+import qualified Data.List.NonEmpty            as NE
 import           Data.Hashable
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
@@ -119,7 +120,11 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
           , RecvArg "chSink" Nothing $ Just $ LitExpr SinkCtor
           ]
         )
-      , ("readCommand", EdhMethod, readPeerCmdProc, PackReceiver [])
+      , ( "readCommand"
+        , EdhMethod
+        , readPeerCmdProc
+        , PackReceiver [RecvArg "inScopeOf" Nothing (Just edhNoneExpr)]
+        )
       , ( "postCommand"
         , EdhMethod
         , postPeerCmdProc
@@ -252,17 +257,64 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
             ]
 
   readPeerCmdProc :: EdhProcedure
-  readPeerCmdProc _ !exit = do
-    pgs <- ask
-    let this = thisObject $ contextScope $ edh'context pgs
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
-            (show esd)
-        Just (peer :: Peer) -> readPeerCommand pgs peer exit
+  readPeerCmdProc apk !exit = ask >>= \pgs ->
+    case parseArgsPack Nothing argsParser apk of
+      Left  err       -> throwEdh UsageError err
+      Right inScopeOf -> contEdhSTM $ do
+        let ctx  = edh'context pgs
+            this = thisObject $ contextScope ctx
+            es   = entity'store $ objEntity this
+        -- mind to inherit this host proc's exception handler anyway
+        cmdScope <- case inScopeOf of
+          Just !so -> isScopeWrapper ctx so >>= \case
+            True -> return $ (wrappedScopeOf so)
+              { exceptionHandler = exceptionHandler $ contextScope ctx
+              }
+            False -> return $ (contextScope ctx)
+            -- eval cmd source in the specified object's (probably a module)
+            -- context scope
+              { scopeEntity = objEntity so
+              , thisObject  = so
+              , thatObject  = so
+              , scopeProc   = objClass so
+              , scopeCaller = StmtSrc
+                                ( SourcePos { sourceName   = "<peer-cmd>"
+                                            , sourceLine   = mkPos 1
+                                            , sourceColumn = mkPos 1
+                                            }
+                                , VoidStmt
+                                )
+              }
+          _ -> case NE.tail $ callStack ctx of
+            -- eval cmd source with caller's this/that, and lexical context,
+            -- while the entity is already the same as caller's
+            callerScope : _ -> return $ (contextScope ctx)
+              { thisObject  = thisObject callerScope
+              , thatObject  = thatObject callerScope
+              , scopeProc   = scopeProc callerScope
+              , scopeCaller = scopeCaller callerScope
+              }
+            _ -> return $ contextScope ctx
+        let !pgsCmd = pgs
+              { edh'context = ctx
+                                { callStack = cmdScope
+                                                NE.:| NE.tail (callStack ctx)
+                                }
+              }
+        esd <- readTVar es
+        case fromDynamic esd of
+          Nothing ->
+            throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+              (show esd)
+          Just (peer :: Peer) -> readPeerCommand pgsCmd peer exit
+   where
+    argsParser = ArgsPackParser [] $ Map.fromList
+      [ ( "inScopeOf"
+        , \arg _ -> case arg of
+          EdhObject so -> Right $ Just so
+          _            -> Left "Invalid inScopeOf object"
+        )
+      ]
 
   postPeerCmdProc :: EdhProcedure
   postPeerCmdProc !apk !exit = do
