@@ -15,6 +15,11 @@
  # instance.
  #}
 
+console.info<| 'Console client connected - ' ++ peer
+defer {
+  console.info<| 'Console client disconnected - ' ++ peer
+}
+
 # change console client's command prompt
 peer.postCommand(
   # use a tuple to change both ps1 and ps2
@@ -24,7 +29,7 @@ peer.postCommand(
   0,  # this should direct to channel conin := 0
 )
 
-while true {  # this is the *Loop* in so-called REPL
+while false == peer.eol() {  # this is the *Loop* in so-called REPL
   # Read+Eval (peer.readCommand) -> Print (peer.print) -> Loop
 
   case peer.readCommand() of {
