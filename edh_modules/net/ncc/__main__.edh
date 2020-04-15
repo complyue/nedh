@@ -12,7 +12,6 @@
 # read will block `console.print()`
 conOutCnt = 0
 conOutSignal := sink
-conOutSignal <- conOutCnt  # keep it non-empty
 
 # by default, show peer's identity as part of the console prompt
 cinArgs = pkargs(
@@ -61,9 +60,22 @@ go {
     console.info<| conMsg
   }
 
+  # trip a msg to our local conout, content of the msg doesn't need to
+  # be very useful (yet better to be), the successful delivery of this
+  # msg is a thing worth to validate in the first place. and then we are
+  # waiting 1st conout cmd before starting read of local stdio console
+  # (see below), so if the server does set some command prompt on
+  # connection, we'll use it to read the 1st command from local stdio.
+  peer.postCommand(expr peer.postCommand(
+# TODO (++) won't be feasible for a Python peer, need a universal way
+#      here, maybe let Edh (+) operate on strings too
+      repr( "You're seen as " ++ peer ++ " at the server." ),
+      1, # direct to conout := 1
+  )) # note here is posting to console server's default channel
+
   { while false == peer.eol() {
     case peer.readCommand() of {
-      # TODO interpret any specially expected command here
+      # todo interpret any specially expected command here
 
       { cmdVal } -> {
         console.info<| 'Unexpected command from console server '
@@ -77,6 +89,11 @@ go {
       ++ '\n' ++ exc
   }
 }
+
+# wait the 1st cmd to our conout, whether the server will issue one
+# on connection on its own, we will post one (see above), so this
+# won't dead lock
+for _ from conOutSignal do { break }
 
 # pump commands from local stdio console to the console server
 while false == peer.eol() {
