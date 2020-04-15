@@ -125,6 +125,12 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
         , readPeerCmdProc
         , PackReceiver [RecvArg "inScopeOf" Nothing (Just edhNoneExpr)]
         )
+      , ( "p2c"
+        , EdhMethod
+        , p2cProc
+        , PackReceiver
+          [RecvArg "dir" Nothing Nothing, RecvArg "cmd" Nothing Nothing]
+        )
       , ( "postCommand"
         , EdhMethod
         , postPeerCmdProc
@@ -315,6 +321,50 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
           _            -> Left "Invalid inScopeOf object"
         )
       ]
+
+  -- | peer.p2c( dir, cmd ) - shorthand for post-to-channel
+  p2cProc :: EdhProcedure
+  p2cProc !apk !exit = do
+    pgs <- ask
+    let
+      this = thisObject $ contextScope $ edh'context pgs
+      es   = entity'store $ objEntity this
+      postCmd :: Text -> Text -> STM ()
+      postCmd !dir !cmd = do
+        esd <- readTVar es
+        case fromDynamic esd of
+          Nothing ->
+            throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+              (show esd)
+          Just (peer :: Peer) -> do
+            postPeerCommand peer $ CommCmd dir cmd
+            exitEdhSTM pgs exit nil
+      postCmd' :: EdhValue -> Text -> STM ()
+      postCmd' !dirVal !cmd = case dirVal of
+        EdhNil -> postCmd "" cmd
+        _      -> edhValueReprSTM pgs dirVal $ \dir -> postCmd dir cmd
+    case parseArgsPack (Nothing, Nothing) parseArgs apk of
+      Left  err                     -> throwEdh UsageError err
+      Right (Nothing    , _       ) -> throwEdh UsageError "Missing directive"
+      Right (_          , Nothing ) -> throwEdh UsageError "Missing command"
+      Right (Just dirVal, Just cmd) -> case cmd of
+        EdhString src   -> contEdhSTM $ postCmd' dirVal src
+        EdhExpr _ _ src -> if src == ""
+          then throwEdh UsageError "Missing source from the expr as command"
+          else contEdhSTM $ postCmd' dirVal src
+        cmdVal ->
+          throwEdh UsageError $ "Unsupported command type: " <> T.pack
+            (edhTypeNameOf cmdVal)
+   where
+    parseArgs =
+      ArgsPackParser
+          [ \arg (_, cmd') -> Right (Just arg, cmd')
+          , \arg (dir', _) -> Right (dir', Just arg)
+          ]
+        $ Map.fromList
+            [ ("dir", \arg (_, cmd') -> Right (Just arg, cmd'))
+            , ("cmd", \arg (dir', _) -> Right (dir', Just arg))
+            ]
 
   postPeerCmdProc :: EdhProcedure
   postPeerCmdProc !apk !exit = do
