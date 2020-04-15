@@ -33,6 +33,13 @@ while false == peer.eol() {  # this is the *Loop* in so-called REPL
   # Read+Eval (peer.readCommand) -> Print (peer.print) -> Loop
 
   case peer.readCommand() of {
+    nil -> {  # conout an empty string or the console client will
+      # wait for its eval result forever
+      peer.postCommand(
+        "''",
+        1, # direct to channel conout := 1
+      )
+    }
     batteries.quit -> { break }
     batteries.dir -> peer.postCommand(
       repr( sprintDir() ),

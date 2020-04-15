@@ -66,12 +66,14 @@ go {
   # waiting 1st conout cmd before starting read of local stdio console
   # (see below), so if the server does set some command prompt on
   # connection, we'll use it to read the 1st command from local stdio.
-  peer.postCommand(expr peer.postCommand(
+  peer.postCommand(expr
+
 # TODO (++) won't be feasible for a Python peer, need a universal way
 #      here, maybe let Edh (+) operate on strings too
-      repr( "You're seen as " ++ peer ++ " at the server." ),
-      1, # direct to conout := 1
-  )) # note here is posting to console server's default channel
+
+      "You're seen as " ++ peer ++ " at the server."
+  ) # note here is posting to console server's default channel, so as
+  # to be an expr cmd to be evaluated and posted back to our conout
 
   { while false == peer.eol() {
     case peer.readCommand() of {
