@@ -18,10 +18,10 @@ method consoleOn (
   case ncon.addrs() of { addrs } ->
     console.info<| 'Serving networked console at: ' ++ addrs
   
-  # wait end-of-life for each console client, log err if any
+  # wait end-of-life for each client, log err if any
   go for peer from ncon.clients do { go {
     method _ (peer') {
-      peer'.eol() @=> { nccExc } -> {
+      peer'.join() @=> { nccExc } -> {
         console.warn<| 'Console client caused trouble - '
           ++ peer' ++ '\n' ++ nccExc
       }

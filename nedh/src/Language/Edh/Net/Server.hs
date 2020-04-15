@@ -307,69 +307,80 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
                      , edh'peer'channels = chdVar
                      , postPeerCommand   = po
                      }
-        prepService :: EdhModulePreparation
-        prepService !pgs !exit = do
-          let !modu = thisObject $ contextScope $ edh'context pgs
-          runEdhProc pgs
+        prepPeer :: IO EdhValue
+        prepPeer = do
+          peerVar <- newTVarIO undefined
+          void
+            $ runEdhProgram' ctx
             $ createEdhObject peerClass (ArgsPack [] mempty)
             $ \(OriginalValue !peerVal _ _) -> case peerVal of
                 EdhObject !peerObj -> contEdhSTM $ do
                   -- actually fill in the in-band entity storage here
                   writeTVar (entity'store $ objEntity peerObj) $ toDyn peer
-                  -- implant to the module being prepared
-                  changeEntityAttr pgs
-                                   (objEntity modu)
-                                   (AttrByName "peer")
-                                   peerVal
                   -- announce this new peer to the event sink
                   publishEvent clients peerVal
-                  -- insert a tick here, for serving to start in next stm tx
-                  flip (exitEdhSTM pgs) nil $ \_ ->
-                    contEdhSTM $ if __peer_init__ == nil
-                      then exit
+                  -- save it and this part done
+                  writeTVar peerVar peerVal
+                _ -> error "bug: Peer ctor returned non-object"
+          readTVarIO peerVar
+        prepService :: EdhValue -> EdhModulePreparation
+        prepService !peerVal !pgs !exit = do
+          let !modu = thisObject $ contextScope $ edh'context pgs
+          -- implant to the module being prepared
+          changeEntityAttr pgs (objEntity modu) (AttrByName "peer") peerVal
+          -- insert a tick here, for serving to start in next stm tx
+          flip (exitEdhSTM pgs) nil $ \_ -> contEdhSTM $ if __peer_init__ == nil
+            then exit
+            else
               -- call the per-connection peer module initialization method,
               -- with the module object as `that`
-                      else
-                        edhMakeCall
-                            pgs
-                            __peer_init__
-                            (thisObject $ contextScope $ edh'context pgs)
-                            []
-                          $ \mkCall ->
-                              runEdhProc pgs $ mkCall $ \_ -> contEdhSTM exit
-                _ -> error "bug: Peer ctor returned non-object"
+              edhMakeCall pgs
+                          __peer_init__
+                          (thisObject $ contextScope $ edh'context pgs)
+                          []
+                $ \mkCall -> runEdhProc pgs $ mkCall $ \_ -> contEdhSTM exit
 
-      void
-        -- run the service module as another program
-        $ forkFinally (runEdhModule' world (T.unpack servModu) prepService)
-        -- mark client end-of-life with the result anyway
-        $ void
-        . atomically
-        . tryPutTMVar clientEoL
-        . void
+      try prepPeer >>= \case
+        Left err -> atomically $ do
+          -- mark the client eol with this error
+          void $ tryPutTMVar clientEoL (Left err)
+          -- failure in preparation for a peer object is considered so fatal
+          -- that the server should terminate as well
+          void $ tryPutTMVar servEoL (Left err)
+        Right !peerVal -> do
 
-      -- pump commands in, 
-      -- make this thread the only one reading the handle
-      -- note this won't return, will be asynchronously killed on eol
-      void $ forkIO $ receivePacketStream clientId hndl pktSink clientEoL
+          void
+            -- run the service module on a separate thread as another program
+            $ forkFinally
+                (runEdhModule' world (T.unpack servModu) (prepService peerVal))
+            -- mark client end-of-life with the result anyway
+            $ void
+            . atomically
+            . tryPutTMVar clientEoL
+            . void
 
-      let
-        serializeCmdsOut :: IO ()
-        serializeCmdsOut =
-          atomically
-              (        (Right <$> readTQueue poq)
-              `orElse` (Left <$> readTMVar clientEoL)
-              )
-            >>= \case
-                  Left _ -> return () -- stop on eol any way
-                  Right (CommCmd !dir !src) ->
-                    catch
-                        (  sendTextPacket clientId hndl dir src
-                        >> serializeCmdsOut
-                        )
-                      $ \(e :: SomeException) -> -- mark eol on error
-                          atomically $ void $ tryPutTMVar clientEoL $ Left e
-      -- pump commands out,
-      -- make this thread the only one writing the handle
-      serializeCmdsOut
+          -- pump commands in, 
+          -- make this thread the only one reading the handle
+          -- note this won't return, will be asynchronously killed on eol
+          void $ forkIO $ receivePacketStream clientId hndl pktSink clientEoL
+
+          let
+            serializeCmdsOut :: IO ()
+            serializeCmdsOut =
+              atomically
+                  (        (Right <$> readTQueue poq)
+                  `orElse` (Left <$> readTMVar clientEoL)
+                  )
+                >>= \case
+                      Left _ -> return () -- stop on eol any way
+                      Right (CommCmd !dir !src) ->
+                        catch
+                            (  sendTextPacket clientId hndl dir src
+                            >> serializeCmdsOut
+                            )
+                          $ \(e :: SomeException) -> -- mark eol on error
+                              atomically $ void $ tryPutTMVar clientEoL $ Left e
+          -- pump commands out,
+          -- make this thread the only one writing the handle
+          serializeCmdsOut
 
