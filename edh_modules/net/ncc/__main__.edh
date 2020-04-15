@@ -66,12 +66,13 @@ go {
   # waiting 1st conout cmd before starting read of local stdio console
   # (see below), so if the server does set some command prompt on
   # connection, we'll use it to read the 1st command from local stdio.
+  #
+  # note (+) is used in the rpc cmd for string concat, so as to
+  #      universally work with peers speaking different languages (e.g.
+  #      Python instead of Edh), while the more Haskellish (++) would be
+  #      better used otherwise.
   peer.postCommand(expr
-
-# TODO (++) won't be feasible for a Python peer, need a universal way
-#      here, maybe let Edh (+) operate on strings too
-
-      "You're seen as " ++ peer ++ " at the server."
+      "You're seen as " + peer + " at the server."
   ) # note here is posting to console server's default channel, so as
   # to be an expr cmd to be evaluated and posted back to our conout
 
