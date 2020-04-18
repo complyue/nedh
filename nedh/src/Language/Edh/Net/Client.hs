@@ -279,9 +279,9 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
 
         !peer = Peer { edh'peer'ident    = clientId
                      , edh'peer'eol      = cnsmrEoL
+                     , edh'peer'posting  = po
                      , edh'peer'hosting  = ho
                      , edh'peer'channels = chdVar
-                     , postPeerCommand   = po
                      }
         prepConsumer :: EdhModulePreparation
         prepConsumer !pgs !exit = do

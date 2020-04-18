@@ -30,19 +30,21 @@ instance Hashable CommCmd where
 data Peer = Peer {
       edh'peer'ident :: !Text
     , edh'peer'eol :: !(TMVar (Either SomeException ()))
+      -- todo this ever needs to be in CPS?
+    , edh'peer'posting :: !(CommCmd -> STM ())
     , edh'peer'hosting :: !(STM CommCmd)
     , edh'peer'channels :: !(TVar (Map.HashMap EdhValue EventSink))
-      -- todo this ever needs to be in CPS?
-    , postPeerCommand :: !(CommCmd -> STM ())
   }
 
+postPeerCommand :: Peer -> CommCmd -> STM ()
+postPeerCommand = edh'peer'posting
 
 -- | Read next command from peer
 --
 -- Note a command may target a specific channel, thus get posted to that 
 --      channel's sink, and nil will be returned by this procedure for it.
 readPeerCommand :: EdhProgState -> Peer -> EdhProcExit -> STM ()
-readPeerCommand !pgs (Peer !ident !eol !ho !chdVar !po) !exit =
+readPeerCommand !pgs (Peer !ident !eol !po !ho !chdVar) !exit =
   edhPerformIO pgs
                (atomically $ (Right <$> ho) `orElse` (Left <$> readTMVar eol))
     $ \case

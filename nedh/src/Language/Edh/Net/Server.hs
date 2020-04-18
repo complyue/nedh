@@ -303,9 +303,9 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
 
         !peer = Peer { edh'peer'ident    = clientId
                      , edh'peer'eol      = clientEoL
+                     , edh'peer'posting  = po
                      , edh'peer'hosting  = ho
                      , edh'peer'channels = chdVar
-                     , postPeerCommand   = po
                      }
         prepPeer :: IO EdhValue
         prepPeer = do
