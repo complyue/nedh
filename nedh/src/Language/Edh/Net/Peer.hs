@@ -24,7 +24,7 @@ type CmdSrc = Text
 data CommCmd = CommCmd !CmdDir !CmdSrc
   deriving (Eq, Show)
 instance Hashable CommCmd where
-  hashWithSalt s (CommCmd cmd src) = s `hashWithSalt` cmd `hashWithSalt` src
+  hashWithSalt s (CommCmd dir src) = s `hashWithSalt` dir `hashWithSalt` src
 
 
 data Peer = Peer {
