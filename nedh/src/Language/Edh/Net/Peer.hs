@@ -42,7 +42,7 @@ postPeerCommand = edh'peer'posting
 -- | Read next command from peer
 --
 -- Note a command may target a specific channel, thus get posted to that 
---      channel's sink, and nil will be returned by this procedure for it.
+--      channel's sink, and nil will be returned from here for it.
 readPeerCommand :: EdhProgState -> Peer -> EdhProcExit -> STM ()
 readPeerCommand !pgs (Peer !ident !eol !po !ho !chdVar) !exit =
   edhPerformIO pgs
