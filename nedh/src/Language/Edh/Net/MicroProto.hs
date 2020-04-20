@@ -10,6 +10,8 @@ import           Control.Exception
 import           Control.Monad.Reader
 import           Control.Concurrent
 import           Control.Concurrent.STM
+
+import           Data.Hashable
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Char8         as C
 import           Data.Text
@@ -25,13 +27,31 @@ maxHeaderLength = 60
 
 type PacketDirective = Text
 type PacketPayload = B.ByteString
-type PacketSink = TMVar (PacketDirective, PacketPayload)
+type PacketSink = TMVar Packet
 type EndOfStream = TMVar (Either SomeException ())
+
+data Packet = Packet !PacketDirective !PacketPayload
+  deriving (Eq, Show)
+instance Hashable Packet where
+  hashWithSalt s (Packet dir payload) =
+    s `hashWithSalt` dir `hashWithSalt` payload
+
+-- | Construct a textual packet.
+textPacket :: PacketDirective -> Text -> Packet
+textPacket !dir !txt = Packet dir payload
+ where
+  payload = encodeUtf8 $ finishLine $ onSepLine txt
+  onSepLine :: Text -> Text
+  onSepLine "" = ""
+  onSepLine !t = if "\n" `isPrefixOf` t then t else "\n" <> t
+  finishLine :: Text -> Text
+  finishLine "" = ""
+  finishLine !t = if "\n" `isSuffixOf` t then t else t <> "\n"
 
 
 -- | Send out a binary packet.
-sendPacket :: Text -> Handle -> PacketDirective -> PacketPayload -> IO ()
-sendPacket peerSite !outletHndl !dir !payload = do
+sendPacket :: Text -> Handle -> Packet -> IO ()
+sendPacket peerSite !outletHndl (Packet !dir !payload) = do
   let !pktLen = B.length payload
       !pktHdr = encodeUtf8 $ T.pack ("[" <> show pktLen <> "#") <> dir <> "]"
   when (B.length pktHdr > maxHeaderLength) $ throwIO $ EdhPeerError
@@ -41,22 +61,6 @@ sendPacket peerSite !outletHndl !dir !payload = do
   B.hPut outletHndl pktHdr
   -- write packet payload
   B.hPut outletHndl payload
-
-
--- | Send out a textual packet.
-sendTextPacket :: Text -> Handle -> PacketDirective -> Text -> IO ()
-sendTextPacket peerSite !outletHndl !dir !txt = sendPacket peerSite
-                                                           outletHndl
-                                                           dir
-                                                           payload
- where
-  payload = encodeUtf8 $ finishLine $ onSepLine txt
-  onSepLine :: Text -> Text
-  onSepLine "" = ""
-  onSepLine !t = if "\n" `isPrefixOf` t then t else "\n" <> t
-  finishLine :: Text -> Text
-  finishLine "" = ""
-  finishLine !t = if "\n" `isSuffixOf` t then t else t <> "\n"
 
 
 -- | Receive all packets being streamed to the specified (socket) handle,
@@ -89,9 +93,9 @@ receivePacketStream peerSite !intakeHndl !pktSink !eos = do
 
   parsePkts :: B.ByteString -> IO ()
   parsePkts !readahead = do
-    (payloadLen, directive, readahead') <- parsePktHdr readahead
+    (payloadLen, directive, readahead') <- parseHdr readahead
     if payloadLen < 0
-      then -- mark eos and done
+      then -- normal eos, try mark and done
            void $ atomically $ tryPutTMVar eos $ Right ()
       else do
         let (payload, rest) = B.splitAt payloadLen readahead'
@@ -100,8 +104,10 @@ receivePacketStream peerSite !intakeHndl !pktSink !eos = do
           then do
             morePayload <- B.hGet intakeHndl more2read
             atomically
-                ((Right <$> putTMVar pktSink (directive, payload <> morePayload)
-                 )
+                (        (Right <$> putTMVar
+                           pktSink
+                           (Packet directive (payload <> morePayload))
+                         )
                 `orElse` (Left <$> readTMVar eos)
                 )
               >>= \case
@@ -110,7 +116,7 @@ receivePacketStream peerSite !intakeHndl !pktSink !eos = do
                     Right _          -> parsePkts B.empty
           else
             atomically
-                (        (Right <$> putTMVar pktSink (directive, payload))
+                (        (Right <$> putTMVar pktSink (Packet directive payload))
                 `orElse` (Left <$> readTMVar eos)
                 )
               >>= \case
@@ -118,8 +124,8 @@ receivePacketStream peerSite !intakeHndl !pktSink !eos = do
                     Left  (Right ()) -> return ()
                     Right _          -> parsePkts rest
 
-  parsePktHdr :: B.ByteString -> IO (Int, Text, B.ByteString)
-  parsePktHdr !readahead = do
+  parseHdr :: B.ByteString -> IO (Int, Text, B.ByteString)
+  parseHdr !readahead = do
     peeked <- if B.null readahead
       then B.hGetSome intakeHndl maxHeaderLength
       else return readahead
@@ -140,7 +146,7 @@ receivePacketStream peerSite !intakeHndl !pktSink !eos = do
           else if B.length peeked < maxHeaderLength
             then do
               morePeek <- B.hGetSome intakeHndl maxHeaderLength
-              parsePktHdr $ readahead <> morePeek
+              parseHdr $ readahead <> morePeek
             else throwIO
               $ EdhPeerError peerSite "incoming packet header too long"
 

@@ -10,34 +10,28 @@ import           Control.Monad.Reader
 import           Control.Concurrent.STM
 
 import qualified Data.List.NonEmpty            as NE
-import           Data.Hashable
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
+import           Data.Text.Encoding
 import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
 import           Language.Edh.EHI
 
-
-type CmdDir = Text
-type CmdSrc = Text
-data CommCmd = CommCmd !CmdDir !CmdSrc
-  deriving (Eq, Show)
-instance Hashable CommCmd where
-  hashWithSalt s (CommCmd dir src) = s `hashWithSalt` dir `hashWithSalt` src
+import           Language.Edh.Net.MicroProto
 
 
 data Peer = Peer {
       edh'peer'ident :: !Text
     , edh'peer'eol :: !(TMVar (Either SomeException ()))
       -- todo this ever needs to be in CPS?
-    , edh'peer'posting :: !(CommCmd -> STM ())
-    , edh'peer'hosting :: !(STM CommCmd)
+    , edh'peer'posting :: !(Packet -> STM ())
+    , edh'peer'hosting :: !(STM Packet)
     , edh'peer'channels :: !(TVar (Map.HashMap EdhValue EventSink))
   }
 
-postPeerCommand :: Peer -> CommCmd -> STM ()
-postPeerCommand = edh'peer'posting
+postPeerCommand :: Peer -> Text -> Text -> STM ()
+postPeerCommand !peer !dir !src = edh'peer'posting peer $ textPacket dir src
 
 -- | Read next command from peer
 --
@@ -53,45 +47,53 @@ readPeerCommand !pgs (Peer !ident !eol !po !ho !chdVar) !exit =
         -- previously eol due to error
         Left (Left ex) -> toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
         -- got next command incoming
-        Right (CommCmd !dir !src) -> if "err" == dir
+        Right pkt@(Packet !dir !payload) -> if "err" == dir
           then do -- unexpected error occurred at peer site, it has sent the
             -- details back here, mark eol with it at local site, and throw
-            let !ex = toException $ EdhPeerError ident src
+            let !ex = toException $ EdhPeerError ident $ decodeUtf8 payload
             void $ tryPutTMVar eol $ Left ex
             toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
           else -- treat other directives as the expr of the target channel
-            edhCatchSTM pgs (landCmd src dir) exit $ \exv _recover rethrow ->
-              if exv == nil -- no exception occurred,
-                then rethrow -- rethrow just passes on in this case
-                else edhValueReprSTM pgs exv $ \exr -> do
-                  -- send peer the error details
-                  po $ CommCmd "err" exr
-                  -- mark eol with this error
-                  fromEdhError pgs exv $ \e -> void $ tryPutTMVar eol $ Left e
-                  -- rethrow the error
-                  rethrow
+               edhCatchSTM pgs (landCmd pkt) exit $ \exv _recover rethrow ->
+            if exv == nil -- no exception occurred,
+              then rethrow -- rethrow just passes on in this case
+              else edhValueReprSTM pgs exv $ \exr -> do
+                -- send peer the error details
+                po $ Packet "err" $ encodeUtf8 exr
+                -- mark eol with this error
+                fromEdhError pgs exv $ \e -> void $ tryPutTMVar eol $ Left e
+                -- rethrow the error
+                rethrow
  where
-  srcName = T.unpack ident
-  landCmd :: Text -> Text -> EdhProgState -> EdhProcExit -> STM ()
-  landCmd !src !dir !pgs' !exit' =
-    runEdhProc pgs' $ evalEdh srcName src $ \cr@(OriginalValue !cmdVal _ _) ->
-      if T.null dir
-        -- to the default channel, which yields as direct result of 
-        --   `peer.readCommand()`
-        then exitEdhProc' exit' cr
-        -- to a specific channel, which should be located by the directive
-        else evalEdh srcName dir $ \(OriginalValue !chLctr _ _) ->
-          contEdhSTM $ do
-            chd <- readTVar chdVar
-            case Map.lookup chLctr chd of
-              Nothing ->
-                throwEdhSTM pgs UsageError
-                  $  "Missing command channel: "
-                  <> T.pack (show chLctr)
-              Just !chSink -> do
-                publishEvent chSink cmdVal -- post the cmd to channel
-                -- yield nil as for `peer.readCommand()` wrt this cmd packet
-                exitEdhSTM pgs' exit' nil
+  !srcName = T.unpack ident
+  landCmd :: Packet -> EdhProgState -> EdhProcExit -> STM ()
+  landCmd (Packet !dir !payload) !pgs' !exit' =
+    case T.stripPrefix "blob:" dir of
+      Just !_blobDir ->
+        throwEdhSTM pgs' UsageError "Blob packet not supported yet."
+      Nothing ->
+        runEdhProc pgs'
+          $ evalEdh srcName src
+          $ \cr@(OriginalValue !cmdVal _ _) -> if T.null dir
+              -- to the default channel, which yields as direct result of 
+              --   `peer.readCommand()`
+              then exitEdhProc' exit' cr
+              -- to a specific channel, which should be located by the directive
+              else evalEdh srcName dir $ \(OriginalValue !chLctr _ _) ->
+                contEdhSTM $ do
+                  chd <- readTVar chdVar
+                  case Map.lookup chLctr chd of
+                    Nothing ->
+                      throwEdhSTM pgs UsageError
+                        $  "Missing command channel: "
+                        <> T.pack (show chLctr)
+                    Just !chSink -> do
+                      publishEvent chSink cmdVal -- post the cmd to channel
+                      -- yield nil as for `peer.readCommand()` wrt this cmd packet
+                      exitEdhSTM pgs' exit' nil
+    where
+          -- don't make this strict
+          src = decodeUtf8 payload
 
 
 -- | host constructor Peer()
@@ -339,7 +341,7 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
             throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
               (show esd)
           Just (peer :: Peer) -> do
-            postPeerCommand peer $ CommCmd dir cmd
+            postPeerCommand peer dir cmd
             exitEdhSTM pgs exit nil
       postCmd' :: EdhValue -> Text -> STM ()
       postCmd' !dirVal !cmd = case dirVal of
@@ -382,7 +384,7 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
             throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
               (show esd)
           Just (peer :: Peer) -> do
-            postPeerCommand peer $ CommCmd dir cmd
+            postPeerCommand peer dir cmd
             exitEdhSTM pgs exit nil
       postCmd' :: Text -> EdhValue -> STM ()
       postCmd' !cmd !dirVal = case dirVal of

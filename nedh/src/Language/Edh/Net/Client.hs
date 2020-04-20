@@ -16,7 +16,6 @@ import           Control.Monad.Reader
 import           Data.Maybe
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
-import           Data.Text.Encoding
 import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
@@ -269,18 +268,10 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
       chdVar  <- newTVarIO mempty
 
       let
-        ho :: STM CommCmd
-        ho = do
-          (dir, payload) <- takeTMVar pktSink
-          let !src = decodeUtf8 payload
-          return $ CommCmd dir src
-        po :: CommCmd -> STM ()
-        po    = writeTQueue poq
-
         !peer = Peer { edh'peer'ident    = clientId
                      , edh'peer'eol      = cnsmrEoL
-                     , edh'peer'posting  = po
-                     , edh'peer'hosting  = ho
+                     , edh'peer'posting  = writeTQueue poq
+                     , edh'peer'hosting  = takeTMVar pktSink
                      , edh'peer'channels = chdVar
                      }
         prepConsumer :: EdhModulePreparation
@@ -335,11 +326,8 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
               )
             >>= \case
                   Left _ -> return () -- stop on eol any way
-                  Right (CommCmd !dir !src) ->
-                    catch
-                        (  sendTextPacket clientId hndl dir src
-                        >> serializeCmdsOut
-                        )
+                  Right !pkt ->
+                    catch (sendPacket clientId hndl pkt >> serializeCmdsOut)
                       $ \(e :: SomeException) -> -- mark eol on error
                           atomically $ void $ tryPutTMVar cnsmrEoL $ Left e
       -- pump commands out,
