@@ -25,7 +25,7 @@ import           Language.Edh.Net.Client
 installNetBatteries :: EdhWorld -> IO ()
 installNetBatteries !world =
 
-  void $ installEdhModule world "net" $ \pgs exit -> do
+  void $ installEdhModule world "net/RT" $ \pgs exit -> do
 
     let moduScope = contextScope $ edh'context pgs
         modu      = thisObject moduScope

@@ -1,0 +1,6 @@
+
+# standard Nedh channels for console IO
+conin  := 0
+conout := 1
+conmsg := 2
+
