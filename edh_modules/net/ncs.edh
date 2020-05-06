@@ -27,10 +27,9 @@ method consoleOn (
       }
     }
   } (peer) }
-  # note an anoymous method is used above, to retain an attr
-  # named `peer'`, locally in the procedure's scope, as the
-  # loop will repeatedly change attr named `peer` in the outer
-  # scope
+  # note an anoymous method is used above, to retain an attr named
+  # `peer'`, locally in the procedure's scope, as the loop will
+  # repeatedly change attr named `peer` in the outer scope
 
   return ncon
 }
