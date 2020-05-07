@@ -27,19 +27,19 @@ import qualified Data.Lossless.Decimal         as D
 import           Language.Edh.EHI
 
 
-data EdhReactor = EdhReactor {
-    -- the import spec of the module to run as the reactor
-      edh'reactor'modu :: !Text
-    -- local network interface to bind
-    , edh'reactor'addr :: !Text
+data EdhSniffer = EdhSniffer {
+    -- the import spec of the module to run as the sniffer
+      edh'sniffer'modu :: !Text
+    -- local network addr to bind
+    , edh'sniffer'addr :: !Text
     -- local network port to bind
-    , edh'reactor'port :: !Int
+    , edh'sniffer'port :: !Int
     -- actually bound network addresses
-    , edh'reacting'addrs :: !(TMVar [AddrInfo])
+    , edh'sniffing'addrs :: !(TMVar [AddrInfo])
     -- end-of-life status
-    , edh'reacting'eol :: !(TMVar (Either SomeException ()))
-    -- reactor module initializer, must callable if not nil
-    , edh'reacting'init :: !EdhValue
+    , edh'sniffing'eol :: !(TMVar (Either SomeException ()))
+    -- sniffer module initializer, must callable if not nil
+    , edh'sniffing'init :: !EdhValue
   }
 
 
