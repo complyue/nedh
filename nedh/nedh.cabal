@@ -72,8 +72,10 @@ library nedh-internal
     exposed-modules:
         Language.Edh.Net.MicroProto
         Language.Edh.Net.Peer
+        Language.Edh.Net.Addr
         Language.Edh.Net.Server
         Language.Edh.Net.Client
+        Language.Edh.Net.Discover
     hs-source-dirs: src
     default-language: Haskell2010
     default-extensions: NoImplicitPrelude OverloadedStrings LambdaCase

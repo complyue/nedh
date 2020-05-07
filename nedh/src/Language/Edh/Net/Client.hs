@@ -51,12 +51,13 @@ data EdhClient = EdhClient {
 -- | host constructor Client()
 clientCtor
   :: Class
+  -> Class
   -> EdhProgState
   -> ArgsPack  -- ctor args, if __init__() is provided, will go there too
   -> TVar (Map.HashMap AttrKey EdhValue)  -- out-of-band attr store
   -> (Dynamic -> STM ())  -- in-band data to be written to entity store
   -> STM ()
-clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
+clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
   case
       parseArgsPack
         (Nothing, "127.0.0.1" :: ServiceAddr, 3721 :: ServicePort, nil)
@@ -157,6 +158,17 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
     let ctx  = edh'context pgs
         this = thisObject $ contextScope ctx
         es   = entity'store $ objEntity this
+        wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
+        wrapAddrs addrs [] = exitEdhSTM pgs exit $ EdhTuple addrs
+        wrapAddrs !addrs (addr : rest) =
+          runEdhProc pgs
+            $ createEdhObject addrClass (ArgsPack [] mempty)
+            $ \(OriginalValue !addrVal _ _) -> case addrVal of
+                EdhObject !addrObj -> contEdhSTM $ do
+                  -- actually fill in the in-band entity storage here
+                  writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
+                  wrapAddrs (addrVal : addrs) rest
+                _ -> error "bug: addr ctor returned non-object"
     contEdhSTM $ do
       esd <- readTVar es
       case fromDynamic esd :: Maybe EdhClient of
@@ -164,15 +176,7 @@ clientCtor !peerClass !pgsCtor !apk !obs !ctorExit =
           throwEdhSTM pgs UsageError $ "bug: this is not a client : " <> T.pack
             (show esd)
         Just !client ->
-          edhPerformIO pgs (atomically $ readTMVar (edh'service'addrs client))
-            $ \addrs ->
-                exitEdhSTM pgs exit
-                  $   EdhTuple
-                  $   EdhString
-                  .   T.pack
-                  .   show
-                  .   addrAddress
-                  <$> addrs
+          waitEdhSTM pgs (readTMVar $ edh'service'addrs client) $ wrapAddrs []
 
   eolProc :: EdhProcedure
   eolProc _ !exit = do

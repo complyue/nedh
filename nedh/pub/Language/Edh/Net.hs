@@ -18,8 +18,10 @@ import           Language.Edh.EHI
 
 import           Language.Edh.Net.MicroProto
 import           Language.Edh.Net.Peer
+import           Language.Edh.Net.Addr
 import           Language.Edh.Net.Server
 import           Language.Edh.Net.Client
+import           Language.Edh.Net.Discover
 
 
 installNetBatteries :: EdhWorld -> IO ()
@@ -35,13 +37,25 @@ installNetBatteries !world =
           EdhClass cls -> cls
           _            -> error "bug: mkHostClass returned non-class"
 
-    serverClassVal <- mkHostClass moduScope "Server" True (serverCtor peerClass)
-    clientClassVal <- mkHostClass moduScope "Client" True (clientCtor peerClass)
+    addrClassVal <- mkHostClass moduScope "Addr" True addrCtor
+    let addrClass = case addrClassVal of
+          EdhClass cls -> cls
+          _            -> error "bug: mkHostClass returned non-class"
+
+    serverClassVal <- mkHostClass moduScope
+                                  "Server"
+                                  True
+                                  (serverCtor addrClass peerClass)
+    clientClassVal <- mkHostClass moduScope
+                                  "Client"
+                                  True
+                                  (clientCtor addrClass peerClass)
 
     updateEntityAttrs
       pgs
       (objEntity modu)
       [ (AttrByName "Peer"  , peerClassVal)
+      , (AttrByName "Addr"  , addrClassVal)
       , (AttrByName "Server", serverClassVal)
       , (AttrByName "Client", clientClassVal)
       ]

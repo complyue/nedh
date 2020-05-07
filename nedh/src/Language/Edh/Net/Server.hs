@@ -53,12 +53,13 @@ data EdhServer = EdhServer {
 -- | host constructor Server()
 serverCtor
   :: Class
+  -> Class
   -> EdhProgState
   -> ArgsPack  -- ctor args, if __init__() is provided, will go there too
   -> TVar (Map.HashMap AttrKey EdhValue)  -- out-of-band attr store
   -> (Dynamic -> STM ())  -- in-band data to be written to entity store
   -> STM ()
-serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
+serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
   case
       parseArgsPack
         (Nothing, "127.0.0.1" :: ServingAddr, 3721 :: ServingPort, nil, Nothing)
@@ -171,6 +172,17 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
     let ctx  = edh'context pgs
         this = thisObject $ contextScope ctx
         es   = entity'store $ objEntity this
+        wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
+        wrapAddrs addrs [] = exitEdhSTM pgs exit $ EdhTuple addrs
+        wrapAddrs !addrs (addr : rest) =
+          runEdhProc pgs
+            $ createEdhObject addrClass (ArgsPack [] mempty)
+            $ \(OriginalValue !addrVal _ _) -> case addrVal of
+                EdhObject !addrObj -> contEdhSTM $ do
+                  -- actually fill in the in-band entity storage here
+                  writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
+                  wrapAddrs (addrVal : addrs) rest
+                _ -> error "bug: addr ctor returned non-object"
     contEdhSTM $ do
       esd <- readTVar es
       case fromDynamic esd :: Maybe EdhServer of
@@ -178,15 +190,7 @@ serverCtor !peerClass !pgsCtor !apk !obs !ctorExit =
           throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
             (show esd)
         Just !server ->
-          edhPerformIO pgs (atomically $ readTMVar (edh'serving'addrs server))
-            $ \addrs ->
-                exitEdhSTM pgs exit
-                  $   EdhTuple
-                  $   EdhString
-                  .   T.pack
-                  .   show
-                  .   addrAddress
-                  <$> addrs
+          waitEdhSTM pgs (readTMVar $ edh'serving'addrs server) $ wrapAddrs []
 
   eolProc :: EdhProcedure
   eolProc _ !exit = do
