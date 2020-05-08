@@ -146,7 +146,7 @@ receivePacketStream peerSite !intakeHndl !pktSink !eos = do
           else if B.length peeked < maxHeaderLength
             then do
               morePeek <- B.hGetSome intakeHndl maxHeaderLength
-              parseHdr $ readahead <> morePeek
+              parseHdr $ peeked <> morePeek
             else throwIO
               $ EdhPeerError peerSite "incoming packet header too long"
 
