@@ -27,6 +27,13 @@ import qualified Data.Lossless.Decimal         as D
 import           Language.Edh.EHI
 
 
+-- | A sniffer can perceive commands conveyed by (UDP as impl. so far)
+-- packets from broadcast/multicast or sometimes unicast traffic.
+--
+-- The sniffer module normally loops in perceiving such commands, and
+-- triggers appropriate action responding to each command, e.g.
+-- connecting to the source address, via TCP, for further service
+-- consuming and/or vending, as advertised.
 data EdhSniffer = EdhSniffer {
     -- the import spec of the module to run as the sniffer
       edh'sniffer'modu :: !Text
@@ -43,8 +50,15 @@ data EdhSniffer = EdhSniffer {
   }
 
 
+-- | An advertiser sends a stream of commands from a (possibly broadcast)
+-- channel, as (UDP as impl. so far) packets to the specified
+-- broadcast/multicast or sometimes unicast address.
+--
+-- The local network address of the advertiser can be deliberately set to some
+-- TCP service's listening address, so a potential responder can use that
+-- information to connect to the service as advertised.
 data EdhAdvertiser = EdhAdvertiser {
-    -- the source of advertisment, possibly duplicated from a boradcast channel
+    -- the source of advertisment, possibly duplicated from a broadcast channel
       edh'ad'source :: !(TChan Text)
     -- remote network address as target, can be multicast or broadcast addr
     , edh'ad'target'addr :: !Text
@@ -56,7 +70,5 @@ data EdhAdvertiser = EdhAdvertiser {
     , edh'advertiser'addr :: !AddrInfo
     -- end-of-life status
     , edh'advertising'eol :: !(TMVar (Either SomeException ()))
-    -- advertiser module initializer, must callable if not nil
-    , edh'advertising'init :: !EdhValue
   }
 
