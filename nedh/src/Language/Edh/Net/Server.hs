@@ -271,17 +271,21 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                               (Just $ T.unpack servAddr)
                               (Just (show servPort))
       return addr
-    open addr = do
-      sock <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
-      setSocketOption sock ReuseAddr 1
-      bind sock (addrAddress addr)
-      listen sock 30 -- todo make this tunable ?
-      atomically
-        $   fromMaybe []
-        <$> tryTakeTMVar servAddrs
-        >>= putTMVar servAddrs
-        .   (addr :)
-      return sock
+
+    open addr =
+      bracketOnError
+          (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
+          close
+        $ \sock -> do
+            setSocketOption sock ReuseAddr 1
+            bind sock (addrAddress addr)
+            listen sock 30 -- todo make this tunable ?
+            atomically
+              $   fromMaybe []
+              <$> tryTakeTMVar servAddrs
+              >>= putTMVar servAddrs
+              .   (addr :)
+            return sock
     acceptClients :: Socket -> IO ()
     acceptClients sock = do
       (conn, addr) <- accept sock
