@@ -111,8 +111,15 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
             pgsCtor
             (forkFinally
               (serviceThread server)
-              -- mark service end-of-life, client sink end-of-stream, anyway after
-              (atomically . (publishEvent clients nil <*) . tryPutTMVar servEoL)
+              ( atomically
+              . ((
+                  -- fill empty addrs if the connection has ever failed
+                  tryPutTMVar servAddrs [] >>
+                  -- mark eos for clients sink anyway finally
+                                              publishEvent clients nil) <*)
+              -- mark service end-of-life anyway finally
+              . tryPutTMVar servEoL
+              )
             )
           $ \_ -> ctorExit $ toDyn server
  where
