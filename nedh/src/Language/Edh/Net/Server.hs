@@ -303,13 +303,13 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
     servClient :: TMVar (Either SomeException ()) -> Text -> Handle -> IO ()
     servClient !clientEoL !clientId !hndl = do
       pktSink <- newEmptyTMVarIO
-      poq     <- newTQueueIO
+      poq     <- newEmptyTMVarIO
       chdVar  <- newTVarIO mempty
 
       let
         !peer = Peer { edh'peer'ident    = clientId
                      , edh'peer'eol      = clientEoL
-                     , edh'peer'posting  = writeTQueue poq
+                     , edh'peer'posting  = putTMVar poq
                      , edh'peer'hosting  = takeTMVar pktSink
                      , edh'peer'channels = chdVar
                      }
@@ -374,7 +374,7 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
             serializeCmdsOut :: IO ()
             serializeCmdsOut =
               atomically
-                  (        (Right <$> readTQueue poq)
+                  (        (Right <$> readTMVar poq)
                   `orElse` (Left <$> readTMVar clientEoL)
                   )
                 >>= \case

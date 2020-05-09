@@ -269,13 +269,13 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
     cnsmService :: Text -> Handle -> IO ()
     cnsmService !clientId !hndl = do
       pktSink <- newEmptyTMVarIO
-      poq     <- newTQueueIO
+      poq     <- newEmptyTMVarIO
       chdVar  <- newTVarIO mempty
 
       let
         !peer = Peer { edh'peer'ident    = clientId
                      , edh'peer'eol      = cnsmrEoL
-                     , edh'peer'posting  = writeTQueue poq
+                     , edh'peer'posting  = putTMVar poq
                      , edh'peer'hosting  = takeTMVar pktSink
                      , edh'peer'channels = chdVar
                      }
@@ -327,8 +327,7 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
         serializeCmdsOut :: IO ()
         serializeCmdsOut =
           atomically
-              ((Right <$> readTQueue poq) `orElse` (Left <$> readTMVar cnsmrEoL)
-              )
+              ((Right <$> readTMVar poq) `orElse` (Left <$> readTMVar cnsmrEoL))
             >>= \case
                   Left _ -> return () -- stop on eol any way
                   Right !pkt ->
