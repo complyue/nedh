@@ -29,7 +29,7 @@ peer.postCommand(
   0,  # this should direct to channel conin := 0
 )
 
-while false == peer.eol() {  # this is the *Loop* in so-called REPL
+{ while false == peer.eol() {  # this is the *Loop* in so-called REPL
   # Read+Eval (peer.readCommand) -> Print (peer.print) -> Loop
 
   case peer.readCommand() of {
@@ -54,25 +54,13 @@ while false == peer.eol() {  # this is the *Loop* in so-called REPL
     }
   }
 
-} $=> {  # catch exceptions
+} } $=> { exc } -> {
+  console.warn<| 'Demo console client ' ++ peer ++ ' error: ' ++ exc
 
-  {{ ProgramHalt: ph }} -> {
-    throw ph  # escalate a halt to the program loop of the
-    # host interpreter, let it decide what to do.
-  }
-
-  {{ IOError:exc }} -> {
-    console.fatal <| 'IO error - ' ++ exc
-    throw exc  # escalate it to the program loop of the
-    # host interpreter, let it decide what to do.
-  }
-
-  { cmdExc } -> {
+  if false == peer.eol() then {
     peer.postCommand(
       repr( 'Recovered from error\n  exception=' ++ cmdExc),
       1, # direct to channel conout := 1
     )
   }
-
 }
-
