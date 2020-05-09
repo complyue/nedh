@@ -75,7 +75,8 @@ library nedh-internal
         Language.Edh.Net.Addr
         Language.Edh.Net.Server
         Language.Edh.Net.Client
-        Language.Edh.Net.Discover
+        Language.Edh.Net.Sniffer
+        Language.Edh.Net.Advertiser
     hs-source-dirs: src
     default-language: Haskell2010
     default-extensions: NoImplicitPrelude OverloadedStrings LambdaCase

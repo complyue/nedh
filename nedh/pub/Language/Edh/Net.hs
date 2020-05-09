@@ -50,14 +50,19 @@ installNetBatteries !world =
                                   "Client"
                                   True
                                   (clientCtor addrClass peerClass)
+    snifferClassVal <- mkHostClass moduScope
+                                   "Sniffer"
+                                   True
+                                   (snifferCtor addrClass)
 
     updateEntityAttrs
       pgs
       (objEntity modu)
-      [ (AttrByName "Peer"  , peerClassVal)
-      , (AttrByName "Addr"  , addrClassVal)
-      , (AttrByName "Server", serverClassVal)
-      , (AttrByName "Client", clientClassVal)
+      [ (AttrByName "Peer"   , peerClassVal)
+      , (AttrByName "Addr"   , addrClassVal)
+      , (AttrByName "Server" , serverClassVal)
+      , (AttrByName "Client" , clientClassVal)
+      , (AttrByName "Sniffer", snifferClassVal)
       ]
 
     exit

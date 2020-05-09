@@ -1,5 +1,5 @@
 
-module Language.Edh.Net.Discover where
+module Language.Edh.Net.Advertiser where
 
 import           Prelude
 -- import           Debug.Trace
@@ -27,27 +27,8 @@ import qualified Data.Lossless.Decimal         as D
 import           Language.Edh.EHI
 
 
--- | A sniffer can perceive commands conveyed by (UDP as impl. so far)
--- packets from broadcast/multicast or sometimes unicast traffic.
---
--- The sniffer module normally loops in perceiving such commands, and
--- triggers appropriate action responding to each command, e.g.
--- connecting to the source address, via TCP, for further service
--- consuming and/or vending, as advertised.
-data EdhSniffer = EdhSniffer {
-    -- the import spec of the module to run as the sniffer
-      edh'sniffer'modu :: !Text
-    -- local network addr to bind
-    , edh'sniffer'addr :: !Text
-    -- local network port to bind
-    , edh'sniffer'port :: !Int
-    -- actually bound network addresses
-    , edh'sniffing'addrs :: !(TMVar [AddrInfo])
-    -- end-of-life status
-    , edh'sniffing'eol :: !(TMVar (Either SomeException ()))
-    -- sniffer module initializer, must callable if not nil
-    , edh'sniffing'init :: !EdhValue
-  }
+type TargetAddr = Text
+type TargetPort = Int
 
 
 -- | An advertiser sends a stream of commands from a (possibly broadcast)
@@ -61,9 +42,9 @@ data EdhAdvertiser = EdhAdvertiser {
     -- the source of advertisment, possibly duplicated from a broadcast channel
       edh'ad'source :: !(TChan Text)
     -- remote network address as target, can be multicast or broadcast addr
-    , edh'ad'target'addr :: !Text
+    , edh'ad'target'addr :: !TargetAddr
     -- remote network port as target
-    , edh'ad'target'port :: !Int
+    , edh'ad'target'port :: !TargetPort
     -- actual network addresses as target
     , edh'ad'target'addrs :: !(TMVar [AddrInfo])
     -- local network addr to bind
