@@ -21,7 +21,7 @@ method consoleOn (
   # wait end-of-life for each client, log err if any
   go for peer from ncon.clients do { go {
     method _ (peer') {
-      peer'.join() @=> { nccExc } -> {
+      peer'.join() $=> { nccExc } -> {
         console.warn<| 'Console client caused trouble - '
           ++ peer' ++ '\n' ++ nccExc
       }

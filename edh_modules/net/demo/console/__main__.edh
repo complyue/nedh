@@ -20,47 +20,54 @@ defer {
   console.info<| 'Console client disconnected - ' ++ peer
 }
 
-# change console client's command prompt
-peer.postCommand(
-  # use a tuple to change both ps1 and ps2
-  # repr( ("(rcon)Đ: ", "(rcon)Đ| ") ),
-  # or just ps1
-  repr( "(rcon)Đ: " )
-  0,  # this should direct to channel conin := 0
-)
 
-{ while false == peer.eol() {  # this is the *Loop* in so-called REPL
-  # Read+Eval (peer.readCommand) -> Print (peer.print) -> Loop
+{
+  # change console client's command prompt
+  peer.postCommand(
+    # use a tuple to change both ps1 and ps2
+    # repr( ("(rcon)Đ: ", "(rcon)Đ| ") ),
+    # or just ps1
+    repr( "(rcon)Đ: " )
+    0,  # this should direct to channel conin := 0
+  )
 
-  case peer.readCommand() of {
-    nil -> {  # conout an empty string or the console client will
-      # wait for its eval result forever
-      peer.postCommand(
-        "''",
+  while false == peer.eol() {  # this is the *Loop* in so-called REPL
+    # Read+Eval (peer.readCommand) -> Print (peer.print) -> Loop
+
+    case peer.readCommand() of {
+      nil -> {  # conout an empty string or the console client will
+        # wait for its eval result forever
+        peer.postCommand(
+          "''",
+          1, # direct to channel conout := 1
+        )
+      }
+      batteries.quit -> { break }
+      batteries.dir -> peer.postCommand(
+        repr( sprintDir() ),
         1, # direct to channel conout := 1
       )
+      { cmdVal } -> {
+        peer.postCommand(
+          repr( cmdVal ),
+          1, # direct to channel conout := 1
+        )
+        cmdVal = nil  # clear it
+      }
     }
-    batteries.quit -> { break }
-    batteries.dir -> peer.postCommand(
-      repr( sprintDir() ),
-      1, # direct to channel conout := 1
-    )
-    { cmdVal } -> {
+
+  } $=> {  # catch exceptions
+    if false != peer.eol() then {
+      break  # already disconnected
+    }
+    { cmdExc } -> {
       peer.postCommand(
-        repr( cmdVal ),
+        repr( 'Recovered from error\n  exception=' ++ cmdExc),
         1, # direct to channel conout := 1
       )
-      cmdVal = nil  # clear it
     }
   }
 
-} } $=> { exc } -> {
+} $=> { exc } -> {
   console.warn<| 'Demo console client ' ++ peer ++ ' error: ' ++ exc
-
-  if false == peer.eol() then {
-    peer.postCommand(
-      repr( 'Recovered from error\n  exception=' ++ cmdExc),
-      1, # direct to channel conout := 1
-    )
-  }
 }
