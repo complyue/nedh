@@ -238,20 +238,21 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
         _ <- atomically $ readTMVar cnsmrEoL
         killThread servThId
       addr <- resolveServAddr
-      sock <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
-      -- TODO prevent leakage of this `sock` on errors before `cnsmService`,
-      --      note after it's converted to a handle, direct close may crash.
-      connect sock $ addrAddress addr
-      atomically
-        $   fromMaybe []
-        <$> tryTakeTMVar serviceAddrs
-        >>= putTMVar serviceAddrs
-        .   (addr :)
-      hndl <- socketToHandle sock ReadWriteMode
-      try (cnsmService (T.pack $ show $ addrAddress addr) hndl)
-        >>= (hClose hndl <*) -- close the socket anyway after the thread done
-        .   atomically
-        .   tryPutTMVar cnsmrEoL
+      bracket
+          (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
+          close -- repeated `close` is okay with network package
+        $ \sock -> do
+            connect sock $ addrAddress addr
+            atomically
+              $   fromMaybe []
+              <$> tryTakeTMVar serviceAddrs
+              >>= putTMVar serviceAddrs
+              .   (addr :)
+            bracket (socketToHandle sock ReadWriteMode) hClose $ \hndl ->
+              try (cnsmService (T.pack $ show $ addrAddress addr) hndl)
+                >>= atomically
+                .   void
+                .   tryPutTMVar cnsmrEoL
 
    where
     ctx             = edh'context pgsCtor
