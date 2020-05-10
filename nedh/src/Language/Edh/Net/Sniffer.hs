@@ -52,6 +52,9 @@ data EdhSniffer = EdhSniffer {
     , edh'sniffer'addr :: !SniffAddr
     -- local network port to bind
     , edh'sniffer'port :: !SniffPort
+    -- network interface to sniffer on, only meaningful for mcast
+    -- TODO need this field when mcast gets supported
+    --, edh'sniffer'ni :: !Text
     -- actually bound network addresses
     , edh'sniffing'addrs :: !(TMVar [AddrInfo])
     -- end-of-life status
