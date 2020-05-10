@@ -327,7 +327,7 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
         serializeCmdsOut :: IO ()
         serializeCmdsOut =
           atomically
-              ((Right <$> readTMVar poq) `orElse` (Left <$> readTMVar cnsmrEoL))
+              ((Right <$> takeTMVar poq) `orElse` (Left <$> readTMVar cnsmrEoL))
             >>= \case
                   Left _ -> return () -- stop on eol any way
                   Right !pkt ->
