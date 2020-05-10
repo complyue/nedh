@@ -1,0 +1,32 @@
+
+{
+  case Advertiser(
+
+    # near-field broadcast
+    '255.255.255.255', 3721,
+
+    # subnet targeting broadcast
+    #'127.255.255.255', 3721,
+
+    # unicast
+    #'127.0.0.1', 3721,
+
+  ) of { ad } -> { pass }
+}
+
+console.info<| 'Advertising to ' ++ ad.addrs()
+
+ad.post(expr 'Ad from '++addr )
+
+{
+  ad.post(
+    3, 2, 1,
+    expr 3*7,
+    expr console.warn<| "You've got it",
+    expr console.print(" *** That's all *** "),
+  )
+}
+
+ad.stop()
+
+quit

@@ -243,7 +243,7 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
   sniffThread (EdhSniffer !snifModu !snifAddr !snifPort !snifAddrs !snifEoL !__modu_init__)
     = do
       snifThId <- myThreadId
-      void $ forkIO $ do -- async terminate the accepter thread on stop signal
+      void $ forkIO $ do -- async terminate the sniffing thread on stop signal
         _ <- atomically $ readTMVar snifEoL
         killThread snifThId
       addr <- resolveServAddr

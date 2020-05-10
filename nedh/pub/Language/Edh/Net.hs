@@ -22,6 +22,7 @@ import           Language.Edh.Net.Addr
 import           Language.Edh.Net.Server
 import           Language.Edh.Net.Client
 import           Language.Edh.Net.Sniffer
+import           Language.Edh.Net.Advertiser
 
 
 installNetBatteries :: EdhWorld -> IO ()
@@ -54,15 +55,20 @@ installNetBatteries !world =
                                    "Sniffer"
                                    True
                                    (snifferCtor addrClass)
+    advertiserClassVal <- mkHostClass moduScope
+                                      "Advertiser"
+                                      True
+                                      (advertiserCtor addrClass)
 
     updateEntityAttrs
       pgs
       (objEntity modu)
-      [ (AttrByName "Peer"   , peerClassVal)
-      , (AttrByName "Addr"   , addrClassVal)
-      , (AttrByName "Server" , serverClassVal)
-      , (AttrByName "Client" , clientClassVal)
-      , (AttrByName "Sniffer", snifferClassVal)
+      [ (AttrByName "Peer"      , peerClassVal)
+      , (AttrByName "Addr"      , addrClassVal)
+      , (AttrByName "Server"    , serverClassVal)
+      , (AttrByName "Client"    , clientClassVal)
+      , (AttrByName "Sniffer"   , snifferClassVal)
+      , (AttrByName "Advertiser", advertiserClassVal)
       ]
 
     exit

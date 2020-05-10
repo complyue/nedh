@@ -6,7 +6,7 @@
     'net/demo/sniffer',
 
     # addr/port to sniff on
-    '127.0.0.1', 3721,
+    '0.0.0.0', 3721,
 
     # sniffer module initializer
     init = { method _ () that.purpose = 'demo' },
