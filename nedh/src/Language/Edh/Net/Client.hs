@@ -60,94 +60,149 @@ clientCtor
 clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
   case
       parseArgsPack
-        (Nothing, "127.0.0.1" :: ServiceAddr, 3721 :: ServicePort, nil)
+        (Nothing, Left ("127.0.0.1" :: ServiceAddr, 3721 :: ServicePort), nil)
         parseCtorArgs
         apk
     of
       Left err -> throwEdhSTM pgsCtor UsageError err
-      Right (Nothing, _, _, _) ->
+      Right (Nothing, _, _) ->
         throwEdhSTM pgsCtor UsageError "missing consumer module"
-      Right (Just consumer, addr, port, __peer_init__) -> do
-        serviceAddrs <- newEmptyTMVar
-        cnsmrEoL     <- newEmptyTMVar
-        let !client = EdhClient { edh'consumer'modu = consumer
-                                , edh'service'addr  = addr
-                                , edh'service'port  = port
-                                , edh'service'addrs = serviceAddrs
-                                , edh'consumer'eol  = cnsmrEoL
-                                , edh'consumer'init = __peer_init__
-                                }
-            !scope = contextScope $ edh'context pgsCtor
-        methods <- sequence
-          [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
-          | (nm, vc, hp, args) <-
-            [ ("addrs", EdhMethod, addrsProc, PackReceiver [])
-            , ("eol"  , EdhMethod, eolProc  , PackReceiver [])
-            , ("join" , EdhMethod, joinProc , PackReceiver [])
-            , ("stop" , EdhMethod, stopProc , PackReceiver [])
-            ]
-          ]
-        modifyTVar' obs
-          $  Map.union
-          $  Map.fromList
-          $  methods
-          ++ [ ( AttrByName "__repr__"
-               , EdhString
-               $  "Client("
-               <> T.pack (show consumer)
-               <> ", "
-               <> T.pack (show addr)
-               <> ", "
-               <> T.pack (show port)
-               <> ")"
-               )
-             ]
-        edhPerformIO
-            pgsCtor
-            (forkFinally
-              (consumerThread client)
-              ( void
-              . atomically
-                -- fill empty addrs if the connection has ever failed
-              . (tryPutTMVar serviceAddrs [] <*)
-                -- mark consumer end-of-life anyway finally
-              . tryPutTMVar cnsmrEoL
+      Right (Just consumer, Right addrObj, __peer_init__) -> do
+        esd <- readTVar $ entity'store $ objEntity addrObj
+        case fromDynamic esd :: Maybe AddrInfo of
+          Nothing -> throwEdhSTM pgsCtor UsageError "bogus addr object"
+          Just (AddrInfo _ _ _ _ (SockAddrInet port host) _) ->
+            case hostAddressToTuple host of
+              (n1, n2, n3, n4) -> go
+                consumer
+                (  T.pack
+                $  "'"
+                <> show n1
+                <> "."
+                <> show n2
+                <> "."
+                <> show n3
+                <> "."
+                <> show n4
+                <> "'"
+                )
+                (fromIntegral port)
+                __peer_init__
+          Just (AddrInfo _ _ _ _ (SockAddrInet6 port _ (n1, n2, n3, n4) _) _)
+            -> go
+              consumer
+              (  T.pack
+              $  "'"
+              <> show n1
+              <> ":"
+              <> show n2
+              <> ":"
+              <> show n3
+              <> "::"
+              <> show n4
+              <> "'"
               )
-            )
-          $ \_ -> ctorExit $ toDyn client
+              (fromIntegral port)
+              __peer_init__
+          _ -> throwEdhSTM pgsCtor UsageError "unsupported addr object"
+
+      Right (Just consumer, Left (addr, port), __peer_init__) ->
+        go consumer addr port __peer_init__
  where
+  go consumer addr port __peer_init__ = do
+    serviceAddrs <- newEmptyTMVar
+    cnsmrEoL     <- newEmptyTMVar
+    let !client = EdhClient { edh'consumer'modu = consumer
+                            , edh'service'addr  = addr
+                            , edh'service'port  = port
+                            , edh'service'addrs = serviceAddrs
+                            , edh'consumer'eol  = cnsmrEoL
+                            , edh'consumer'init = __peer_init__
+                            }
+        !scope = contextScope $ edh'context pgsCtor
+    methods <- sequence
+      [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+      | (nm, vc, hp, args) <-
+        [ ("addrs", EdhMethod, addrsProc, PackReceiver [])
+        , ("eol"  , EdhMethod, eolProc  , PackReceiver [])
+        , ("join" , EdhMethod, joinProc , PackReceiver [])
+        , ("stop" , EdhMethod, stopProc , PackReceiver [])
+        ]
+      ]
+    modifyTVar' obs
+      $  Map.union
+      $  Map.fromList
+      $  methods
+      ++ [ ( AttrByName "__repr__"
+           , EdhString
+           $  "Client("
+           <> T.pack (show consumer)
+           <> ", "
+           <> T.pack (show addr)
+           <> ", "
+           <> T.pack (show port)
+           <> ")"
+           )
+         ]
+    edhPerformIO
+        pgsCtor
+        (forkFinally
+          (consumerThread client)
+          ( void
+          . atomically
+            -- fill empty addrs if the connection has ever failed
+          . (tryPutTMVar serviceAddrs [] <*)
+            -- mark consumer end-of-life anyway finally
+          . tryPutTMVar cnsmrEoL
+          )
+        )
+      $ \_ -> ctorExit $ toDyn client
   parseCtorArgs =
     ArgsPackParser
-        [ \arg (_, addr', port', init') -> case edhUltimate arg of
-          EdhString !consumer -> Right (Just consumer, addr', port', init')
+        [ \arg (_, addr', init') -> case edhUltimate arg of
+          EdhString !consumer -> Right (Just consumer, addr', init')
           _                   -> Left "Invalid consumer"
-        , \arg (consumer', _, port', init') -> case edhUltimate arg of
-          EdhString addr -> Right (consumer', addr, port', init')
-          _              -> Left "Invalid addr"
-        , \arg (consumer', addr', _, init') -> case edhUltimate arg of
+        , \arg (consumer', addr', init') -> case edhUltimate arg of
+          EdhString host -> case addr' of
+            Left  (_, port') -> Right (consumer', Left (host, port'), init')
+            Right _addrObj   -> Right (consumer', Left (host, 3721), init')
+          EdhObject addrObj -> Right (consumer', Right addrObj, init')
+          _                 -> Left "Invalid addr"
+        , \arg (consumer', addr', init') -> case edhUltimate arg of
           EdhDecimal d -> case D.decimalToInteger d of
-            Just port -> Right (consumer', addr', fromIntegral port, init')
-            Nothing   -> Left "port must be integer"
+            Just port -> case addr' of
+              Left (host', _) ->
+                Right (consumer', Left (host', fromIntegral port), init')
+              Right _addrObj ->
+                Left "Can not specify both addr object and port"
+            Nothing -> Left "port must be integer"
           _ -> Left "Invalid port"
         ]
       $ Map.fromList
           [ ( "addr"
-            , \arg (consumer', _, port', init') -> case edhUltimate arg of
-              EdhString addr -> Right (consumer', addr, port', init')
-              _              -> Left "Invalid addr"
+            , \arg (consumer', addr', init') -> case edhUltimate arg of
+              EdhString host -> case addr' of
+                Left  (_, port') -> Right (consumer', Left (host, port'), init')
+                Right _addrObj   -> Right (consumer', Left (host, 3721), init')
+              EdhObject addrObj -> Right (consumer', Right addrObj, init')
+              _                 -> Left "Invalid addr"
             )
           , ( "port"
-            , \arg (consumer', addr', _, init') -> case edhUltimate arg of
+            , \arg (consumer', addr', init') -> case edhUltimate arg of
               EdhDecimal d -> case D.decimalToInteger d of
-                Just port -> Right (consumer', addr', fromIntegral port, init')
-                Nothing   -> Left "port must be integer"
+                Just port -> case addr' of
+                  Left (host', _) ->
+                    Right (consumer', Left (host', fromIntegral port), init')
+                  Right _addrObj ->
+                    Left "Can not specify both addr object and port"
+                Nothing -> Left "port must be integer"
               _ -> Left "Invalid port"
             )
           , ( "init"
-            , \arg (consumer', addr', port', _) -> case edhUltimate arg of
-              EdhNil          -> Right (consumer', addr', port', nil)
-              mth@EdhMethod{} -> Right (consumer', addr', port', mth)
-              mth@EdhIntrpr{} -> Right (consumer', addr', port', mth)
+            , \arg (consumer', addr', _) -> case edhUltimate arg of
+              EdhNil          -> Right (consumer', addr', nil)
+              mth@EdhMethod{} -> Right (consumer', addr', mth)
+              mth@EdhIntrpr{} -> Right (consumer', addr', mth)
               _               -> Left "Invalid init"
             )
           ]
