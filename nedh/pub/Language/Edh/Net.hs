@@ -21,7 +21,7 @@ import           Language.Edh.Net.Peer
 import           Language.Edh.Net.Addr
 import           Language.Edh.Net.Server
 import           Language.Edh.Net.Client
-import           Language.Edh.Net.Discover
+import           Language.Edh.Net.Sniffer
 
 
 installNetBatteries :: EdhWorld -> IO ()

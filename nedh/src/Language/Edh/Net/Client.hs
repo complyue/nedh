@@ -297,9 +297,9 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                   flip (exitEdhSTM pgs) nil $ \_ ->
                     contEdhSTM $ if __peer_init__ == nil
                       then exit
-                      -- call the per-connection peer module initialization method,
-                      -- with the module object as `that`
                       else
+                        -- call the per-connection peer module initialization method,
+                        -- with the module object as `that`
                         edhMakeCall
                             pgs
                             __peer_init__

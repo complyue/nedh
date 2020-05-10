@@ -39,31 +39,29 @@ postPeerCommand !peer !dir !src = edh'peer'posting peer $ textPacket dir src
 --      channel's sink, and nil will be returned from here for it.
 readPeerCommand :: EdhProgState -> Peer -> EdhProcExit -> STM ()
 readPeerCommand !pgs (Peer !ident !eol !po !ho !chdVar) !exit =
-  edhPerformIO pgs
-               (atomically $ (Right <$> ho) `orElse` (Left <$> readTMVar eol))
-    $ \case
-        -- reached normal end-of-stream
-        Left (Right _) -> exitEdhSTM pgs exit nil
-        -- previously eol due to error
-        Left (Left ex) -> toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
-        -- got next command incoming
-        Right pkt@(Packet !dir !payload) -> if "err" == dir
-          then do -- unexpected error occurred at peer site, it has sent the
-            -- details back here, mark eol with it at local site, and throw
-            let !ex = toException $ EdhPeerError ident $ decodeUtf8 payload
-            void $ tryPutTMVar eol $ Left ex
-            toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
-          else -- treat other directives as the expr of the target channel
-               edhCatchSTM pgs (landCmd pkt) exit $ \exv _recover rethrow ->
-            if exv == nil -- no exception occurred,
-              then rethrow -- rethrow just passes on in this case
-              else edhValueReprSTM pgs exv $ \exr -> do
-                -- send peer the error details
-                po $ Packet "err" $ encodeUtf8 exr
-                -- mark eol with this error
-                fromEdhError pgs exv $ \e -> void $ tryPutTMVar eol $ Left e
-                -- rethrow the error
-                rethrow
+  waitEdhSTM pgs ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) $ \case
+    -- reached normal end-of-stream
+    Left (Right _) -> exitEdhSTM pgs exit nil
+    -- previously eol due to error
+    Left (Left ex) -> toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
+    -- got next command incoming
+    Right pkt@(Packet !dir !payload) -> if "err" == dir
+      then do -- unexpected error occurred at peer site, it has sent the
+        -- details back here, mark eol with it at local site, and throw
+        let !ex = toException $ EdhPeerError ident $ decodeUtf8 payload
+        void $ tryPutTMVar eol $ Left ex
+        toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
+      else -- treat other directives as the expr of the target channel
+           edhCatchSTM pgs (landCmd pkt) exit $ \exv _recover rethrow ->
+        if exv == nil -- no exception occurred,
+          then rethrow -- rethrow just passes on in this case
+          else edhValueReprSTM pgs exv $ \exr -> do
+            -- send peer the error details
+            po $ Packet "err" $ encodeUtf8 exr
+            -- mark eol with this error
+            fromEdhError pgs exv $ \e -> void $ tryPutTMVar eol $ Left e
+            -- rethrow the error
+            rethrow
  where
   !srcName = T.unpack ident
   landCmd :: Packet -> EdhProgState -> EdhProcExit -> STM ()

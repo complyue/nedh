@@ -1,0 +1,16 @@
+
+# will be updated upon each packet sniffed
+addr := '<n/a>'
+
+
+# loop forever until eol on error, or stopped elsewhere
+while false == eol() {
+
+  # note nil result from `sniff()` is silently ignored
+  case sniff() of { cmdVal } -> {
+    console.info<| 'Sniffed cmd:\n  ' ++ cmdVal
+  }
+
+} $=> { exc } -> {
+  console.error<| 'Error sniffing: ' ++ exc
+}

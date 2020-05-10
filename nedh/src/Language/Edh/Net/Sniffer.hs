@@ -1,10 +1,8 @@
 
-module Language.Edh.Net.Discover where
+module Language.Edh.Net.Sniffer where
 
 import           Prelude
 -- import           Debug.Trace
-
-import           System.IO
 
 import           Control.Exception
 import           Control.Monad
@@ -16,6 +14,7 @@ import           Control.Monad.Reader
 import           Data.Maybe
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
+import           Data.Text.Encoding
 import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
@@ -80,24 +79,24 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
       Left err -> throwEdhSTM pgsCtor UsageError err
       Right (Nothing, _, _, _) ->
         throwEdhSTM pgsCtor UsageError "missing sniffer module"
-      Right (Just modu, addr, port, __peer_init__) -> do
-        servAddrs <- newEmptyTMVar
-        servEoL   <- newEmptyTMVar
+      Right (Just modu, addr, port, __modu_init__) -> do
+        snifAddrs <- newEmptyTMVar
+        snifEoL   <- newEmptyTMVar
         let !sniffer = EdhSniffer { edh'sniffer'modu   = modu
                                   , edh'sniffer'addr   = addr
                                   , edh'sniffer'port   = port
-                                  , edh'sniffing'addrs = servAddrs
-                                  , edh'sniffing'eol   = servEoL
-                                  , edh'sniffing'init  = __peer_init__
+                                  , edh'sniffing'addrs = snifAddrs
+                                  , edh'sniffing'eol   = snifEoL
+                                  , edh'sniffing'init  = __modu_init__
                                   }
             !scope = contextScope $ edh'context pgsCtor
         methods <- sequence
           [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
           | (nm, vc, hp, args) <-
-            [ ("addrs", EdhMethod, addrsProc, PackReceiver [])
-            , ("eol"  , EdhMethod, eolProc  , PackReceiver [])
-            , ("join" , EdhMethod, joinProc , PackReceiver [])
-            , ("stop" , EdhMethod, stopProc , PackReceiver [])
+            [ ("addrs", EdhMethod, addrsMth, PackReceiver [])
+            , ("eol"  , EdhMethod, eolMth  , PackReceiver [])
+            , ("join" , EdhMethod, joinMth , PackReceiver [])
+            , ("stop" , EdhMethod, stopMth , PackReceiver [])
             ]
           ]
         modifyTVar' obs
@@ -119,7 +118,7 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
             pgsCtor
             -- mark service end-of-life anyway finally
             (forkFinally (sniffThread sniffer)
-                         (atomically . void . tryPutTMVar servEoL)
+                         (atomically . void . tryPutTMVar snifEoL)
             )
           $ \_ -> ctorExit $ toDyn sniffer
  where
@@ -159,8 +158,8 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
             )
           ]
 
-  addrsProc :: EdhProcedure
-  addrsProc _ !exit = do
+  addrsMth :: EdhProcedure
+  addrsMth _ !exit = do
     pgs <- ask
     let ctx  = edh'context pgs
         this = thisObject $ contextScope ctx
@@ -185,8 +184,8 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
         Just !sniffer ->
           waitEdhSTM pgs (readTMVar $ edh'sniffing'addrs sniffer) $ wrapAddrs []
 
-  eolProc :: EdhProcedure
-  eolProc _ !exit = do
+  eolMth :: EdhProcedure
+  eolMth _ !exit = do
     pgs <- ask
     let ctx  = edh'context pgs
         this = thisObject $ contextScope ctx
@@ -202,8 +201,8 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
           Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
           Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
 
-  joinProc :: EdhProcedure
-  joinProc _ !exit = do
+  joinMth :: EdhProcedure
+  joinMth _ !exit = do
     pgs <- ask
     let ctx  = edh'context pgs
         this = thisObject $ contextScope ctx
@@ -220,8 +219,8 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
                 Left  e  -> toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
                 Right () -> exitEdhSTM pgs exit nil
 
-  stopProc :: EdhProcedure
-  stopProc _ !exit = do
+  stopMth :: EdhProcedure
+  stopMth _ !exit = do
     pgs <- ask
     let ctx  = edh'context pgs
         this = thisObject $ contextScope ctx
@@ -238,14 +237,14 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
 
 
   sniffThread :: EdhSniffer -> IO ()
-  sniffThread (EdhSniffer !snifModu !snifAddr !snifPort !snifAddrs !snifEoL !__peer_init__)
+  sniffThread (EdhSniffer !snifModu !snifAddr !snifPort !snifAddrs !snifEoL !__modu_init__)
     = do
       snifThId <- myThreadId
       void $ forkIO $ do -- async terminate the accepter thread on stop signal
         _ <- atomically $ readTMVar snifEoL
         killThread snifThId
       addr <- resolveServAddr
-      bracket (open addr) close forageFrom
+      bracket (open addr) close $ sniffFrom addr
    where
     ctx             = edh'context pgsCtor
     world           = contextWorld ctx
@@ -283,11 +282,83 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
               >>= putTMVar snifAddrs
               .   (addr :)
             return sock
-    forageFrom :: Socket -> IO ()
-    forageFrom !sock = do
-      (payload, wsAddr) <- recvFrom sock
-      -- don't expect too large a call-for-workers announcement
-                                    1500
 
-      forageFrom sock -- tail recursion
+    sniffFrom :: AddrInfo -> Socket -> IO ()
+    sniffFrom !onAddr !sock = do
+      pktSink <- newEmptyTMVarIO
+      let
+        eolProc :: EdhProcedure
+        eolProc _ !exit = do
+          pgs <- ask
+          contEdhSTM $ tryReadTMVar snifEoL >>= \case
+            Nothing -> exitEdhSTM pgs exit $ EdhBool False
+            Just (Left e) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
+            Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
+        sniffProc :: EdhProcedure
+        sniffProc _ !exit = do
+          pgs <- ask
+          let modu = thisObject $ contextScope $ edh'context pgs
+          contEdhSTM
+            $ waitEdhSTM pgs (takeTMVar pktSink)
+            $ \(fromAddr, payload) ->
+                runEdhProc pgs
+                  $ createEdhObject addrClass (ArgsPack [] mempty)
+                  $ \(OriginalValue !addrVal _ _) -> case addrVal of
+                      EdhObject !addrObj -> contEdhSTM $ do
+                        writeTVar (entity'store $ objEntity addrObj)
+                          $ toDyn onAddr { addrAddress = fromAddr }
+                        -- update sniffer module global `addr`
+                        changeEntityAttr pgs
+                                         (objEntity modu)
+                                         (AttrByName "addr")
+                                         addrVal
+                        -- interpret the payload as command, return as is
+                        let !src = decodeUtf8 payload
+                        runEdhProc pgs
+                          $ evalEdh (show fromAddr) src
+                          $ exitEdhProc' exit
+                      _ -> error "bug: Addr ctor returned non-object"
+        prepSniffer :: EdhModulePreparation
+        prepSniffer !pgs !exit = do
+          let !scope = contextScope $ edh'context pgs
+              !modu  = thisObject scope
+          runEdhProc pgs $ contEdhSTM $ do
+            methods <- sequence
+              [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+              | (nm, vc, hp, args) <-
+                [ ("eol"  , EdhMethod, eolProc  , PackReceiver [])
+                , ("sniff", EdhMethod, sniffProc, PackReceiver [])
+                ]
+              ]
+            -- implant to the module being prepared
+            updateEntityAttrs pgs (objEntity modu) methods
+            if __modu_init__ == nil
+              then exit
+              else
+                -- call the sniffer module initialization method,
+                -- with the module object as `that`
+                edhMakeCall pgs
+                            __modu_init__
+                            (thisObject $ contextScope $ edh'context pgs)
+                            []
+                  $ \mkCall -> runEdhProc pgs $ mkCall $ \_ -> contEdhSTM exit
+
+      void
+        -- run the sniffer module as another program
+        $ forkFinally (runEdhModule' world (T.unpack snifModu) prepSniffer)
+        -- mark sniffer end-of-life with the result anyway
+        $ void
+        . atomically
+        . tryPutTMVar snifEoL
+        . void
+
+      -- pump sniffed packets into the sniffer loop
+      let pumpPkts = do
+            -- todo expecting packets within typical ethernet MTU=1500 for
+            --      now, should we expect larger packets, e.g. with jumbo
+            --      frames, in the future?
+            (payload, fromAddr) <- recvFrom sock 1500
+            atomically $ putTMVar pktSink (fromAddr, payload)
+            pumpPkts -- tail recursion
+      pumpPkts -- loop until killed on eol
 
