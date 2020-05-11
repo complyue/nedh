@@ -288,14 +288,10 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
   consumerThread :: EdhClient -> IO ()
   consumerThread (EdhClient !cnsmrModu !servAddr !servPort !serviceAddrs !cnsmrEoL !__peer_init__)
     = do
-      servThId <- myThreadId
-      void $ forkIO $ do -- async terminate the recv thread on stop signal
-        _ <- atomically $ readTMVar cnsmrEoL
-        killThread servThId
       addr <- resolveServAddr
       bracket
           (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
-          close -- repeated `close` is okay with network package
+          (\sock -> shutdown sock ShutdownBoth >> close sock)
         $ \sock -> do
             connect sock $ addrAddress addr
             atomically
@@ -303,8 +299,8 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
               <$> tryTakeTMVar serviceAddrs
               >>= putTMVar serviceAddrs
               .   (addr :)
-            bracket (socketToHandle sock ReadWriteMode) hClose $ \hndl ->
-              try (cnsmService (T.pack $ show $ addrAddress addr) hndl)
+            bracket (socketToHandle sock ReadWriteMode) hFlush $ \hndl ->
+              try (consumeService (T.pack $ show $ addrAddress addr) hndl)
                 >>= atomically
                 .   void
                 .   tryPutTMVar cnsmrEoL
@@ -321,8 +317,8 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                               (Just (show servPort))
       return addr
 
-    cnsmService :: Text -> Handle -> IO ()
-    cnsmService !clientId !hndl = do
+    consumeService :: Text -> Handle -> IO ()
+    consumeService !clientId !hndl = do
       pktSink <- newEmptyTMVarIO
       poq     <- newEmptyTMVarIO
       chdVar  <- newTVarIO mempty
@@ -384,7 +380,9 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
           atomically
               ((Right <$> takeTMVar poq) `orElse` (Left <$> readTMVar cnsmrEoL))
             >>= \case
-                  Left _ -> return () -- stop on eol any way
+                  Left _ -> do -- try flush before close, on consumer eol
+                    hFlush hndl
+                    return ()
                   Right !pkt ->
                     catch (sendPacket clientId hndl pkt >> serializeCmdsOut)
                       $ \(e :: SomeException) -> -- mark eol on error
