@@ -305,8 +305,9 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
             _ -> return $ contextScope ctx
         let !pgsCmd = pgs
               { edh'context = ctx
-                                { callStack = cmdScope
-                                                NE.:| NE.tail (callStack ctx)
+                                { callStack        = cmdScope
+                                                       NE.:| NE.tail (callStack ctx)
+                                , contextExporting = False
                                 }
               }
         esd <- readTVar es
