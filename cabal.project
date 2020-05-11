@@ -2,7 +2,7 @@
 packages: */*.cabal
 
 -- to use the version of Edh checked out locally
---packages:
+packages:
     ../edh/edh
     ../edh/lossless-decimal
 

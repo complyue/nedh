@@ -19,7 +19,7 @@ import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
 import           Network.Socket
-import           Network.Socket.ByteString
+import           Network.Socket.ByteString     as Sock
 
 import qualified Data.Lossless.Decimal         as D
 
@@ -360,7 +360,7 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
             -- todo expecting packets within typical ethernet MTU=1500 for
             --      now, should we expect larger packets, e.g. with jumbo
             --      frames, in the future?
-            (payload, fromAddr) <- recvFrom sock 1500
+            (payload, fromAddr) <- Sock.recvFrom sock 1500
             atomically $ putTMVar pktSink (fromAddr, payload)
             pumpPkts -- tail recursion
       pumpPkts -- loop until killed on eol
