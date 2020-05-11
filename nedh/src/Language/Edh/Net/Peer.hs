@@ -30,8 +30,11 @@ data Peer = Peer {
     , edh'peer'channels :: !(TVar (Map.HashMap EdhValue EventSink))
   }
 
-postPeerCommand :: Peer -> Text -> Text -> STM ()
-postPeerCommand !peer !dir !src = edh'peer'posting peer $ textPacket dir src
+postPeerCommand :: EdhProgState -> Peer -> Text -> Text -> EdhProcExit -> STM ()
+postPeerCommand !pgs !peer !dir !src !exit =
+  waitEdhSTM pgs (edh'peer'posting peer $ textPacket dir src)
+    $ const
+    $ exitEdhSTM pgs exit nil
 
 -- | Read next command from peer
 --
@@ -181,10 +184,9 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
         Nothing ->
           throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
             (show esd)
-        Just !peer ->
-          edhPerformIO pgs (atomically $ readTMVar (edh'peer'eol peer)) $ \case
-            Left  e  -> toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-            Right () -> exitEdhSTM pgs exit nil
+        Just !peer -> waitEdhSTM pgs (readTMVar (edh'peer'eol peer)) $ \case
+          Left  e  -> toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+          Right () -> exitEdhSTM pgs exit nil
 
   stopProc :: EdhProcedure
   stopProc _ !exit = do
@@ -339,9 +341,7 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
           Nothing ->
             throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
               (show esd)
-          Just (peer :: Peer) -> do
-            postPeerCommand peer dir cmd
-            exitEdhSTM pgs exit nil
+          Just (peer :: Peer) -> postPeerCommand pgs peer dir cmd exit
       postCmd' :: EdhValue -> Text -> STM ()
       postCmd' !dirVal !cmd = case dirVal of
         EdhNil -> postCmd "" cmd
@@ -382,9 +382,7 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
           Nothing ->
             throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
               (show esd)
-          Just (peer :: Peer) -> do
-            postPeerCommand peer dir cmd
-            exitEdhSTM pgs exit nil
+          Just (peer :: Peer) -> postPeerCommand pgs peer dir cmd exit
       postCmd' :: Text -> EdhValue -> STM ()
       postCmd' !cmd !dirVal = case dirVal of
         EdhNil -> postCmd cmd ""
