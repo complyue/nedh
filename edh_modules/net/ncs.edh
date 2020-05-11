@@ -5,7 +5,7 @@
 
 import * 'net'
 
-method consoleOn (
+export method consoleOn (
   conModu,                 # the console service module
   servAddr  ='127.0.0.1',  # local addr to bind
   servPort  =3720,         # local port to bind

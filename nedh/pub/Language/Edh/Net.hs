@@ -14,6 +14,8 @@ import           Prelude
 
 import           Control.Monad.Reader
 
+import qualified Data.HashMap.Strict           as Map
+
 import           Language.Edh.EHI
 
 import           Language.Edh.Net.MicroProto
@@ -59,17 +61,19 @@ installNetBatteries !world =
                                       "Advertiser"
                                       True
                                       (advertiserCtor addrClass)
-
-    updateEntityAttrs
-      pgs
-      (objEntity modu)
-      [ (AttrByName "Peer"      , peerClassVal)
-      , (AttrByName "Addr"      , addrClassVal)
-      , (AttrByName "Server"    , serverClassVal)
-      , (AttrByName "Client"    , clientClassVal)
-      , (AttrByName "Sniffer"   , snifferClassVal)
-      , (AttrByName "Advertiser", advertiserClassVal)
-      ]
+    let !moduArts =
+          [ ("Peer"      , peerClassVal)
+          , ("Addr"      , addrClassVal)
+          , ("Server"    , serverClassVal)
+          , ("Client"    , clientClassVal)
+          , ("Sniffer"   , snifferClassVal)
+          , ("Advertiser", advertiserClassVal)
+          ]
+    artsDict <- createEdhDict
+      $ Map.fromList [ (EdhString k, v) | (k, v) <- moduArts ]
+    updateEntityAttrs pgs (objEntity modu)
+      $  [ (AttrByName k, v) | (k, v) <- moduArts ]
+      ++ [(AttrByName "__exports__", artsDict)]
 
     exit
 

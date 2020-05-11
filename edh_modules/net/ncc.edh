@@ -12,7 +12,7 @@ import * 'net'
 # necessary IO action to be performed during construction of
 # the client instance.
 
-method consoleTo(
+export method consoleTo(
   addr      ='127.0.0.1', # remote addr to connect
   port      =3720,        # remote port to connect
   consumer  ='net/ncc',   # the peer module
