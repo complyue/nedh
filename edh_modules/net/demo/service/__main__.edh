@@ -43,28 +43,24 @@ method callThePolice ( telno ) {
 
 console.info<| 'Serving demo client - ' ++ peer
 
-peer.postCommand(
-  {#
-   # we'd better use the interpolated expr form to compose the remote
-   # command like this:
-        cmd = (expr "Good day, " ++ {$ peer $}),
-   # but in case the client is not speaking Edh, or at least it does
-   # not support (++) as string concat op, e.g. a Python client, we'd
-   # like to use the string repr form as long as string literal syntax
-   # is universal across all languages the clients speak, like this:
-   #}
-  cmd = repr( "Good day, " ++ peer ),
+{
+  peer.postCommand(
+    # we use the interpolated expr form to compose the remote command,
+    # and here we use operator (+) instead of the more idiomatic (++)
+    # (in Edh) for string concatenation, in case the client is not
+    # speaking Edh, or at least it does not support (++) as string
+    # concat op, e.g. a Python client
+    cmd = (expr "Good day, " + {$ repr(peer) $}),
 
-  # this command is directed to channel `conmsg` which will be 
-  # `conmsg := 2` by convention for cli clients, but here we only
-  # assume the name, regardless the actual value at peer site
-  dir = expr conmsg
-)
+    # this command is directed to channel `conmsg` which will be 
+    # `conmsg := 2` by convention for cli clients, but here we only
+    # assume the value, clients speaking different languages may have
+    # different constant name for it
+    dir = 2
+  )
 
-{ while false == peer.eol() {
-  case peer.readCommand() of {
-    # note a command resulting in nil is normal, and should just
-    # pass by here
+  while false == peer.eol() case peer.readCommand() of {
+    # note a command resulting in nil is ignored here
 
     { cmdVal } -> {
       # serving as a simple expression evaluator, post the result
@@ -74,11 +70,12 @@ peer.postCommand(
 
       # this command is directed to channel `conout` which will be 
       # `conout := 1` by convention for cli clients, but here we only
-      # assume the name, regardless the actual value at peer site
-      peer.postCommand( repr(cmdVal), expr conout )
+      # assume the value, clients speaking different languages may have
+      # different constant name for it
+      peer.postCommand( repr(cmdVal), 1 )
     }
   }
-} } $=> { exc } -> {
+} $=> { exc } -> {
   console.warn<| 'Demo client ' ++ peer ++ ' error: ' ++ exc
 }
 
