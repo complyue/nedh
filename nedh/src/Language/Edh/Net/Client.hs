@@ -291,7 +291,7 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
       addr <- resolveServAddr
       bracket
           (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
-          (\sock -> shutdown sock ShutdownBoth >> close sock)
+          close
         $ \sock -> do
             connect sock $ addrAddress addr
             atomically
@@ -299,11 +299,16 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
               <$> tryTakeTMVar serviceAddrs
               >>= putTMVar serviceAddrs
               .   (addr :)
-            bracket (socketToHandle sock ReadWriteMode) hFlush $ \hndl ->
-              try (consumeService (T.pack $ show $ addrAddress addr) hndl)
-                >>= atomically
-                .   void
-                .   tryPutTMVar cnsmrEoL
+            bracket
+                (socketToHandle sock ReadWriteMode)
+                (\hndl ->
+                  hFlush hndl >> shutdown sock ShutdownBoth >> hClose hndl
+                )
+              $ \hndl ->
+                  try (consumeService (T.pack $ show $ addrAddress addr) hndl)
+                    >>= atomically
+                    .   void
+                    .   tryPutTMVar cnsmrEoL
 
    where
     ctx             = edh'context pgsCtor
