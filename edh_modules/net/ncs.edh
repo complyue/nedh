@@ -15,9 +15,14 @@ export method consoleOn (
     conModu, servAddr, servPort, init=init,
   ) of { ncon } -> { pass }
 
-  case ncon.addrs() of { addrs } ->
-    console.info<| 'Serving networked console at: ' ++ addrs
-  
+  case ncon.addrs() of {
+    { addr =>_ } -> console.info<| 'Serving networked console at: ' ++ addr
+    # or the network has failed, propagate the error
+    ncon.join()  # this usually throws
+    # in case join() didn't throw, report this error
+    error('Networked console server failed listening.')
+  }
+
   # wait end-of-life for each client, log err if any
   go for peer from ncon.clients do { go {
     method _ (peer') {
