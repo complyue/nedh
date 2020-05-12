@@ -4,8 +4,6 @@ module Language.Edh.Net.MicroProto where
 import           Prelude
 -- import           Debug.Trace
 
-import           System.IO
-
 import           Control.Exception
 import           Control.Monad.Reader
 import           Control.Concurrent
@@ -13,10 +11,17 @@ import           Control.Concurrent.STM
 
 import           Data.Hashable
 import qualified Data.ByteString               as B
-import qualified Data.ByteString.Char8         as C
-import           Data.Text
+import qualified Data.ByteString.Lazy          as BL
+import qualified Data.ByteString.Lazy.Char8    as C
+import           Data.Text                      ( Text
+                                                , isPrefixOf
+                                                , isSuffixOf
+                                                )
 import qualified Data.Text                     as T
-import           Data.Text.Encoding
+import qualified Data.Text.Lazy                as TL
+import qualified Data.Text.Encoding            as TE
+import qualified Data.Text.Lazy.Encoding       as TLE
+import           Data.Int
 
 import           Language.Edh.EHI
 
@@ -40,7 +45,7 @@ instance Hashable Packet where
 textPacket :: PacketDirective -> Text -> Packet
 textPacket !dir !txt = Packet dir payload
  where
-  payload = encodeUtf8 $ finishLine $ onSepLine txt
+  payload = TE.encodeUtf8 $ finishLine $ onSepLine txt
   onSepLine :: Text -> Text
   onSepLine "" = ""
   onSepLine !t = if "\n" `isPrefixOf` t then t else "\n" <> t
@@ -50,17 +55,18 @@ textPacket !dir !txt = Packet dir payload
 
 
 -- | Send out a binary packet.
-sendPacket :: Text -> Handle -> Packet -> IO ()
-sendPacket peerSite !outletHndl (Packet !dir !payload) = do
+sendPacket :: Text -> (B.ByteString -> IO ()) -> Packet -> IO ()
+sendPacket peerSite !outletter (Packet !dir !payload) = do
   let !pktLen = B.length payload
-      !pktHdr = encodeUtf8 $ T.pack ("[" <> show pktLen <> "#") <> dir <> "]"
+      !pktHdr =
+        TE.encodeUtf8 $ T.pack ("[" <> show pktLen <> "#") <> dir <> "]"
   when (B.length pktHdr > maxHeaderLength) $ throwIO $ EdhPeerError
     peerSite
     "sending out long packet header"
   -- write packet header
-  B.hPut outletHndl pktHdr
+  outletter pktHdr
   -- write packet payload
-  B.hPut outletHndl payload
+  outletter payload
 
 
 -- | Receive all packets being streamed to the specified (socket) handle,
@@ -78,11 +84,12 @@ sendPacket peerSite !outletHndl (Packet !dir !payload) = do
 --
 -- The caller is responsible to close the handle anyway appropriate, but
 -- only after eos is signaled.
-receivePacketStream :: Text -> Handle -> PacketSink -> EndOfStream -> IO ()
-receivePacketStream peerSite !intakeHndl !pktSink !eos = do
+receivePacketStream
+  :: Text -> (Int -> IO B.ByteString) -> PacketSink -> EndOfStream -> IO ()
+receivePacketStream peerSite !intaker !pktSink !eos = do
   recvThId <- myThreadId -- async kill the receiving action on eos
   void $ forkIO $ atomically (readTMVar eos) >> killThread recvThId
-  catch (parsePkts B.empty)
+  catch (parsePkts BL.empty)
     -- note this thread can be killed as above due to eos, don't rethrow
     -- here, some informed thread should rethrow the error in eos if any
     -- get recorded there.
@@ -91,32 +98,44 @@ receivePacketStream peerSite !intakeHndl !pktSink !eos = do
     $ \(e :: SomeException) -> void $ atomically $ tryPutTMVar eos $ Left e
  where
 
-  parsePkts :: B.ByteString -> IO ()
+  getExact :: Int64 -> IO (BL.ByteString, B.ByteString)
+  getExact !nbytes64 = intaker nbytes >>= \chunk ->
+    let more2read = nbytes64 - fromIntegral (B.length chunk)
+    in  if more2read > 0
+          then getExact more2read >>= \(chunk', readahead) ->
+            return (BL.fromStrict chunk <> chunk', readahead)
+          else case B.splitAt nbytes chunk of
+            (exact, readahead) -> return (BL.fromStrict exact, readahead)
+    where nbytes = fromIntegral nbytes64
+
+  parsePkts :: BL.ByteString -> IO ()
   parsePkts !readahead = do
     (payloadLen, directive, readahead') <- parseHdr readahead
     if payloadLen < 0
       then -- normal eos, try mark and done
            void $ atomically $ tryPutTMVar eos $ Right ()
       else do
-        let (payload, rest) = B.splitAt payloadLen readahead'
-            more2read       = payloadLen - B.length payload
+        let (payload, rest) = BL.splitAt payloadLen readahead'
+            more2read       = payloadLen - BL.length payload
         if more2read > 0
           then do
-            morePayload <- B.hGet intakeHndl more2read
+            (morePayload, moreAhead) <- getExact more2read
             atomically
                 (        (Right <$> putTMVar
                            pktSink
-                           (Packet directive (payload <> morePayload))
+                           (Packet directive $ BL.toStrict (payload <> morePayload))
                          )
                 `orElse` (Left <$> readTMVar eos)
                 )
               >>= \case
                     Left  (Left  e ) -> throwIO e
                     Left  (Right ()) -> return ()
-                    Right _          -> parsePkts B.empty
+                    Right _          -> parsePkts $ BL.fromStrict moreAhead
           else
             atomically
-                (        (Right <$> putTMVar pktSink (Packet directive payload))
+                ((Right <$> putTMVar pktSink
+                                     (Packet directive $ BL.toStrict payload)
+                 )
                 `orElse` (Left <$> readTMVar eos)
                 )
               >>= \case
@@ -124,29 +143,37 @@ receivePacketStream peerSite !intakeHndl !pktSink !eos = do
                     Left  (Right ()) -> return ()
                     Right _          -> parsePkts rest
 
-  parseHdr :: B.ByteString -> IO (Int, Text, B.ByteString)
+  parseHdr :: BL.ByteString -> IO (Int64, Text, BL.ByteString)
   parseHdr !readahead = do
-    peeked <- if B.null readahead
-      then B.hGetSome intakeHndl maxHeaderLength
+    peeked <- if BL.null readahead
+      then BL.fromStrict <$> intaker chunkSize
       else return readahead
-    if B.null peeked
-      then return (-1, "eos", B.empty)
+    if BL.null peeked
+      then return (-1, "eos", BL.empty)
       else do
-        unless ("[" `B.isPrefixOf` peeked) $ throwIO $ EdhPeerError
+        unless ("[" `BL.isPrefixOf` peeked) $ throwIO $ EdhPeerError
           peerSite
           "missing packet header"
         let (hdrPart, rest) = C.break (== ']') peeked
-        if not $ B.null rest
+        if not $ BL.null rest
           then do -- got a full packet header
-            let !hdrContent         = B.drop 1 hdrPart
-                !readahead'         = B.drop 1 rest
+            let !hdrContent         = BL.drop 1 hdrPart
+                !readahead'         = BL.drop 1 rest
                 (lenStr, directive) = C.break (== '#') hdrContent
-                payloadLen          = read $ T.unpack $ decodeUtf8 lenStr
-            return (payloadLen, decodeUtf8 $ B.drop 1 directive, readahead')
-          else if B.length peeked < maxHeaderLength
+                payloadLen          = read $ TL.unpack $ TLE.decodeUtf8 lenStr
+            return
+              ( payloadLen
+              , TL.toStrict $ TLE.decodeUtf8 $ BL.drop 1 directive
+              , readahead'
+              )
+          else if BL.length peeked < fromIntegral maxHeaderLength
             then do
-              morePeek <- B.hGetSome intakeHndl maxHeaderLength
+              morePeek <- BL.fromStrict <$> intaker chunkSize
               parseHdr $ peeked <> morePeek
             else throwIO
               $ EdhPeerError peerSite "incoming packet header too long"
 
+  -- | Considering hardware and network realities, the maximum number of bytes
+  -- to receive should be a small power of 2
+  chunkSize :: Int
+  chunkSize = 4096

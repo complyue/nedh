@@ -4,8 +4,6 @@ module Language.Edh.Net.Client where
 import           Prelude
 -- import           Debug.Trace
 
-import           System.IO
-
 import           Control.Exception
 import           Control.Monad
 import           Control.Concurrent
@@ -20,6 +18,9 @@ import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
 import           Network.Socket
+import           Network.Socket.ByteString      ( recv
+                                                , sendAll
+                                                )
 
 import qualified Data.Lossless.Decimal         as D
 
@@ -299,14 +300,10 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
               <$> tryTakeTMVar serviceAddrs
               >>= putTMVar serviceAddrs
               .   (addr :)
-            bracket
-                (socketToHandle sock ReadWriteMode)
-                (\hndl -> hFlush hndl >> gracefulClose sock 5000 >> hClose hndl)
-              $ \hndl ->
-                  try (consumeService (T.pack $ show $ addrAddress addr) hndl)
-                    >>= atomically
-                    .   void
-                    .   tryPutTMVar cnsmrEoL
+            try (consumeService (T.pack $ show $ addrAddress addr) sock)
+              >>= (gracefulClose sock 5000 <*)
+              .   atomically
+              .   tryPutTMVar cnsmrEoL
 
    where
     ctx             = edh'context pgsCtor
@@ -320,8 +317,8 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                               (Just (show servPort))
       return addr
 
-    consumeService :: Text -> Handle -> IO ()
-    consumeService !clientId !hndl = do
+    consumeService :: Text -> Socket -> IO ()
+    consumeService !clientId !sock = do
       pktSink <- newEmptyTMVarIO
       poq     <- newEmptyTMVarIO
       chdVar  <- newTVarIO mempty
@@ -375,7 +372,7 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
       -- pump commands in, 
       -- make this thread the only one reading the handle
       -- note this won't return, will be asynchronously killed on eol
-      void $ forkIO $ receivePacketStream clientId hndl pktSink cnsmrEoL
+      void $ forkIO $ receivePacketStream clientId (recv sock) pktSink cnsmrEoL
 
       let
         serializeCmdsOut :: IO ()
@@ -383,11 +380,12 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
           atomically
               ((Right <$> takeTMVar poq) `orElse` (Left <$> readTMVar cnsmrEoL))
             >>= \case
-                  Left _ -> do -- try flush before close, on consumer eol
-                    hFlush hndl
-                    return ()
+                  Left _ -> return ()
                   Right !pkt ->
-                    catch (sendPacket clientId hndl pkt >> serializeCmdsOut)
+                    catch
+                        (  sendPacket clientId (sendAll sock) pkt
+                        >> serializeCmdsOut
+                        )
                       $ \(e :: SomeException) -> -- mark eol on error
                           atomically $ void $ tryPutTMVar cnsmrEoL $ Left e
       -- pump commands out,

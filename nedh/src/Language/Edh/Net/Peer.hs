@@ -32,9 +32,12 @@ data Peer = Peer {
 
 postPeerCommand :: EdhProgState -> Peer -> Text -> Text -> EdhProcExit -> STM ()
 postPeerCommand !pgs !peer !dir !src !exit =
-  waitEdhSTM pgs (edh'peer'posting peer $ textPacket dir src)
-    $ const
-    $ exitEdhSTM pgs exit nil
+  tryReadTMVar (edh'peer'eol peer) >>= \case
+    Just _ -> throwEdhSTM pgs EvalError "posting to a peer already end-of-life"
+    Nothing ->
+      waitEdhSTM pgs (edh'peer'posting peer $ textPacket dir src)
+        $ const
+        $ exitEdhSTM pgs exit nil
 
 -- | Read next command from peer
 --

@@ -4,8 +4,6 @@ module Language.Edh.Net.Server where
 import           Prelude
 -- import           Debug.Trace
 
-import           System.IO
-
 import           Control.Exception
 import           Control.Monad
 import           Control.Concurrent
@@ -20,6 +18,9 @@ import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
 import           Network.Socket
+import           Network.Socket.ByteString      ( recv
+                                                , sendAll
+                                                )
 
 import qualified Data.Lossless.Decimal         as D
 
@@ -276,32 +277,30 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
       bracketOnError
           (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
           close
-        $ \sock -> do
-            setSocketOption sock ReuseAddr 1
-            bind sock (addrAddress addr)
-            listen sock 30 -- todo make this tunable ?
+        $ \ssock -> do
+            setSocketOption ssock ReuseAddr 1
+            bind ssock (addrAddress addr)
+            listen ssock 300 -- todo make this tunable ?
             atomically
               $   fromMaybe []
               <$> tryTakeTMVar servAddrs
               >>= putTMVar servAddrs
               .   (addr :)
-            return sock
+            return ssock
+
     acceptClients :: Socket -> IO ()
-    acceptClients sock =
-      bracketOnError (accept sock) (close . fst) $ \(conn, addr) -> do
-        hndl      <- socketToHandle conn ReadWriteMode
+    acceptClients ssock = do
+      bracketOnError (accept ssock) (close . fst) $ \(sock, addr) -> do
         clientEoL <- newEmptyTMVarIO
         void
-          $ forkFinally (servClient clientEoL (T.pack $ show addr) hndl)
-            -- close the socket anyway after the thread done
-          $ ((hFlush hndl >> gracefulClose conn 5000 >> hClose hndl) <*)
+          $ forkFinally (servClient clientEoL (T.pack $ show addr) sock)
+          $ (gracefulClose sock 5000 <*)
           . atomically
           . tryPutTMVar clientEoL
+      acceptClients ssock -- tail recursion
 
-        acceptClients sock -- tail recursion
-
-    servClient :: TMVar (Either SomeException ()) -> Text -> Handle -> IO ()
-    servClient !clientEoL !clientId !hndl = do
+    servClient :: TMVar (Either SomeException ()) -> Text -> Socket -> IO ()
+    servClient !clientEoL !clientId !sock = do
       pktSink <- newEmptyTMVarIO
       poq     <- newEmptyTMVarIO
       chdVar  <- newTVarIO mempty
@@ -368,7 +367,10 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
           -- pump commands in, 
           -- make this thread the only one reading the handle
           -- note this won't return, will be asynchronously killed on eol
-          void $ forkIO $ receivePacketStream clientId hndl pktSink clientEoL
+          void $ forkIO $ receivePacketStream clientId
+                                              (recv sock)
+                                              pktSink
+                                              clientEoL
 
           let
             serializeCmdsOut :: IO ()
@@ -380,7 +382,10 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                 >>= \case
                       Left _ -> return () -- stop on eol any way
                       Right !pkt ->
-                        catch (sendPacket clientId hndl pkt >> serializeCmdsOut)
+                        catch
+                            (  sendPacket clientId (sendAll sock) pkt
+                            >> serializeCmdsOut
+                            )
                           $ \(e :: SomeException) -> -- mark eol on error
                               atomically $ void $ tryPutTMVar clientEoL $ Left e
           -- pump commands out,
