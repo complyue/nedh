@@ -301,9 +301,7 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
               .   (addr :)
             bracket
                 (socketToHandle sock ReadWriteMode)
-                (\hndl ->
-                  hFlush hndl >> shutdown sock ShutdownBoth >> hClose hndl
-                )
+                (\hndl -> hFlush hndl >> gracefulClose sock 5000 >> hClose hndl)
               $ \hndl ->
                   try (consumeService (T.pack $ show $ addrAddress addr) hndl)
                     >>= atomically

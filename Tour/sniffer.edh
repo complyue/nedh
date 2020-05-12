@@ -15,5 +15,8 @@
 }
 
 
-# better not past following content to interactive repl
+# following line keeps the sniffer running when this file
+# is redirected as stdin to Nedh interpreter, if running
+# interactively, you'd better not paste following content
+# to the repl, or you can only Ctrl^C to kill the repl
 sniffer.join()

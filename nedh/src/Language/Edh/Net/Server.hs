@@ -287,18 +287,18 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
               .   (addr :)
             return sock
     acceptClients :: Socket -> IO ()
-    acceptClients sock = do
-      (conn, addr) <- accept sock
+    acceptClients sock =
+      bracketOnError (accept sock) (close . fst) $ \(conn, addr) -> do
+        hndl      <- socketToHandle conn ReadWriteMode
+        clientEoL <- newEmptyTMVarIO
+        void
+          $ forkFinally (servClient clientEoL (T.pack $ show addr) hndl)
+            -- close the socket anyway after the thread done
+          $ ((hFlush hndl >> gracefulClose conn 5000 >> hClose hndl) <*)
+          . atomically
+          . tryPutTMVar clientEoL
 
-      hndl         <- socketToHandle conn ReadWriteMode
-      clientEoL    <- newEmptyTMVarIO
-      void
-        $ forkFinally (servClient clientEoL (T.pack $ show addr) hndl)
-        $ (hClose hndl <*) -- close the socket anyway after the thread done
-        . atomically
-        . tryPutTMVar clientEoL
-
-      acceptClients sock -- tail recursion
+        acceptClients sock -- tail recursion
 
     servClient :: TMVar (Either SomeException ()) -> Text -> Handle -> IO ()
     servClient !clientEoL !clientId !hndl = do
