@@ -1,7 +1,6 @@
 
 {#
- # this is the client-facing module for the demo of a networked
- # console
+ # this is the client-facing module for a networked console
  # 
  # this module is instantiated and run per client connection.
  #
@@ -15,20 +14,19 @@
  # instance.
  #}
 
-console.info<| 'Console client connected - ' ++ peer
-defer {
-  console.info<| 'Console client disconnected - ' ++ peer
-}
+import * 'net/options'
 
+console.info<| 'Console client connected - ' ++ peer
 
 {
+
   # change console client's command prompt
-  peer.postCommand(
+  peer.p2c(
+    0, # direct to `conin := 0` to change command prompt
     # use a tuple to change both ps1 and ps2
-    # repr( ("(rcon)Đ: ", "(rcon)Đ| ") ),
+    # repr( ("(rcon)Đ: ", "Đ| ") ),
     # or just ps1
-    repr( "(rcon)Đ: " )
-    0,  # this should direct to channel conin := 0
+    repr( "(rcon)Đ: " ),
   )
 
   while false == peer.eol() {  # this is the *Loop* in so-called REPL
@@ -69,5 +67,7 @@ defer {
   }
 
 } $=> { exc } -> {
-  console.warn<| 'Demo console client ' ++ peer ++ ' error: ' ++ exc
+  console.warn<| 'Console client ' ++ peer ++ ' error: ' ++ exc
 }
+
+console.info<| 'Console client disconnected - ' ++ peer
