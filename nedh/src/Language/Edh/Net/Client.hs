@@ -356,8 +356,9 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                             __peer_init__
                             (thisObject $ contextScope $ edh'context pgs)
                             []
-                          $ \mkCall ->
-                              runEdhProc pgs $ mkCall $ \_ -> contEdhSTM exit
+                            id
+                          $ \mkCall -> runEdhProc pgs $ mkCall $ \_ ->
+                              contEdhSTM exit
                 _ -> error "bug: Peer ctor returned non-object"
 
       void

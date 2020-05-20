@@ -343,6 +343,7 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                           __peer_init__
                           (thisObject $ contextScope $ edh'context pgs)
                           []
+                          id
                 $ \mkCall -> runEdhProc pgs $ mkCall $ \_ -> contEdhSTM exit
 
       try prepPeer >>= \case

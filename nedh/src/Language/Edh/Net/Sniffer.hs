@@ -344,6 +344,7 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
                             __modu_init__
                             (thisObject $ contextScope $ edh'context pgs)
                             []
+                            id
                   $ \mkCall -> runEdhProc pgs $ mkCall $ \_ -> contEdhSTM exit
 
       void
