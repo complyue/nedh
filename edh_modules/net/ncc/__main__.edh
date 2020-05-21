@@ -2,8 +2,40 @@
 {#
  # networked console client
  #
- # this is the server-facing peer module for networked console
+ # this is the server-facing entry module for networked console
  #}
+
+import * 'net/symbols'
+import (Peer, **_) 'net/RT'
+
+
+# a Peer object should have been implanted atomically, the following
+# line should have no practical effect but to hint an IDE for code
+# completion etc.
+peer ?:= Peer()
+
+# define various effectful artifacts used for communication with
+# this connected console server session
+effect {  # enclosed definitions go into effect namespace
+
+  ;@netPeer = peer
+
+  ;@dataSink = peer.armChannel(dataChan)
+
+  method @sendCmd (c, *cs) {
+    peer.postCommand(repr(c))
+    for c from cs do
+      peer.postCommand(repr(c))
+  }
+
+  method @sendData (d, *ds) {
+    peer.p2c(dataChan, repr(d))
+    for d from ds do
+      peer.p2c(dataChan, repr(d))
+  }
+
+}  # end effect namespace
+
 
 # count number of conout from server, make its change an event stream
 # later we rely on this signal to wait response after submitted some
@@ -31,7 +63,7 @@ go {
   # channel 0 is named `conin` by convention, commands through it are
   # interpreted as command prompt change requests from the connected
   # service for this consumer client
-  perceive peer.armChannel( conin := 0 ) {
+  perceive peer.armChannel( conin ?:= 0 ) {
     {( ps1, ps2 )} -> {
       cinArgs = pkargs( ***cinArgs, ps1=ps1, ps2=ps2, )
     }
@@ -46,7 +78,7 @@ go {
   # channel 1 is named `conout` by convention, commands through it are
   # directed to `console.print()`
   # CAVEAT: the outputting is hung up during reading of console commands
-  perceive peer.armChannel( conout := 1 ) { conOut } -> {
+  perceive peer.armChannel( conout ?:= 1 ) { conOut } -> {
     conOutSignal <- conOutCnt += 1  # increase and announce
     ;| ArgsPackType == type(conOut) -> {
       console.print( ***conOut )
@@ -56,7 +88,7 @@ go {
 
   # channel 2 is named `conmsg` by convention, commands through it are
   # directed to logging at `info` level
-  perceive peer.armChannel( conmsg := 2 ) { conMsg } -> {
+  perceive peer.armChannel( conmsg ?:= 2 ) { conMsg } -> {
     console.info<| conMsg
   }
 

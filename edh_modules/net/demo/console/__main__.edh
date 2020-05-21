@@ -1,22 +1,45 @@
 
 {#
- # this is the client-facing module for a networked console
+ # this is the client-facing entry module for a networked console.
  # 
- # this module is instantiated and run per client connection.
- #
- # a `{ net.Peer: peer }` object is guaranteed to have been
- # implanted by per-connection host module preparation.
- #
- # none or more of other artifacts may have been implanted as well,
- # according to the per-connection peer module initialization method
- # (e.g. __peer_init__) specified on construction of the very
-      net.Server( 'net/demo/console', ..., init=__peer_init__, )
- # instance.
+ # this module is instantiated and run per client connection, the
+ # client is disconnected once this module finished running.
  #}
 
-import * 'net/options'
+import * 'net/symbols'
+import (Peer, **_) 'net/RT'
+
+
+# a Peer object should have been implanted atomically, the following
+# line should have no practical effect but to hint an IDE for code
+# completion etc.
+peer ?:= Peer()
 
 console.info<| 'Console client connected - ' ++ peer
+
+
+# define various effectful artifacts used for communication with
+# this connected consumer client session
+effect {  # enclosed definitions go into effect namespace
+
+  ;@netPeer = peer
+
+  ;@dataSink = peer.armChannel(dataChan)
+
+  method @sendCmd (c, *cs) {
+    peer.postCommand(repr(c))
+    for c from cs do
+      peer.postCommand(repr(c))
+  }
+
+  method @sendData (d, *ds) {
+    peer.p2c(dataChan, repr(d))
+    for d from ds do
+      peer.p2c(dataChan, repr(d))
+  }
+
+}  # end effect namespace
+
 
 {
 
@@ -24,9 +47,9 @@ console.info<| 'Console client connected - ' ++ peer
   peer.p2c(
     0, # direct to `conin := 0` to change command prompt
     # use a tuple to change both ps1 and ps2
-    # repr( ("(rcon)Đ: ", "Đ| ") ),
-    # or just ps1
-    repr( "(rcon)Đ: " ),
+    # repr( ("(demo-con)Đ: ", "Đ| ") ),
+    # or change ps1 only
+    repr( "(demo-con)Đ: " ),
   )
 
   while false == peer.eol() {  # this is the *Loop* in so-called REPL
@@ -60,7 +83,7 @@ console.info<| 'Console client connected - ' ++ peer
     }
     { cmdExc } -> {
       peer.postCommand(
-        repr( 'Recovered from error\n  exception=' ++ cmdExc),
+        repr( 'Recovered from error\n  exception=' ++ cmdExc ),
         1, # direct to channel conout := 1
       )
     }

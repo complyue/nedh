@@ -1,0 +1,24 @@
+
+export {
+
+  # conventional Nedh channels for console IO
+  conin  := 0
+  conout := 1
+  conmsg := 2
+
+  # conventional Nedh channels for data exchange
+  dataChan := 'data'
+
+  # effectful identifier of the peer object
+  netPeer = Symbol('@netPeer')
+
+  # effectful identifier of the local event sink for data intaking
+  dataSink = Symbol('@dataSink')
+
+  # effectful identifier of the method procedure for normal command sending
+  sendCmd = Symbol('@sendCmd')
+
+  # effectful identifier of the method procedure for normal data sending
+  sendData = Symbol('@sendData')
+
+}
