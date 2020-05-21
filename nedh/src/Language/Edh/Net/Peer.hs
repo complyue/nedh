@@ -167,9 +167,7 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
     contEdhSTM $ do
       esd <- readTVar es
       case fromDynamic esd :: Maybe Peer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
-            (show esd)
+        Nothing    -> exitEdhSTM pgs exit $ EdhBool True
         Just !peer -> tryReadTMVar (edh'peer'eol peer) >>= \case
           Nothing         -> exitEdhSTM pgs exit $ EdhBool False
           Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
@@ -184,9 +182,7 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
     contEdhSTM $ do
       esd <- readTVar es
       case fromDynamic esd :: Maybe Peer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
-            (show esd)
+        Nothing    -> exitEdhSTM pgs exit nil
         Just !peer -> waitEdhSTM pgs (readTMVar (edh'peer'eol peer)) $ \case
           Left  e  -> toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
           Right () -> exitEdhSTM pgs exit nil
@@ -200,9 +196,7 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
     contEdhSTM $ do
       esd <- readTVar es
       case fromDynamic esd :: Maybe Peer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
-            (show esd)
+        Nothing    -> exitEdhSTM pgs exit $ EdhBool False
         Just !peer -> do
           stopped <- tryPutTMVar (edh'peer'eol peer) $ Right ()
           exitEdhSTM pgs exit $ EdhBool stopped
@@ -420,9 +414,7 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
     contEdhSTM $ do
       esd <- readTVar es
       case fromDynamic esd of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
-            (show esd)
+        Nothing -> exitEdhSTM pgs exit $ EdhString "<bogon>"
         Just (peer :: Peer) ->
           exitEdhSTM pgs exit $ EdhString $ edh'peer'ident peer
 
@@ -434,9 +426,7 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
     contEdhSTM $ do
       esd <- readTVar es
       case fromDynamic esd of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
-            (show esd)
+        Nothing -> exitEdhSTM pgs exit $ EdhString "<bogus-peer>"
         Just (peer :: Peer) ->
           exitEdhSTM pgs exit
             $  EdhString
