@@ -92,6 +92,13 @@ go {
     console.info<| conMsg
   }
 
+  # channel 'err' is named `errChan` by convention, errors occurred on
+  # one site are passed to its peer through this channel
+  perceive peer.armChannel( errChan ?:= 'err' ) {
+    {{ PeerError: peerErr }} -> { throw peerErr }
+    { peerErrMsg } -> { throw PeerError( peerErrMsg ) }
+  }
+
   # trip a msg to our local conout, content of the msg doesn't need to
   # be very useful (yet better to be), the successful delivery of this
   # msg is a thing worth to validate in the first place. and then we are

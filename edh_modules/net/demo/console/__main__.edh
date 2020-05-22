@@ -82,6 +82,8 @@ effect {  # enclosed definitions go into effect namespace
       break  # already disconnected
     }
     { cmdExc } -> {
+      # a business service may choose to pass error through `errChan` in
+      # this case, but the console here merely notify the client about it
       peer.postCommand(
         repr( 'Recovered from error\n  exception=' ++ cmdExc ),
         1, # direct to channel conout := 1

@@ -6,7 +6,10 @@ export {
   conout := 1
   conmsg := 2
 
-  # conventional Nedh channels for data exchange
+  # conventional Nedh channel for error reporting
+  errChan := 'err'
+
+  # conventional Nedh channel for data exchange
   dataChan := 'data'
 
   # effectful identifier of the peer object
