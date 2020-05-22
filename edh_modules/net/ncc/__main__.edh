@@ -115,7 +115,7 @@ go {
   ) # note here is posting to console server's default channel, so as
   # to be an expr cmd to be evaluated and posted back to our conout
 
-  { while false == peer.eol() {
+  while false == peer.eol() {
     case peer.readCommand() of {
       # todo interpret any specially expected command here
 
@@ -126,9 +126,6 @@ go {
 
       # note a command resulting in nil is normal, just pass by here
     }
-  } } $=> { exc } -> {
-    console.warn<| 'Error with console server - ' ++ peer
-      ++ '\n' ++ exc
   }
 }
 
