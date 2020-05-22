@@ -24,17 +24,15 @@ export method consoleOn (
   }
 
   # wait end-of-life for each client, log err if any
-  go for peer from ncon.clients do { go {
-    method _ (peer') {
-      peer'.join() $=> { nccExc } -> {
-        console.warn<| 'Console client caused trouble - '
-          ++ peer' ++ '\n' ++ nccExc
-      }
+  go {{
+    for peer from ncon.clients do {
+      # NOTE exceptions in forkees are catchable by forker
+      go peer.join()
     }
-  } (peer) }
-  # note an anoymous method is used above, to retain an attr named
-  # `peer'`, locally in the procedure's scope, as the loop will
-  # repeatedly change attr named `peer` in the outer scope
+  } $=> { nccExc } -> {  # NOTE this handler can multi-shot
+    console.warn<| 'Console client caused trouble - '
+      ++ peer' ++ '\n' ++ nccExc
+  }}
 
   return ncon
 }

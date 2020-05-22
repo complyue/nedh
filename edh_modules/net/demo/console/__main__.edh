@@ -91,8 +91,10 @@ effect {  # enclosed definitions go into effect namespace
     }
   }
 
-} $=> { exc } -> {
-  console.warn<| 'Console client ' ++ peer ++ ' error: ' ++ exc
+} @=> {
+  { exc } -> {
+    console.error<| 'Disconnecting console client ' ++ peer
+      ++ ' for error: ' ++ exc
+  }
+  console.info<| 'Disconnecting console client ' ++ peer
 }
-
-console.info<| 'Console client disconnected - ' ++ peer
