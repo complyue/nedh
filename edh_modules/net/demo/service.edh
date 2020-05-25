@@ -1,0 +1,32 @@
+
+{#
+ # this is a demo service module to be provided over network, via Nedh
+ #}
+
+import * 'net/symbols'
+
+
+# this is an example of asynchronously responsive procedure to be
+# called remotely
+export method callThePolice ( telno ) {
+  # some real alarm should be alerted here, but we just log some msg to the
+  # server's stdio console as a demo
+  console.warn<| 'Alerts ringing #tel ' ++ telno ++ ' ...'
+
+  # `@sendCmd` effect is the conventional way to send comm commands to the
+  # peer session in context, and the cmd is directed to default channel at
+  # remote site
+  #
+  # then an expr literal is the sane way to compose rpc commands
+  perform @sendCmd( expr (
+
+    # assuming remote peer has a `method ack(msg) ...` procedure exposed,
+    # which `net/demo/cli` happens to have
+    ack(
+      # the interpolated `{$ telno $}` better to be in parentheses in case
+      # it has complex repr, e.g. a named value - `policeTelNo := 110`
+      'Police alerted via #tel ' ++ ( {$ telno $} )
+    )
+
+  ) )
+}

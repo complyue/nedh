@@ -1,82 +1,74 @@
 
 {#
- # this is the client-facing peer module for nedh demo service
+ # this is the client-facing entry module of the demo service
  # 
- # this module is instantiated and run per client connection.
- #
- # a `{ net.Peer: peer }` object is guaranteed to have been
- # implanted by per-connection host module preparation.
- #
- # none or more of other artifacts may have been implanted as well,
- # according to the per-connection peer module initialization method
- # (e.g. __peer_init__) specified on construction of the very
-      net.Server( 'net/demo/service', ..., init=__peer_init__, )
- # instance.
- #
- # procedures available here - no matter imported, adhoc defined, or
- # implanted - can be called remotely by the peer.
- #
+ # this module is instantiated and run per client connection, the
+ # client is disconnected once this module finished running.
  #}
 
-# alias the peer module so remote client can rpc test what's available
-# in this environment via this attr
-service = this
+import (Peer, **_) 'net/RT'
+import * 'net/symbols'
+effect import * 'net/effects'
 
-# this is an example of asynchronously responsive procedure to be
-# called remotely
-method callThePolice ( telno ) {
-  console.warn<| 'Alerts ringing #tel ' ++ telno ++ ' ...'
-  peer.postCommand(expr  # expr literal is the sane way,
-    # to compose rpc commands.
 
-    # assuming remote peer has a `method ack(msg) ...` procedure made
-    # available, which `net/demo/cli` happens to have
-    ack(
+# expose service procedures exported from the persistent module
+import * '.'
 
-      # the interpolated `{$ telno $}` better to be in parentheses in case
-      # it has complex repr, e.g. a named value - `policeTelNo := 110`
-      'Police alerted via #tel ' ++ ( {$ telno $} )
 
-    )
-  )
-}
-
+# a Peer object should have been implanted atomically, the following
+# line should have no practical effect but to hint an IDE for code
+# completion etc.
+peer ?:= Peer()
 console.info<| 'Serving demo client - ' ++ peer
 
+
+# define various effectful artifacts used for communication with this
+# connected consumer client session, with `@netPeer` and `@dataSink` the
+# minimum by convention
+#
+# note in assignments to symbolic attributes, semicolon before `@` is likely
+# needed or the `@` may be parsed as an operator
+effect {
+  ;@netPeer = peer
+  ;@dataSink = peer.armChannel(dataChan)
+}
+
+
+# alias this entry module so remote client can rpc test what's available
+# in this environment via this attr
+service := this
+
+
 {
-  peer.postCommand(
+
+  peer.p2c(
+    2,  # direct to channel `conmsg := 2` 
     # we use the interpolated expr form to compose the remote command,
     # and here we use operator (+) instead of the more idiomatic (++)
     # (in Edh) for string concatenation, in case the client is not
     # speaking Edh, or at least it does not support (++) as string
     # concat op, e.g. a Python client
-    cmd = (expr "Good day, " + {$ repr(peer) $}),
-
-    # this command is directed to channel `conmsg` which will be 
-    # `conmsg := 2` by convention for cli clients, but here we only
-    # assume the value, clients speaking different languages may have
-    # different constant name for it
-    dir = 2
+    expr "Good day, " + {$ repr(peer) $},
   )
 
   while false == peer.eol() case peer.readCommand() of {
     # note a command resulting in nil is ignored here
-
     { cmdVal } -> {
       # serving as a simple expression evaluator, post the result
-      # back as client's cli console output
-
+      # back as client's console output, i.e. `conout := 1`
       console.debug<| 'Got cmd from ' ++ peer ++ '\n  ' ++ cmdVal
-
-      # this command is directed to channel `conout` which will be 
-      # `conout := 1` by convention for cli clients, but here we only
-      # assume the value, clients speaking different languages may have
-      # different constant name for it
-      peer.postCommand( repr(cmdVal), 1 )
+      peer.p2c(
+        1,  # direct to channel conout := 1
+        repr( cmdVal ),
+      )
+      cmdVal = nil  # clear it
     }
   }
-} $=> { exc } -> {
-  console.warn<| 'Demo client ' ++ peer ++ ' error: ' ++ exc
-}
 
-console.info<| 'Done with demo client - ' ++ peer
+} @=> {
+  { exc } -> {
+    console.error<| 'Disconnecting demo client ' ++ peer
+      ++ ' for error: ' ++ exc
+  }
+  console.info<| 'Disconnecting demo client ' ++ peer
+}

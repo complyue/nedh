@@ -6,8 +6,9 @@
  # client is disconnected once this module finished running.
  #}
 
-import * 'net/symbols'
 import (Peer, **_) 'net/RT'
+import * 'net/symbols'
+effect import * 'net/effects'
 
 
 # a Peer object should have been implanted atomically, the following
@@ -18,27 +19,16 @@ peer ?:= Peer()
 console.info<| 'Console client connected - ' ++ peer
 
 
-# define various effectful artifacts used for communication with
-# this connected consumer client session
-effect {  # enclosed definitions go into effect namespace
-
+# define various effectful artifacts used for communication with this
+# connected consumer client session, with `@netPeer` and `@dataSink` the
+# minimum by convention
+#
+# note in assignments to symbolic attributes, semicolon before `@` is likely
+# needed or the `@` may be parsed as an operator
+effect {
   ;@netPeer = peer
-
   ;@dataSink = peer.armChannel(dataChan)
-
-  method @sendCmd (c, *cs) {
-    peer.postCommand(repr(c))
-    for c from cs do
-      peer.postCommand(repr(c))
-  }
-
-  method @sendData (d, *ds) {
-    peer.p2c(dataChan, repr(d))
-    for d from ds do
-      peer.p2c(dataChan, repr(d))
-  }
-
-}  # end effect namespace
+}
 
 
 {
@@ -58,20 +48,20 @@ effect {  # enclosed definitions go into effect namespace
     case peer.readCommand() of {
       nil -> {  # conout an empty string or the console client will
         # wait for its eval result forever
-        peer.postCommand(
-          "''",
+        peer.p2c(
           1, # direct to channel conout := 1
+          "''",
         )
       }
       batteries.quit -> { break }
-      batteries.dir -> peer.postCommand(
-        repr( sprintDir() ),
+      batteries.dir -> peer.p2c(
         1, # direct to channel conout := 1
+        repr( sprintDir() ),
       )
       { cmdVal } -> {
-        peer.postCommand(
-          repr( cmdVal ),
+        peer.p2c(
           1, # direct to channel conout := 1
+          repr( cmdVal ),
         )
         cmdVal = nil  # clear it
       }
@@ -84,9 +74,9 @@ effect {  # enclosed definitions go into effect namespace
     { cmdExc } -> {
       # a business service may choose to pass error through `errChan` in
       # this case, but the console here merely notify the client about it
-      peer.postCommand(
-        repr( 'Recovered from error\n  exception=' ++ cmdExc ),
+      peer.p2c(
         1, # direct to channel conout := 1
+        repr( 'Recovered from error\n  exception=' ++ cmdExc ),
       )
     }
   }

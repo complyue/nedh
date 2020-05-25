@@ -6,6 +6,11 @@ export {
   conout := 1
   conmsg := 2
 
+  # identifier for the effect to send commands to remote site's stdio out
+  sendConOut = Symbol('@sendConOut')
+  # identifier for the effect to send commands to remote site's stdio err
+  sendConMsg = Symbol('@sendConMsg')
+
   # conventional Nedh channel for error reporting
   errChan := 'err'
 

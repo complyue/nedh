@@ -1,7 +1,7 @@
 
-import * 'net/demo/cli'
+import * 'net/demo/hack'
 
-# it is expected that the nedh demo service to be there, e.g.
+# it is expected that the demo service to be there, e.g.
 #   cabal v2-run nedh < Tour/service-simple.edh
 cmdLineTo( '127.0.0.1', 3721, )
 
