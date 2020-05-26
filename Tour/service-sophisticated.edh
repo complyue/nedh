@@ -38,7 +38,13 @@ import * 'net'
     clients=outlet, # do the production of newly connected peers 
   ) of { server } -> {
     this.server = server # assign it to the module level
-    console.info<| 'Demo service listening ' ++ server.addrs()
+    case server.addrs() of {
+      { addr =>_ } -> console.info<| 'Demo service listening: ' ++ addr
+      # or the network has failed, propagate the error
+      server.join()  # this usually throws
+      # in case join() didn't throw, report this error
+      error('Demo service failed listening.')
+    }
   }
 
   method trackClientLife( peer ) {
