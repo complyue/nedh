@@ -1,6 +1,32 @@
 
-# will be updated upon each packet sniffed
-addr := '<n/a>'
+# this is the network facing entry module, specifiying
+# reactions by exposing procedures, to host command packets
+# casted (broadcast, multicast, unicast) to the address a
+# sniffer is configured to sniff
+
+
+import (Addr, **_) 'net'
+
+# mocking artifacts those should have been implanted by host
+# module preparation, to give meaningful information to IDEs
+# and/or other tools, for purpose of, e.g. auto completion.
+false -> {  # this block is impossible to run
+
+  # sniff another command from the network
+  method sniff() { pass }
+
+  # check end-of-life of the sniffer
+  method eol() return true
+
+}
+
+# source address of the sniffed command packet, updated each
+# time a packet is sniffed and executed as command
+addr := Addr()
+
+
+# TODO define artifacts in hosting the execution of incoming
+#      commands
 
 
 # loop forever until eol on error, or stopped elsewhere
