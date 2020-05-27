@@ -122,7 +122,7 @@ advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
         (forkFinally (advtThread advertiser)
                      (atomically . void . tryPutTMVar advtEoL)
         )
-      $ \_ -> ctorExit $ toDyn advertiser
+      $ \_ -> contEdhSTM $ ctorExit $ toDyn advertiser
   -- TODO accept sink in ctor args as ad'src
   parseCtorArgs =
     ArgsPackParser
@@ -178,8 +178,9 @@ advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
             $  "bug: this is not a advertiser : "
             <> T.pack (show esd)
         Just !advertiser ->
-          waitEdhSTM pgs (readTMVar $ edh'ad'target'addrs advertiser)
-            $ wrapAddrs []
+          edhPerformSTM pgs (readTMVar $ edh'ad'target'addrs advertiser)
+            $ contEdhSTM
+            . wrapAddrs []
 
   postMth :: EdhProcedure
   postMth (ArgsPack !args _) !exit = do
@@ -199,7 +200,7 @@ advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
             -- don't let Edh track stm retries,
             -- and post each cmd to ad queue with separate tx
             edhPerformIO pgs (advt reprs $ edh'ad'source advertiser)
-              $ \_ -> exitEdhSTM pgs exit nil
+              $ \_ -> exitEdhProc exit nil
    where
     advt :: [Text] -> TMVar Text -> IO ()
     advt []           _ = return ()
@@ -245,8 +246,9 @@ advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
               pgs
               (atomically $ readTMVar (edh'advertising'eol advertiser))
             $ \case
-                Left  e  -> toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-                Right () -> exitEdhSTM pgs exit nil
+                Left e ->
+                  contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+                Right () -> exitEdhProc exit nil
 
   stopMth :: EdhProcedure
   stopMth _ !exit = do

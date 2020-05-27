@@ -34,9 +34,9 @@ postPeerCommand !pgs !peer !dir !src !exit =
   tryReadTMVar (edh'peer'eol peer) >>= \case
     Just _ -> throwEdhSTM pgs EvalError "posting to a peer already end-of-life"
     Nothing ->
-      waitEdhSTM pgs (edh'peer'posting peer $ textPacket dir src)
+      edhPerformSTM pgs (edh'peer'posting peer $ textPacket dir src)
         $ const
-        $ exitEdhSTM pgs exit nil
+        $ exitEdhProc exit nil
 
 -- | Read next command from peer
 --
@@ -44,13 +44,14 @@ postPeerCommand !pgs !peer !dir !src !exit =
 --      channel's sink, and nil will be returned from here for it.
 readPeerCommand :: EdhProgState -> Peer -> EdhProcExit -> STM ()
 readPeerCommand !pgs (Peer !ident !eol !_po !ho !chdVar) !exit =
-  waitEdhSTM pgs ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) $ \case
+  edhPerformSTM pgs ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) $ \case
     -- reached normal end-of-stream
-    Left  (Right _  ) -> exitEdhSTM pgs exit nil
+    Left (Right _) -> exitEdhProc exit nil
     -- previously eol due to error
-    Left  (Left  !ex) -> toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
+    Left (Left !ex) ->
+      contEdhSTM $ toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
     -- got next command incoming
-    Right !pkt        -> landCmd pkt pgs exit
+    Right !pkt -> contEdhSTM $ landCmd pkt pgs exit
  where
   !srcName = T.unpack ident
   landCmd :: Packet -> EdhProgState -> EdhProcExit -> STM ()
@@ -166,9 +167,9 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
       esd <- readTVar es
       case fromDynamic esd :: Maybe Peer of
         Nothing    -> exitEdhSTM pgs exit nil
-        Just !peer -> waitEdhSTM pgs (readTMVar (edh'peer'eol peer)) $ \case
-          Left  e  -> toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-          Right () -> exitEdhSTM pgs exit nil
+        Just !peer -> edhPerformSTM pgs (readTMVar (edh'peer'eol peer)) $ \case
+          Left e -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+          Right () -> exitEdhProc exit nil
 
   stopProc :: EdhProcedure
   stopProc _ !exit = do

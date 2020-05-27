@@ -122,7 +122,7 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
               . tryPutTMVar servEoL
               )
             )
-          $ \_ -> ctorExit $ toDyn server
+          $ \_ -> contEdhSTM $ ctorExit $ toDyn server
  where
   parseCtorArgs =
     ArgsPackParser
@@ -198,7 +198,9 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
           throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
             (show esd)
         Just !server ->
-          waitEdhSTM pgs (readTMVar $ edh'serving'addrs server) $ wrapAddrs []
+          edhPerformSTM pgs (readTMVar $ edh'serving'addrs server)
+            $ contEdhSTM
+            . wrapAddrs []
 
   eolProc :: EdhProcedure
   eolProc _ !exit = do
@@ -232,8 +234,9 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
         Just !server ->
           edhPerformIO pgs (atomically $ readTMVar (edh'service'eol server))
             $ \case
-                Left  e  -> toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-                Right () -> exitEdhSTM pgs exit nil
+                Left e ->
+                  contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+                Right () -> exitEdhProc exit nil
 
   stopProc :: EdhProcedure
   stopProc _ !exit = do

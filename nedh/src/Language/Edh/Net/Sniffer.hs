@@ -123,7 +123,7 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
             (forkFinally (sniffThread sniffer)
                          (atomically . void . tryPutTMVar snifEoL)
             )
-          $ \_ -> ctorExit $ toDyn sniffer
+          $ \_ -> contEdhSTM $ ctorExit $ toDyn sniffer
  where
   parseCtorArgs =
     ArgsPackParser
@@ -185,7 +185,9 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
           throwEdhSTM pgs UsageError $ "bug: this is not a sniffer : " <> T.pack
             (show esd)
         Just !sniffer ->
-          waitEdhSTM pgs (readTMVar $ edh'sniffing'addrs sniffer) $ wrapAddrs []
+          edhPerformSTM pgs (readTMVar $ edh'sniffing'addrs sniffer)
+            $ contEdhSTM
+            . wrapAddrs []
 
   eolMth :: EdhProcedure
   eolMth _ !exit = do
@@ -219,8 +221,9 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
         Just !sniffer ->
           edhPerformIO pgs (atomically $ readTMVar (edh'sniffing'eol sniffer))
             $ \case
-                Left  e  -> toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-                Right () -> exitEdhSTM pgs exit nil
+                Left e ->
+                  contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+                Right () -> exitEdhProc exit nil
 
   stopMth :: EdhProcedure
   stopMth _ !exit = do
@@ -302,10 +305,9 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
           pgs <- ask
           let modu = thisObject $ contextScope $ edh'context pgs
           contEdhSTM
-            $ waitEdhSTM pgs (takeTMVar pktSink)
+            $ edhPerformSTM pgs (takeTMVar pktSink)
             $ \(fromAddr, payload) ->
-                runEdhProc pgs
-                  $ createEdhObject addrClass (ArgsPack [] mempty)
+                createEdhObject addrClass (ArgsPack [] mempty)
                   $ \(OriginalValue !addrVal _ _) -> case addrVal of
                       EdhObject !addrObj -> contEdhSTM $ do
                         writeTVar (entity'store $ objEntity addrObj)
