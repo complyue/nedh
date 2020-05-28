@@ -69,7 +69,7 @@ advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
                     apk
     of
       Left  err                       -> throwEdhSTM pgsCtor UsageError err
-      Right (addr, port, fromAddrVal) -> case fromAddrVal of
+      Right (addr, port, fromAddrVal) -> case edhUltimate fromAddrVal of
         EdhObject fromAddrObj -> do
           esd <- readTVar $ entity'store $ objEntity fromAddrObj
           case fromDynamic esd :: Maybe AddrInfo of
