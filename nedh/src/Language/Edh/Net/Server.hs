@@ -232,11 +232,10 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
           throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
             (show esd)
         Just !server ->
-          edhPerformIO pgs (atomically $ readTMVar (edh'service'eol server))
-            $ \case
-                Left e ->
-                  contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-                Right () -> exitEdhProc exit nil
+          edhPerformSTM pgs (readTMVar (edh'service'eol server)) $ \case
+            Left e ->
+              contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+            Right () -> exitEdhProc exit nil
 
   stopProc :: EdhProcedure
   stopProc _ !exit = do

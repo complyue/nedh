@@ -219,11 +219,10 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
           throwEdhSTM pgs UsageError $ "bug: this is not a sniffer : " <> T.pack
             (show esd)
         Just !sniffer ->
-          edhPerformIO pgs (atomically $ readTMVar (edh'sniffing'eol sniffer))
-            $ \case
-                Left e ->
-                  contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-                Right () -> exitEdhProc exit nil
+          edhPerformSTM pgs (readTMVar (edh'sniffing'eol sniffer)) $ \case
+            Left e ->
+              contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+            Right () -> exitEdhProc exit nil
 
   stopMth :: EdhProcedure
   stopMth _ !exit = do

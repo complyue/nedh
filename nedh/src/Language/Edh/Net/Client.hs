@@ -266,11 +266,10 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
           throwEdhSTM pgs UsageError $ "bug: this is not a client : " <> T.pack
             (show esd)
         Just !client ->
-          edhPerformIO pgs (atomically $ readTMVar (edh'consumer'eol client))
-            $ \case
-                Left e ->
-                  contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-                Right () -> exitEdhProc exit nil
+          edhPerformSTM pgs (readTMVar (edh'consumer'eol client)) $ \case
+            Left e ->
+              contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+            Right () -> exitEdhProc exit nil
 
   stopProc :: EdhProcedure
   stopProc _ !exit = do

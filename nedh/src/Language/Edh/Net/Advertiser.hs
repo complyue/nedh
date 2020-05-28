@@ -188,6 +188,12 @@ advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
     let ctx  = edh'context pgs
         this = thisObject $ contextScope ctx
         es   = entity'store $ objEntity this
+        advt :: [Text] -> TMVar Text -> STM ()
+        advt [] _ = exitEdhSTM pgs exit nil
+        advt (cmd : rest) q =
+          -- don't let Edh track stm retries,
+          -- and post each cmd to ad queue with separate tx
+          edhPerformSTM pgs (putTMVar q cmd) $ \_ -> contEdhSTM $ advt rest q
     contEdhSTM $ do
       esd <- readTVar es
       case fromDynamic esd :: Maybe EdhAdvertiser of
@@ -195,18 +201,8 @@ advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
           throwEdhSTM pgs UsageError
             $  "bug: this is not a advertiser : "
             <> T.pack (show esd)
-        Just !advertiser ->
-          seqcontSTM (edhValueReprSTM pgs <$> args) $ \reprs ->
-            -- don't let Edh track stm retries,
-            -- and post each cmd to ad queue with separate tx
-            edhPerformIO pgs (advt reprs $ edh'ad'source advertiser)
-              $ \_ -> exitEdhProc exit nil
-   where
-    advt :: [Text] -> TMVar Text -> IO ()
-    advt []           _ = return ()
-    advt (cmd : rest) q = do
-      atomically $ putTMVar q cmd
-      advt rest q
+        Just !advertiser -> seqcontSTM (edhValueReprSTM pgs <$> args)
+          $ \reprs -> advt reprs $ edh'ad'source advertiser
 
 
   eolMth :: EdhProcedure
@@ -242,13 +238,10 @@ advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
             $  "bug: this is not a advertiser : "
             <> T.pack (show esd)
         Just !advertiser ->
-          edhPerformIO
-              pgs
-              (atomically $ readTMVar (edh'advertising'eol advertiser))
-            $ \case
-                Left e ->
-                  contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-                Right () -> exitEdhProc exit nil
+          edhPerformSTM pgs (readTMVar (edh'advertising'eol advertiser)) $ \case
+            Left e ->
+              contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+            Right () -> exitEdhProc exit nil
 
   stopMth :: EdhProcedure
   stopMth _ !exit = do
