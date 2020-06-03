@@ -46,8 +46,12 @@ addrCtor !pgsCtor !apk !obs !ctorExit =
       throwEdhSTM pgsCtor UsageError "neither host nor port specified"
     Right (host, port) ->
       unsafeIOToSTM
-          ( getAddrInfo (Just defaultHints { addrFlags = [AI_PASSIVE] })
-                        (T.unpack <$> host)
+          ( getAddrInfo
+              (Just defaultHints { addrSocketType = Stream
+                                 , addrFlags      = [AI_PASSIVE]
+                                 }
+              )
+              (T.unpack <$> host)
           $ case port of
               Nothing                  -> Nothing
               Just (Left  (pn :: Int)) -> Just $ show pn
