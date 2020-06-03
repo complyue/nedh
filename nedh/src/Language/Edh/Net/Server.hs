@@ -283,11 +283,12 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
             setSocketOption ssock ReuseAddr 1
             bind ssock (addrAddress addr)
             listen ssock 300 -- todo make this tunable ?
+            listenAddr <- getSocketName ssock
             atomically
               $   fromMaybe []
               <$> tryTakeTMVar servAddrs
               >>= putTMVar servAddrs
-              .   (addr :)
+              .   (addr { addrAddress = listenAddr } :)
             return ssock
 
     acceptClients :: Socket -> IO ()
