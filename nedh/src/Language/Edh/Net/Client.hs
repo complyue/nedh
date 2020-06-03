@@ -77,15 +77,13 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
               (n1, n2, n3, n4) -> go
                 consumer
                 (  T.pack
-                $  "'"
-                <> show n1
+                $  show n1
                 <> "."
                 <> show n2
                 <> "."
                 <> show n3
                 <> "."
                 <> show n4
-                <> "'"
                 )
                 (fromIntegral port)
                 __peer_init__
@@ -93,15 +91,13 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
             -> go
               consumer
               (  T.pack
-              $  "'"
-              <> show n1
+              $  show n1
               <> ":"
               <> show n2
               <> ":"
               <> show n3
               <> "::"
               <> show n4
-              <> "'"
               )
               (fromIntegral port)
               __peer_init__
