@@ -33,6 +33,40 @@ import           Language.Edh.Net.Peer
 type ServiceAddr = Text
 type ServicePort = Int
 
+serviceAddressFrom
+  :: EdhProgState -> Object -> ((ServiceAddr, ServicePort) -> STM ()) -> STM ()
+serviceAddressFrom pgs !addrObj !exit = do
+  esd <- readTVar $ entity'store $ objEntity addrObj
+  case fromDynamic esd :: Maybe AddrInfo of
+    Nothing -> throwEdhSTM pgs UsageError "bogus addr object"
+    Just (AddrInfo _ _ _ _ (SockAddrInet !port !host) _) ->
+      case hostAddressToTuple host of
+        (n1, n2, n3, n4) -> exit
+          ( T.pack
+          $  show n1
+          <> "."
+          <> show n2
+          <> "."
+          <> show n3
+          <> "."
+          <> show n4
+          , fromIntegral port
+          )
+    Just (AddrInfo _ _ _ _ (SockAddrInet6 !port _ (n1, n2, n3, n4) _) _) ->
+      exit
+        ( T.pack
+        $  show n1
+        <> ":"
+        <> show n2
+        <> ":"
+        <> show n3
+        <> "::"
+        <> show n4
+        , fromIntegral port
+        )
+    _ -> throwEdhSTM pgs UsageError "unsupported addr object"
+
+
 data EdhClient = EdhClient {
     -- the import spec of the module to run as the consumer
       edh'consumer'modu :: !Text
@@ -68,41 +102,9 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
       Left err -> throwEdhSTM pgsCtor UsageError err
       Right (Nothing, _, _) ->
         throwEdhSTM pgsCtor UsageError "missing consumer module"
-      Right (Just consumer, Right addrObj, __peer_init__) -> do
-        esd <- readTVar $ entity'store $ objEntity addrObj
-        case fromDynamic esd :: Maybe AddrInfo of
-          Nothing -> throwEdhSTM pgsCtor UsageError "bogus addr object"
-          Just (AddrInfo _ _ _ _ (SockAddrInet port host) _) ->
-            case hostAddressToTuple host of
-              (n1, n2, n3, n4) -> go
-                consumer
-                (  T.pack
-                $  show n1
-                <> "."
-                <> show n2
-                <> "."
-                <> show n3
-                <> "."
-                <> show n4
-                )
-                (fromIntegral port)
-                __peer_init__
-          Just (AddrInfo _ _ _ _ (SockAddrInet6 port _ (n1, n2, n3, n4) _) _)
-            -> go
-              consumer
-              (  T.pack
-              $  show n1
-              <> ":"
-              <> show n2
-              <> ":"
-              <> show n3
-              <> "::"
-              <> show n4
-              )
-              (fromIntegral port)
-              __peer_init__
-          _ -> throwEdhSTM pgsCtor UsageError "unsupported addr object"
-
+      Right (Just consumer, Right addrObj, __peer_init__) ->
+        serviceAddressFrom pgsCtor addrObj
+          $ \(addr, port) -> go consumer addr port __peer_init__
       Right (Just consumer, Left (addr, port), __peer_init__) ->
         go consumer addr port __peer_init__
  where
