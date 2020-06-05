@@ -25,7 +25,7 @@ peer ?:= Peer()
 # needed or the `@` may be parsed as an operator
 effect {
   ;@netPeer = peer
-  ;@dataSink = peer.armChannel(dataChan)
+  ;@dataSink = peer.armChannel(dataChan ?:= 'data')
 }
 
 console.info<| 'Hacking service via ' ++ peer
@@ -87,7 +87,7 @@ go {
 
   # channel 'err' is named `errChan` by convention, errors occurred on
   # one site are passed to its peer through this channel
-  perceive peer.armChannel( errChan ?:= 'err' ) {
+  perceive peer.armChannel( errChan ) {
     {{ PeerError: peerErr }} -> { throw peerErr }
     { peerErrMsg } -> { throw PeerError( peerErrMsg ) }
   }

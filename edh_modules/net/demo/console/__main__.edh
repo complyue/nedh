@@ -27,7 +27,7 @@ console.info<| 'Console client connected - ' ++ peer
 # needed or the `@` may be parsed as an operator
 effect {
   ;@netPeer = peer
-  ;@dataSink = peer.armChannel(dataChan)
+  ;@dataSink = peer.armChannel(dataChan ?:= 'data')
 }
 
 
