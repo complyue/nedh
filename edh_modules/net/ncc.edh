@@ -17,25 +17,23 @@ export method consoleTo(
   port      =3720,        # remote port to connect
   consumer  ='net/ncc',   # the peer module
   init      =None,        # peer module initialization
-  assignTo  =None,        # attr ref to assign to the caller
 ) {
 
-  case Client( consumer, addr, port=port, init=init, )
-  of { client } -> {
-    # assign the client instance to the caller if it requests so
-    assignTo &> {
-      that $ assignTo = client
+  case Client( consumer, addr, port=port, init=init, ) of { clnt } -> {
+    case clnt.addrs() of {
+      { addr =>_ } -> console.info<| 'Connected to console server at: '
+        ++ addr
+      # or the network has failed, propagate the error
+      clnt.join()  # this usually throws
+      # in case join() didn't throw, report this error
+      error('Networked console client failed connecting.')
     }
   }
 
-  case client.addrs() of { addrs } ->
-    console.info<| 'Connected to console server at: ' ++ addrs
-
-  client.join() $=> { exc } -> {
+  clnt.join() $=> { exc } -> {
     console.error<| 'Some trouble with the console server:\n' ++ exc
   }
 
   console.info<| 'Disconnected from console server.'
-
 }
 
