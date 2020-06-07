@@ -20,13 +20,13 @@ export method callThePolice ( telno ) {
   # then an expr literal is the sane way to compose rpc commands
   perform @sendCmd( expr (
 
-    # assuming remote peer has a `method ack(msg) ...` procedure exposed,
-    # which `net/demo/cli` happens to have
-    ack(
-      # the interpolated `{$ telno $}` better to be in parentheses in case
-      # it has complex repr, e.g. a named value - `policeTelNo := 110`
-      'Police alerted via #tel ' ++ ( {$ telno $} )
-    )
+      # assuming remote peer has a `method ack(msg) ...` procedure exposed,
+      # which `net/demo/cli` happens to have
+      ack(
+        # the interpolated `{$ telno $}` better to be in parentheses in case
+        # it has complex repr, e.g. a named value - `policeTelNo := 110`
+        'Police alerted via #tel ' ++ ( {$ telno $} )
+      )
 
   ) )
 }

@@ -3,7 +3,7 @@ import * 'net'
 
 {
 
-  method calc(m, n) {
+  method calc( m, n ) {
     m * n + 3.14
   }
 
@@ -21,29 +21,29 @@ import * 'net'
 
 }
 
-  # here we use case-of + wild capture pattern to avoid the
-  # transaction imposed by assignment, that's to say:
-  #   server = Server ()
-  # won't work as the assignment transaction will prevent the
-  # necessary IO action to be performed during construction of
-  # the server instance.
+# here we use case-of + wild capture pattern to avoid the
+# transaction imposed by assignment, that's to say:
+#   server = Server ()
+# won't work as the assignment transaction will prevent the
+# necessary IO action to be performed during construction of
+# the server instance.
 
-  # we use a producer procedure here, so as to consume each
-  # connected client without the race condition to miss any one
-  # of them.
- 
+# we use a producer procedure here, so as to consume each
+# connected client without the race condition to miss any one
+# of them.
+
 {
-  producer serveClients(outlet, ***apk) case Server (
+  producer serveClients( outlet, ***apk ) case Server (
     ***apk,
-    clients=outlet, # do the production of newly connected peers 
+    clients=outlet, # do the production of newly connected peers
   ) of { server } -> {
     this.server = server # assign it to the module level
     case server.addrs() of {
       { addr =>_ } -> console.info<| 'Demo service listening: ' ++ addr
       # or the network has failed, propagate the error
-      server.join()  # this usually throws
+      server.join() # this usually throws
       # in case join() didn't throw, report this error
-      error('Demo service failed listening.')
+      error( 'Demo service failed listening.' )
     }
   }
 
@@ -51,17 +51,17 @@ import * 'net'
     # wait eol of the client, but catch any exception,
     # so as not to crash the whole serving program.
     peer.join() $=> { exc } -> {
-      console.warn<| 'Demo client ' ++ peer ++ 
-        ' caused some trouble: ' ++ exc
+      console.warn<| 'Demo client ' ++ peer ++
+      ' caused some trouble: ' ++ exc
     }
     console.info<| 'Demo client disconnected - ' ++ peer
   }
 
   for peer from serveClients(
-    'net/demo/service',  # the service module
-    '127.0.0.1',         # local addr to bind
-    3721,                # local port to bind
-    init=__peer_init__,  # per-connection peer module initialization
+    'net/demo/service', # the service module
+    '127.0.0.1', # local addr to bind
+    3721, # local port to bind
+    init=__peer_init__, # per-connection peer module initialization
   ) do {
     console.info<| 'Tracking demo client - ' ++ peer
 

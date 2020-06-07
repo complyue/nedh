@@ -1,12 +1,12 @@
 
 {#
  # this is the client-facing entry module of the demo service
- # 
+ #
  # this module is instantiated and run per client connection, the
  # client is disconnected once this module finished running.
  #}
 
-import (Peer, **_) 'net/RT'
+import ( Peer, **_ ) 'net/RT'
 import * 'net/symbols'
 effect import * 'net/effects'
 
@@ -29,8 +29,8 @@ console.info<| 'Serving demo client - ' ++ peer
 # note in assignments to symbolic attributes, semicolon before `@` is likely
 # needed or the `@` may be parsed as an operator
 effect {
-  ;@netPeer = peer
-  ;@dataSink = peer.armChannel(dataChan ?:= 'data')
+  ; @netPeer = peer
+  ; @dataSink = peer.armChannel( dataChan ?:= 'data' )
 }
 
 
@@ -42,13 +42,13 @@ service := this
 {
 
   peer.p2c(
-    2,  # direct to channel `conmsg := 2` 
+    2, # direct to channel `conmsg := 2`
     # we use the interpolated expr form to compose the remote command,
     # and here we use operator (+) instead of the more idiomatic (++)
     # (in Edh) for string concatenation, in case the client is not
     # speaking Edh, or at least it does not support (++) as string
     # concat op, e.g. a Python client
-    expr "Good day, " + {$ repr(peer) $},
+    expr "Good day, " + {$ repr( peer ) $},
   )
 
   while false == peer.eol() case peer.readCommand() of {
@@ -58,17 +58,17 @@ service := this
       # back as client's console output, i.e. `conout := 1`
       console.debug<| 'Got cmd from ' ++ peer ++ '\n  ' ++ cmdVal
       peer.p2c(
-        1,  # direct to channel conout := 1
+        1, # direct to channel conout := 1
         repr( cmdVal ),
       )
-      cmdVal = nil  # clear it
+      cmdVal = nil # clear it
     }
   }
 
 } @=> {
   { exc } -> {
     console.error<| 'Disconnecting demo client ' ++ peer
-      ++ ' for error: ' ++ exc
+    ++ ' for error: ' ++ exc
   }
   console.info<| 'Disconnecting demo client ' ++ peer
 }

@@ -13,20 +13,19 @@ import * 'net'
 # the client instance.
 
 export method consoleTo(
-  addr      ='127.0.0.1', # remote addr to connect
-  port      =3720,        # remote port to connect
-  consumer  ='net/ncc',   # the peer module
-  init      =None,        # peer module initialization
+  addr= '127.0.0.1', # remote addr to connect
+  port= 3720, # remote port to connect
+  consumer= 'net/ncc', # the peer module
+  init= None, # peer module initialization
 ) {
 
   case Client( consumer, addr, port=port, init=init, ) of { clnt } -> {
     case clnt.addrs() of {
-      { addr =>_ } -> console.info<| 'Connected to console server at: '
-        ++ addr
+      { addr =>_ } -> console.info<| 'Connected to console server at: ' ++ addr
       # or the network has failed, propagate the error
-      clnt.join()  # this usually throws
+      clnt.join() # this usually throws
       # in case join() didn't throw, report this error
-      error('Networked console client failed connecting.')
+      error( 'Networked console client failed connecting.' )
     }
   }
 
@@ -36,4 +35,3 @@ export method consoleTo(
 
   console.info<| 'Disconnected from console server.'
 }
-

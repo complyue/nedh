@@ -6,30 +6,26 @@
 
 import * './symbols'
 
-export method @sendConOut(d, *ds) {
+export method @sendConOut( d, *ds ) {
   peer = behave @netPeer
-  peer.p2c(conout, repr(d))
-  for d from ds do
-    peer.p2c(conout, repr(d))
+  peer.p2c( conout, repr( d ) )
+  for d from ds do peer.p2c( conout, repr( d ) )
 }
 
-export method @sendConMsg(d, *ds) {
+export method @sendConMsg( d, *ds ) {
   peer = behave @netPeer
-  peer.p2c(conmsg, repr(d))
-  for d from ds do
-    peer.p2c(conmsg, repr(d))
+  peer.p2c( conmsg, repr( d ) )
+  for d from ds do peer.p2c( conmsg, repr( d ) )
 }
 
-export method @sendCmd (c, *cs) {
+export method @sendCmd ( c, *cs ) {
   peer = behave @netPeer
-  peer.postCommand(repr(c))
-  for c from cs do
-    peer.postCommand(repr(c))
+  peer.postCommand( repr( c ) )
+  for c from cs do peer.postCommand( repr( c ) )
 }
 
-export method @sendData (d, *ds) {
+export method @sendData ( d, *ds ) {
   peer = behave @netPeer
-  peer.p2c(dataChan, repr(d))
-  for d from ds do
-    peer.p2c(dataChan, repr(d))
+  peer.p2c( dataChan, repr( d ) )
+  for d from ds do peer.p2c( dataChan, repr( d ) )
 }

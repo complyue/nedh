@@ -7,9 +7,8 @@
 import * 'net'
 
 # an example procedure can be called via rpc by peer
-export method ack(msg) {
-  console.info<| 'You are informed by the service that:\n  '
-    ++ msg
+export method ack( msg ) {
+  console.info<| 'You are informed by the service that:\n  ' ++ msg
 }
 
 # here we use case-of + wild capture pattern to avoid the
@@ -20,11 +19,11 @@ export method ack(msg) {
 # the client instance.
 
 export method cmdLineTo(
-  addr      ='127.0.0.1',     # remote addr to connect
-  port      =3721,            # remote port to connect
-  consumer  ='net/demo/hack', # the peer module
-  init      =None,            # peer module initialization
-  assignTo  =None,            # attr ref to assign to the caller
+  addr= '127.0.0.1', # remote addr to connect
+  port= 3721, # remote port to connect
+  consumer= 'net/demo/hack', # the peer module
+  init= None, # peer module initialization
+  assignTo= None, # attr ref to assign to the caller
 ) {
 
   case Client( consumer, addr, port=port, init=init, )
@@ -36,7 +35,7 @@ export method cmdLineTo(
   }
 
   case client.addrs() of { addrs } ->
-    console.info<| 'Connected to service at: ' ++ addrs
+  console.info<| 'Connected to service at: ' ++ addrs
 
   client.join() $=> { exc } -> {
     console.info<| 'The service caused some trouble: ' ++ exc

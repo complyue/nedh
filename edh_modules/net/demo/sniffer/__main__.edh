@@ -5,12 +5,12 @@
 # sniffer is configured to sniff
 
 
-import (Addr, **_) 'net'
+import ( Addr, **_ ) 'net'
 
 # mocking artifacts those should have been implanted by host
 # module preparation, to give meaningful information to IDEs
 # and/or other tools, for purpose of, e.g. auto completion.
-false -> {  # this block is impossible to run
+false -> { # this block is impossible to run
 
   # sniff another command from the network
   method sniff() { pass }

@@ -6,10 +6,10 @@
 import * 'net'
 
 export method consoleOn (
-  conModu,                 # the console service module
-  servAddr  ='127.0.0.1',  # local addr to bind
-  servPort  =3720,         # local port to bind
-  init      =None,         # peer module initialization
+  conModu, # the console service module
+  servAddr = '127.0.0.1', # local addr to bind
+  servPort =3720, # local port to bind
+  init =None, # peer module initialization
 ) {
   case Server (
     conModu, servAddr, servPort, init=init,
@@ -18,21 +18,21 @@ export method consoleOn (
   case ncon.addrs() of {
     { addr =>_ } -> console.info<| 'Serving networked console at: ' ++ addr
     # or the network has failed, propagate the error
-    ncon.join()  # this usually throws
+    ncon.join() # this usually throws
     # in case join() didn't throw, report this error
-    error('Networked console server failed listening.')
+    error( 'Networked console server failed listening.' )
   }
 
   # wait end-of-life for each client, log err if any
-  go {{
-    for peer from ncon.clients do {
-      # NOTE exceptions in forkees are catchable by forker
-      go peer.join()
-    }
-  } $=> { nccExc } -> {  # NOTE this handler can multi-shot
-    console.warn<| 'Console client caused trouble - '
+  go { {
+      for peer from ncon.clients do {
+        # NOTE exceptions in forkees are catchable by forker
+        go peer.join()
+      }
+    } $=> { nccExc } -> { # NOTE this handler can multi-shot
+      console.warn<| 'Console client caused trouble - '
       ++ peer' ++ '\n' ++ nccExc
-  }}
+  } }
 
   return ncon
 }

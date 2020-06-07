@@ -19,7 +19,7 @@ expr 3*7
 
 # and the expression can be as any complex as the remote environment
 # supports
-expr service?calc &> calc(5, 11) |> 'no `calc()` service'
+expr service?calc &> calc( 5, 11 ) |> 'no `calc()` service'
 
 
 {
@@ -28,11 +28,11 @@ expr service?calc &> calc(5, 11) |> 'no `calc()` service'
   # statement will do.
 
   console.info<| 'Doing rpc directly - calling the police ...'
-  
+
   # example of some local data to be baked into rpc
   policeTelNo := 110
 
-  peer.postCommand(expr  # expr literal is the sane way,
+  peer.postCommand( expr # expr literal is the sane way,
     # to compose rpc commands.
 
     # interpolation within the expr literal is the idiomatic way,
@@ -52,16 +52,16 @@ expr service?calc &> calc(5, 11) |> 'no `calc()` service'
   # expression is 1st class citizen in Edh, so we can ask the
   # remote peer to return some expr to be eval'ed here again
   expr ( expr {
-    ack( 'Some levels of inception actually works!' )
+      ack( 'Some levels of inception actually works!' )
 
-    # demo service posts a result back into the conout channel,
-    # so if the eval'ed result is nil, it'll effectively mark
-    # <end-of-stream> of conout, we avoid that by giving an
-    # explicit non-nil value as result here.
-    # and after a slight delay so conout output won't interfer
-    # with conmsg output induced by ack() above.
-    for _ from console.everyMillis(80) do { break }
-    "You've been informed."
+      # demo service posts a result back into the conout channel,
+      # so if the eval'ed result is nil, it'll effectively mark
+      # <end-of-stream> of conout, we avoid that by giving an
+      # explicit non-nil value as result here.
+      # and after a slight delay so conout output won't interfer
+      # with conmsg output induced by ack() above.
+      for _ from console.everyMillis( 80 ) do { break }
+      "You've been informed."
   } )
 }
 

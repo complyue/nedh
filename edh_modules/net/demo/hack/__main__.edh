@@ -4,7 +4,7 @@
  # CLI (command line interface) service client
  #}
 
-import (Peer, **_) 'net/RT'
+import ( Peer, **_ ) 'net/RT'
 import * 'net/symbols'
 effect import * 'net/effects'
 
@@ -24,8 +24,8 @@ peer ?:= Peer()
 # note in assignments to symbolic attributes, semicolon before `@` is likely
 # needed or the `@` may be parsed as an operator
 effect {
-  ;@netPeer = peer
-  ;@dataSink = peer.armChannel(dataChan ?:= 'data')
+  ; @netPeer = peer
+  ; @dataSink = peer.armChannel( dataChan ?:= 'data' )
 }
 
 console.info<| 'Hacking service via ' ++ peer
@@ -40,7 +40,7 @@ conOutSignal := sink
 
 # by default, show peer's identity as part of the console prompt
 cinArgs = pkargs(
-  ps1 = '<'++peer.ident()++'> Đ: ',
+  ps1 = '<' ++peer.ident() ++ '> Đ: ',
 )
 
 # land commands from the service asynchronously, without any
@@ -57,11 +57,11 @@ go {
   # interpreted as command prompt change requests from the connected
   # service for this consumer client
   perceive peer.armChannel( conin := 0 ) {
-    {( ps1, ps2 )} -> {
+    { ( ps1, ps2 ) } -> {
       cinArgs = pkargs( ***cinArgs, ps1=ps1, ps2=ps2, )
     }
     { ps1 } -> {
-      ;| ArgsPackType == type(ps1) -> {
+      ; | ArgsPackType == type( ps1 ) -> {
         cinArgs = pkargs( ***cinArgs, ***ps1, )
       }
       cinArgs = pkargs( ***cinArgs, ps1=ps1, )
@@ -72,8 +72,8 @@ go {
   # directed to `console.print()`
   # CAVEAT: the outputting is hung up during reading of console commands
   perceive peer.armChannel( conout := 1 ) { conOut } -> {
-    conOutSignal <- conOutCnt += 1  # increase and announce
-    ;| ArgsPackType == type(conOut) -> {
+    conOutSignal <- conOutCnt += 1 # increase and announce
+    ; | ArgsPackType == type( conOut ) -> {
       console.print( ***conOut )
     }
     console.print( conOut )
@@ -88,7 +88,7 @@ go {
   # channel 'err' is named `errChan` by convention, errors occurred on
   # one site are passed to its peer through this channel
   perceive peer.armChannel( errChan ) {
-    {{ PeerError: peerErr }} -> { throw peerErr }
+    { { PeerError: peerErr } } -> { throw peerErr }
     { peerErrMsg } -> { throw PeerError( peerErrMsg ) }
   }
 
@@ -103,25 +103,25 @@ go {
   #      universally work with peers speaking different languages (e.g.
   #      Python instead of Edh), while the more Haskellish (++) would be
   #      better used otherwise.
-  peer.postCommand(expr
-      "You're seen as " + peer + " at the server."
+  peer.postCommand( expr
+    "You're seen as " + peer + " at the server."
   ) # note here is posting to console server's default channel, so as
   # to be an expr cmd to be evaluated and posted back to our conout
 
-  { while false == peer.eol() {
-    case peer.readCommand() of {
-      # TODO interpret any specially expected command here
+    { while false == peer.eol() {
+      case peer.readCommand() of {
+        # TODO interpret any specially expected command here
 
-      { cmdVal } -> {
-        console.info<| 'Unexpected command from the service '
+        { cmdVal } -> {
+          console.info<| 'Unexpected command from the service '
           ++ peer ++ '\n  ' ++ cmdVal
-      }
+        }
 
-      # note a command resulting in nil is normal, just pass by here
-    }
+        # note a command resulting in nil is normal, just pass by here
+      }
   } } $=> { exc } -> {
     console.warn<| 'Error with the service - ' ++ peer
-      ++ '\n' ++ exc
+    ++ '\n' ++ exc
   }
 }
 
@@ -132,16 +132,16 @@ for _ from conOutSignal do { break }
 
 # pump commands from local stdio console to the service
 while false == peer.eol() {
-  case console.readCommand(***cinArgs) of {
+  case console.readCommand( ***cinArgs ) of {
     batteries.quit -> { break }
 
     { cmdVal } -> {
-      cntrBefore = mre(conOutSignal)
+      cntrBefore = mre( conOutSignal )
       peer.postCommand( cmdVal )
       for cntrAfter from conOutSignal do if cntrAfter != cntrBefore then
-        # got new conout (supposed to be the eval result) from server,
-        # let's continue reading next cmd from local stdio console
-        { break }
+      # got new conout (supposed to be the eval result) from server,
+      # let's continue reading next cmd from local stdio console
+      { break }
     }
 
     # note nil as cmd value is ignored here, so a nil is effectively nop

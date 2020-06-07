@@ -1,12 +1,12 @@
 
 {#
  # this is the client-facing entry module for a networked console.
- # 
+ #
  # this module is instantiated and run per client connection, the
  # client is disconnected once this module finished running.
  #}
 
-import (Peer, **_) 'net/RT'
+import ( Peer, **_ ) 'net/RT'
 import * 'net/symbols'
 effect import * 'net/effects'
 
@@ -26,8 +26,8 @@ console.info<| 'Console client connected - ' ++ peer
 # note in assignments to symbolic attributes, semicolon before `@` is likely
 # needed or the `@` may be parsed as an operator
 effect {
-  ;@netPeer = peer
-  ;@dataSink = peer.armChannel(dataChan ?:= 'data')
+  ; @netPeer = peer
+  ; @dataSink = peer.armChannel( dataChan ?:= 'data' )
 }
 
 
@@ -42,11 +42,11 @@ effect {
     repr( "(demo-con)Đ: " ),
   )
 
-  while false == peer.eol() {  # this is the *Loop* in so-called REPL
+  while false == peer.eol() { # this is the *Loop* in so-called REPL
     # Read+Eval (peer.readCommand) -> Print (peer.print) -> Loop
 
     case peer.readCommand() of {
-      nil -> {  # conout an empty string or the console client will
+      nil -> { # conout an empty string or the console client will
         # wait for its eval result forever
         peer.p2c(
           1, # direct to channel conout := 1
@@ -63,13 +63,13 @@ effect {
           1, # direct to channel conout := 1
           repr( cmdVal ),
         )
-        cmdVal = nil  # clear it
+        cmdVal = nil # clear it
       }
     }
 
-  } $=> {  # catch exceptions
+  } $=> { # catch exceptions
     if false != peer.eol() then {
-      break  # already disconnected
+      break # already disconnected
     }
     { cmdExc } -> {
       # a business service may choose to pass error through `errChan` in
@@ -84,7 +84,7 @@ effect {
 } @=> {
   { exc } -> {
     console.error<| 'Disconnecting console client ' ++ peer
-      ++ ' for error: ' ++ exc
+    ++ ' for error: ' ++ exc
   }
   console.info<| 'Disconnecting console client ' ++ peer
 }
