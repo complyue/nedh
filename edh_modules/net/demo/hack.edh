@@ -23,16 +23,10 @@ export method cmdLineTo(
   port= 3721, # remote port to connect
   consumer= 'net/demo/hack', # the peer module
   init= None, # peer module initialization
-  assignTo= None, # attr ref to assign to the caller
 ) {
 
   case Client( consumer, addr, port=port, init=init, )
-  of { client } -> {
-    # assign the client instance to the caller if it requests so
-    assignTo &> {
-      that $ assignTo = client
-    }
-  }
+  of { client } -> { pass }
 
   case client.addrs() of { addrs } ->
   console.info<| 'Connected to service at: ' ++ addrs
