@@ -102,34 +102,29 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
       , ( "armedChannel"
         , EdhMethod
         , armedChannelProc
-        , PackReceiver [RecvArg "chLctr" Nothing Nothing]
+        , PackReceiver [mandatoryArg "chLctr"]
         )
       , ( "armChannel"
         , EdhMethod
         , armChannelProc
         , PackReceiver
-          [ RecvArg "chLctr" Nothing Nothing
-          , RecvArg "chSink" Nothing $ Just $ LitExpr SinkCtor
-          ]
+          [mandatoryArg "chLctr", optionalArg "chSink" $ LitExpr SinkCtor]
         )
       , ( "readCommand"
         , EdhMethod
         , readPeerCmdProc
-        , PackReceiver [RecvArg "inScopeOf" Nothing (Just edhNoneExpr)]
+        , PackReceiver [optionalArg "inScopeOf" edhNoneExpr]
         )
       , ( "p2c"
         , EdhMethod
         , p2cProc
-        , PackReceiver
-          [RecvArg "dir" Nothing Nothing, RecvArg "cmd" Nothing Nothing]
+        , PackReceiver [mandatoryArg "dir", mandatoryArg "cmd"]
         )
       , ( "postCommand"
         , EdhMethod
         , postPeerCmdProc
         , PackReceiver
-          [ RecvArg "cmd" Nothing Nothing
-          , RecvArg "dir" Nothing $ Just $ LitExpr NilLiteral
-          ]
+          [mandatoryArg "cmd", optionalArg "dir" $ LitExpr NilLiteral]
         )
       , ("ident"   , EdhMethod, identProc, PackReceiver [])
       , ("__repr__", EdhMethod, reprProc , PackReceiver [])

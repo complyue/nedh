@@ -9,7 +9,7 @@
     '0.0.0.0', 3721,
 
     # sniffer module initializer
-    init = { method _ () that.purpose = 'demo' },
+    init = method _ () that.purpose = 'demo',
 
   ) of { sniffer } -> { pass }
 }

@@ -156,20 +156,22 @@ advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
   addrsMth :: EdhProcedure
   addrsMth _ !exit = do
     pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-        wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
-        wrapAddrs addrs [] = exitEdhSTM pgs exit $ EdhTuple addrs
-        wrapAddrs !addrs (addr : rest) =
-          runEdhProc pgs
-            $ createEdhObject addrClass (ArgsPack [] mempty)
-            $ \(OriginalValue !addrVal _ _) -> case addrVal of
-                EdhObject !addrObj -> contEdhSTM $ do
-                  -- actually fill in the in-band entity storage here
-                  writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
-                  wrapAddrs (addrVal : addrs) rest
-                _ -> error "bug: addr ctor returned non-object"
+    let
+      ctx  = edh'context pgs
+      this = thisObject $ contextScope ctx
+      es   = entity'store $ objEntity this
+      wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
+      wrapAddrs addrs [] =
+        exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
+      wrapAddrs !addrs (addr : rest) =
+        runEdhProc pgs
+          $ createEdhObject addrClass (ArgsPack [] mempty)
+          $ \(OriginalValue !addrVal _ _) -> case addrVal of
+              EdhObject !addrObj -> contEdhSTM $ do
+                -- actually fill in the in-band entity storage here
+                writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
+                wrapAddrs (addrVal : addrs) rest
+              _ -> error "bug: addr ctor returned non-object"
     contEdhSTM $ do
       esd <- readTVar es
       case fromDynamic esd :: Maybe EdhAdvertiser of

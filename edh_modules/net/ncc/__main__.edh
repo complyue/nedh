@@ -36,7 +36,7 @@ conOutCnt = 0
 conOutSignal := sink
 
 # by default, show peer's identity as part of the console prompt
-cinArgs = pkargs(
+cinArgs = (
   ps1 = '<' ++peer.ident() ++ '> Đ: ',
 )
 
@@ -55,13 +55,13 @@ go {
   # service for this consumer client
   perceive peer.armChannel( conin ?:= 0 ) {
     { ( ps1, ps2 ) } -> {
-      cinArgs = pkargs( ***cinArgs, ps1=ps1, ps2=ps2, )
+      cinArgs = (*** cinArgs, ps1=ps1, ps2=ps2, )
     }
     { ps1 } -> {
       ; | ArgsPackType == type( ps1 ) -> {
-        cinArgs = pkargs( ***cinArgs, ***ps1, )
+        cinArgs = (*** cinArgs, *** ps1, )
       }
-      cinArgs = pkargs( ***cinArgs, ps1=ps1, )
+      cinArgs = (*** cinArgs, ps1=ps1, )
     }
   }
 
@@ -71,7 +71,7 @@ go {
   perceive peer.armChannel( conout ?:= 1 ) { conOut } -> {
     conOutSignal <- conOutCnt += 1 # increase and announce
     ; | ArgsPackType == type( conOut ) -> {
-      console.print( ***conOut )
+      console.print(*** conOut )
     }
     console.print( conOut )
   }
@@ -126,7 +126,7 @@ for _ from conOutSignal do { break }
 
 # pump commands from local stdio console to the console server
 while false == peer.eol() {
-  case console.readSource( ***cinArgs ) of {
+  case console.readSource(*** cinArgs ) of {
     # the local cmd we'd interpret textually
     ":quit" -> { break }
 
