@@ -30,16 +30,16 @@ import           Language.Edh.Net.MicroProto
 import           Language.Edh.Net.Peer
 
 
-type ServingAddr = Text
-type ServingPort = Int
+type ServerAddr = Text
+type ServerPort = Int
 
 data EdhServer = EdhServer {
     -- the import spec of the module to run as the server
       edh'server'modu :: !Text
     -- local network interface to bind
-    , edh'server'addr :: !ServingAddr
+    , edh'server'addr :: !ServerAddr
     -- local network port to bind
-    , edh'server'port :: !ServingPort
+    , edh'server'port :: !ServerPort
     -- actually listened network addresses
     , edh'serving'addrs :: !(TMVar [AddrInfo])
     -- end-of-life status
@@ -63,7 +63,7 @@ serverCtor
 serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
   case
       parseArgsPack
-        (Nothing, "127.0.0.1" :: ServingAddr, 3721 :: ServingPort, nil, Nothing)
+        (Nothing, "127.0.0.1" :: ServerAddr, 3721 :: ServerPort, nil, Nothing)
         parseCtorArgs
         apk
     of
