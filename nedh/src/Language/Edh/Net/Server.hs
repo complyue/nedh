@@ -34,18 +34,18 @@ type ServingAddr = Text
 type ServingPort = Int
 
 data EdhServer = EdhServer {
-    -- the import spec of the module to run as the service
-      edh'service'modu :: !Text
+    -- the import spec of the module to run as the server
+      edh'server'modu :: !Text
     -- local network interface to bind
-    , edh'serving'addr :: !ServingAddr
+    , edh'server'addr :: !ServingAddr
     -- local network port to bind
-    , edh'serving'port :: !ServingPort
+    , edh'server'port :: !ServingPort
     -- actually listened network addresses
     , edh'serving'addrs :: !(TMVar [AddrInfo])
     -- end-of-life status
-    , edh'service'eol :: !(TMVar (Either SomeException ()))
-    -- service module initializer, must callable if not nil
-    , edh'service'init :: !EdhValue
+    , edh'server'eol :: !(TMVar (Either SomeException ()))
+    -- server module initializer, must callable if not nil
+    , edh'server'init :: !EdhValue
     -- each connected peer is sunk into this
     , edh'serving'clients :: !EventSink
   }
@@ -69,17 +69,17 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
     of
       Left err -> throwEdhSTM pgsCtor UsageError err
       Right (Nothing, _, _, _, _) ->
-        throwEdhSTM pgsCtor UsageError "missing service module"
-      Right (Just service, addr, port, __peer_init__, maybeClients) -> do
+        throwEdhSTM pgsCtor UsageError "missing server module"
+      Right (Just !modu, !addr, !port, !__peer_init__, !maybeClients) -> do
         servAddrs <- newEmptyTMVar
         servEoL   <- newEmptyTMVar
         clients   <- maybe newEventSink return maybeClients
-        let !server = EdhServer { edh'service'modu    = service
-                                , edh'serving'addr    = addr
-                                , edh'serving'port    = port
+        let !server = EdhServer { edh'server'modu     = modu
+                                , edh'server'addr     = addr
+                                , edh'server'port     = port
                                 , edh'serving'addrs   = servAddrs
-                                , edh'service'eol     = servEoL
-                                , edh'service'init    = __peer_init__
+                                , edh'server'eol      = servEoL
+                                , edh'server'init     = __peer_init__
                                 , edh'serving'clients = clients
                                 }
             !scope = contextScope $ edh'context pgsCtor
@@ -100,7 +100,7 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
              , ( AttrByName "__repr__"
                , EdhString
                $  "Server("
-               <> T.pack (show service)
+               <> T.pack (show modu)
                <> ", "
                <> T.pack (show addr)
                <> ", "
@@ -111,14 +111,14 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
         edhPerformIO
             pgsCtor
             (forkFinally
-              (serviceThread server)
+              (serverThread server)
               ( atomically
               . ((
                   -- fill empty addrs if the connection has ever failed
                   tryPutTMVar servAddrs [] >>
                   -- mark eos for clients sink anyway finally
                                               publishEvent clients nil) <*)
-              -- mark service end-of-life anyway finally
+              -- mark server end-of-life anyway finally
               . tryPutTMVar servEoL
               )
             )
@@ -127,49 +127,42 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
   parseCtorArgs =
     ArgsPackParser
         [ \arg (_, addr', port', init', clients') -> case edhUltimate arg of
-          EdhString !service ->
-            Right (Just service, addr', port', init', clients')
-          _ -> Left "Invalid service"
-        , \arg (service', _, port', init', clients') -> case edhUltimate arg of
-          EdhString addr -> Right (service', addr, port', init', clients')
+          EdhString !modu -> Right (Just modu, addr', port', init', clients')
+          _               -> Left "Invalid modu"
+        , \arg (modu', _, port', init', clients') -> case edhUltimate arg of
+          EdhString addr -> Right (modu', addr, port', init', clients')
           _              -> Left "Invalid addr"
-        , \arg (service', addr', _, init', clients') -> case edhUltimate arg of
+        , \arg (modu', addr', _, init', clients') -> case edhUltimate arg of
           EdhDecimal d -> case D.decimalToInteger d of
             Just port ->
-              Right (service', addr', fromIntegral port, init', clients')
+              Right (modu', addr', fromIntegral port, init', clients')
             Nothing -> Left "port must be integer"
           _ -> Left "Invalid port"
         ]
       $ Map.fromList
           [ ( "addr"
-            , \arg (service', _, port', init', clients') ->
-              case edhUltimate arg of
-                EdhString addr ->
-                  Right (service', addr, port', init', clients')
-                _ -> Left "Invalid addr"
+            , \arg (modu', _, port', init', clients') -> case edhUltimate arg of
+              EdhString addr -> Right (modu', addr, port', init', clients')
+              _              -> Left "Invalid addr"
             )
           , ( "port"
-            , \arg (service', addr', _, init', clients') ->
-              case edhUltimate arg of
-                EdhDecimal d -> case D.decimalToInteger d of
-                  Just port ->
-                    Right (service', addr', fromIntegral port, init', clients')
-                  Nothing -> Left "port must be integer"
-                _ -> Left "Invalid port"
+            , \arg (modu', addr', _, init', clients') -> case edhUltimate arg of
+              EdhDecimal d -> case D.decimalToInteger d of
+                Just port ->
+                  Right (modu', addr', fromIntegral port, init', clients')
+                Nothing -> Left "port must be integer"
+              _ -> Left "Invalid port"
             )
           , ( "init"
-            , \arg (service', addr', port', _, clients') ->
-              case edhUltimate arg of
-                EdhNil -> Right (service', addr', port', nil, clients')
-                mth@EdhMethod{} ->
-                  Right (service', addr', port', mth, clients')
-                mth@EdhIntrpr{} ->
-                  Right (service', addr', port', mth, clients')
-                _ -> Left "Invalid init"
+            , \arg (modu', addr', port', _, clients') -> case edhUltimate arg of
+              EdhNil          -> Right (modu', addr', port', nil, clients')
+              mth@EdhMethod{} -> Right (modu', addr', port', mth, clients')
+              mth@EdhIntrpr{} -> Right (modu', addr', port', mth, clients')
+              _               -> Left "Invalid init"
             )
           , ( "clients"
-            , \arg (service', addr', port', init', _) -> case edhUltimate arg of
-              EdhSink sink -> Right (service', addr', port', init', Just sink)
+            , \arg (modu', addr', port', init', _) -> case edhUltimate arg of
+              EdhSink sink -> Right (modu', addr', port', init', Just sink)
               _            -> Left "Invalid clients"
             )
           ]
@@ -216,7 +209,7 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
         Nothing ->
           throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
             (show esd)
-        Just !server -> tryReadTMVar (edh'service'eol server) >>= \case
+        Just !server -> tryReadTMVar (edh'server'eol server) >>= \case
           Nothing         -> exitEdhSTM pgs exit $ EdhBool False
           Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
           Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
@@ -234,7 +227,7 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
           throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
             (show esd)
         Just !server ->
-          edhPerformSTM pgs (readTMVar (edh'service'eol server)) $ \case
+          edhPerformSTM pgs (readTMVar (edh'server'eol server)) $ \case
             Left e ->
               contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
             Right () -> exitEdhProc exit nil
@@ -252,12 +245,12 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
           throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
             (show esd)
         Just !server -> do
-          stopped <- tryPutTMVar (edh'service'eol server) $ Right ()
+          stopped <- tryPutTMVar (edh'server'eol server) $ Right ()
           exitEdhSTM pgs exit $ EdhBool stopped
 
 
-  serviceThread :: EdhServer -> IO ()
-  serviceThread (EdhServer !servModu !servAddr !servPort !servAddrs !servEoL !__peer_init__ !clients)
+  serverThread :: EdhServer -> IO ()
+  serverThread (EdhServer !servModu !servAddr !servPort !servAddrs !servEoL !__peer_init__ !clients)
     = do
       servThId <- myThreadId
       void $ forkIO $ do -- async terminate the accepter thread on stop signal
@@ -361,7 +354,7 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
         Right !peerVal -> do
 
           void
-            -- run the service module on a separate thread as another program
+            -- run the server module on a separate thread as another program
             $ forkFinally
                 (runEdhModule' world (T.unpack servModu) (prepService peerVal))
             -- mark client end-of-life with the result anyway
