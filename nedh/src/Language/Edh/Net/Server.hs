@@ -29,9 +29,11 @@ import           Language.Edh.EHI
 import           Language.Edh.Net.MicroProto
 import           Language.Edh.Net.Peer
 
+import           Language.Edh.Net.Addr
+
 
 type ServerAddr = Text
-type ServerPort = Int
+type ServerPort = PortNumber
 
 data EdhServer = EdhServer {
     -- the import spec of the module to run as the server
@@ -40,6 +42,8 @@ data EdhServer = EdhServer {
     , edh'server'addr :: !ServerAddr
     -- local network port to bind
     , edh'server'port :: !ServerPort
+    -- max port number to try bind
+    , edh'server'port'max :: !ServerPort
     -- actually listened network addresses
     , edh'serving'addrs :: !(TMVar [AddrInfo])
     -- end-of-life status
@@ -63,107 +67,152 @@ serverCtor
 serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
   case
       parseArgsPack
-        (Nothing, "127.0.0.1" :: ServerAddr, 3721 :: ServerPort, nil, Nothing)
+        ( Nothing -- modu
+        , "127.0.0.1" :: ServerAddr -- addr
+        , 3721 :: ServerPort -- port
+        , Nothing -- port'max
+        , nil -- __peer_init__
+        , Nothing -- maybeClients
+        )
         parseCtorArgs
         apk
     of
       Left err -> throwEdhSTM pgsCtor UsageError err
-      Right (Nothing, _, _, _, _) ->
+      Right (Nothing, _, _, _, _, _) ->
         throwEdhSTM pgsCtor UsageError "missing server module"
-      Right (Just !modu, !addr, !port, !__peer_init__, !maybeClients) -> do
-        servAddrs <- newEmptyTMVar
-        servEoL   <- newEmptyTMVar
-        clients   <- maybe newEventSink return maybeClients
-        let !server = EdhServer { edh'server'modu     = modu
-                                , edh'server'addr     = addr
-                                , edh'server'port     = port
-                                , edh'serving'addrs   = servAddrs
-                                , edh'server'eol      = servEoL
-                                , edh'server'init     = __peer_init__
-                                , edh'serving'clients = clients
-                                }
-            !scope = contextScope $ edh'context pgsCtor
-        methods <- sequence
-          [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
-          | (nm, vc, hp, args) <-
-            [ ("addrs", EdhMethod, addrsProc, PackReceiver [])
-            , ("eol"  , EdhMethod, eolProc  , PackReceiver [])
-            , ("join" , EdhMethod, joinProc , PackReceiver [])
-            , ("stop" , EdhMethod, stopProc , PackReceiver [])
+      Right (Just !modu, !addr, !port, !port'max, !__peer_init__, !maybeClients)
+        -> do
+          servAddrs <- newEmptyTMVar
+          servEoL   <- newEmptyTMVar
+          clients   <- maybe newEventSink return maybeClients
+          let !server = EdhServer
+                { edh'server'modu     = modu
+                , edh'server'addr     = addr
+                , edh'server'port     = port
+                , edh'server'port'max = fromMaybe port port'max
+                , edh'serving'addrs   = servAddrs
+                , edh'server'eol      = servEoL
+                , edh'server'init     = __peer_init__
+                , edh'serving'clients = clients
+                }
+              !scope = contextScope $ edh'context pgsCtor
+          methods <- sequence
+            [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+            | (nm, vc, hp, args) <-
+              [ ("addrs", EdhMethod, addrsProc, PackReceiver [])
+              , ("eol"  , EdhMethod, eolProc  , PackReceiver [])
+              , ("join" , EdhMethod, joinProc , PackReceiver [])
+              , ("stop" , EdhMethod, stopProc , PackReceiver [])
+              ]
             ]
-          ]
-        modifyTVar' obs
-          $  Map.union
-          $  Map.fromList
-          $  methods
-          ++ [ (AttrByName "clients", EdhSink clients)
-             , ( AttrByName "__repr__"
-               , EdhString
-               $  "Server("
-               <> T.pack (show modu)
-               <> ", "
-               <> T.pack (show addr)
-               <> ", "
-               <> T.pack (show port)
-               <> ")"
-               )
-             ]
-        edhPerformIO
-            pgsCtor
-            (forkFinally
-              (serverThread server)
-              ( atomically
-              . ((
-                  -- fill empty addrs if the connection has ever failed
-                  tryPutTMVar servAddrs [] >>
-                  -- mark eos for clients sink anyway finally
-                                              publishEvent clients nil) <*)
-              -- mark server end-of-life anyway finally
-              . tryPutTMVar servEoL
+          modifyTVar' obs
+            $  Map.union
+            $  Map.fromList
+            $  methods
+            ++ [ (AttrByName "clients", EdhSink clients)
+               , ( AttrByName "__repr__"
+                 , EdhString
+                 $  "Server("
+                 <> T.pack (show modu)
+                 <> ", "
+                 <> T.pack (show addr)
+                 <> ", "
+                 <> T.pack (show port)
+                 <> ")"
+                 )
+               ]
+          edhPerformIO
+              pgsCtor
+              (forkFinally
+                (serverThread server)
+                ( atomically
+                . ((
+                    -- fill empty addrs if the connection has ever failed
+                    tryPutTMVar servAddrs [] >>
+                    -- mark eos for clients sink anyway finally
+                                                publishEvent clients nil) <*)
+                  -- mark server end-of-life anyway finally
+                . tryPutTMVar servEoL
+                )
               )
-            )
-          $ \_ -> contEdhSTM $ ctorExit $ toDyn server
+            $ \_ -> contEdhSTM $ ctorExit $ toDyn server
  where
   parseCtorArgs =
     ArgsPackParser
-        [ \arg (_, addr', port', init', clients') -> case edhUltimate arg of
-          EdhString !modu -> Right (Just modu, addr', port', init', clients')
-          _               -> Left "Invalid modu"
-        , \arg (modu', _, port', init', clients') -> case edhUltimate arg of
-          EdhString addr -> Right (modu', addr, port', init', clients')
-          _              -> Left "Invalid addr"
-        , \arg (modu', addr', _, init', clients') -> case edhUltimate arg of
-          EdhDecimal d -> case D.decimalToInteger d of
-            Just port ->
-              Right (modu', addr', fromIntegral port, init', clients')
-            Nothing -> Left "port must be integer"
-          _ -> Left "Invalid port"
+        [ \arg (_, addr', port', port'max, init', clients') ->
+          case edhUltimate arg of
+            EdhString !modu ->
+              Right (Just modu, addr', port', port'max, init', clients')
+            _ -> Left "Invalid modu"
+        , \arg (modu', _, port', port'max, init', clients') ->
+          case edhUltimate arg of
+            EdhString !addr ->
+              Right (modu', addr, port', port'max, init', clients')
+            _ -> Left "Invalid addr"
+        , \arg (modu', addr', _, port'max, init', clients') ->
+          case edhUltimate arg of
+            EdhDecimal !d -> case D.decimalToInteger d of
+              Just !port -> Right
+                (modu', addr', fromIntegral port, port'max, init', clients')
+              Nothing -> Left "port must be integer"
+            _ -> Left "Invalid port"
         ]
       $ Map.fromList
           [ ( "addr"
-            , \arg (modu', _, port', init', clients') -> case edhUltimate arg of
-              EdhString addr -> Right (modu', addr, port', init', clients')
-              _              -> Left "Invalid addr"
+            , \arg (modu', _, port', port'max, init', clients') ->
+              case edhUltimate arg of
+                EdhString !addr ->
+                  Right (modu', addr, port', port'max, init', clients')
+                _ -> Left "Invalid addr"
             )
           , ( "port"
-            , \arg (modu', addr', _, init', clients') -> case edhUltimate arg of
-              EdhDecimal d -> case D.decimalToInteger d of
-                Just port ->
-                  Right (modu', addr', fromIntegral port, init', clients')
-                Nothing -> Left "port must be integer"
-              _ -> Left "Invalid port"
+            , \arg (modu', addr', _, port'max, init', clients') ->
+              case edhUltimate arg of
+                EdhDecimal !d -> case D.decimalToInteger d of
+                  Just !port ->
+                    Right
+                      ( modu'
+                      , addr'
+                      , fromIntegral port
+                      , port'max
+                      , init'
+                      , clients'
+                      )
+                  Nothing -> Left "port must be integer"
+                _ -> Left "Invalid port"
+            )
+          , ( "port'max"
+            , \arg (modu', addr', port', _, init', clients') ->
+              case edhUltimate arg of
+                EdhDecimal d -> case D.decimalToInteger d of
+                  Just !port'max ->
+                    Right
+                      ( modu'
+                      , addr'
+                      , port'
+                      , Just $ fromInteger port'max
+                      , init'
+                      , clients'
+                      )
+                  Nothing -> Left "port'max must be integer"
+                _ -> Left "Invalid port'max"
             )
           , ( "init"
-            , \arg (modu', addr', port', _, clients') -> case edhUltimate arg of
-              EdhNil          -> Right (modu', addr', port', nil, clients')
-              mth@EdhMethod{} -> Right (modu', addr', port', mth, clients')
-              mth@EdhIntrpr{} -> Right (modu', addr', port', mth, clients')
-              _               -> Left "Invalid init"
+            , \arg (modu', addr', port', port'max, _, clients') ->
+              case edhUltimate arg of
+                EdhNil -> Right (modu', addr', port', port'max, nil, clients')
+                mth@EdhMethod{} ->
+                  Right (modu', addr', port', port'max, mth, clients')
+                mth@EdhIntrpr{} ->
+                  Right (modu', addr', port', port'max, mth, clients')
+                _ -> Left "Invalid init"
             )
           , ( "clients"
-            , \arg (modu', addr', port', init', _) -> case edhUltimate arg of
-              EdhSink sink -> Right (modu', addr', port', init', Just sink)
-              _            -> Left "Invalid clients"
+            , \arg (modu', addr', port', port'max, init', _) ->
+              case edhUltimate arg of
+                EdhSink !sink ->
+                  Right (modu', addr', port', port'max, init', Just sink)
+                _ -> Left "Invalid clients"
             )
           ]
 
@@ -250,7 +299,7 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
 
 
   serverThread :: EdhServer -> IO ()
-  serverThread (EdhServer !servModu !servAddr !servPort !servAddrs !servEoL !__peer_init__ !clients)
+  serverThread (EdhServer !servModu !servAddr !servPort !portMax !servAddrs !servEoL !__peer_init__ !clients)
     = do
       servThId <- myThreadId
       void $ forkIO $ do -- async terminate the accepter thread on stop signal
@@ -270,13 +319,15 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                               (Just (show servPort))
       return addr
 
+    tryBind !ssock !addr !port =
+      catch (bind ssock $ addrWithPort addr port) $ \(e :: SomeException) ->
+        if port < portMax then tryBind ssock addr (port + 1) else throw e
     open addr =
       bracketOnError
           (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
           close
         $ \ssock -> do
-            setSocketOption ssock ReuseAddr 1
-            bind ssock (addrAddress addr)
+            tryBind ssock (addrAddress addr) servPort
             listen ssock 300 -- todo make this tunable ?
             listenAddr <- getSocketName ssock
             atomically

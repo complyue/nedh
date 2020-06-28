@@ -170,3 +170,11 @@ addrInfoProc _ !exit = do
     case fromDynamic esd :: Maybe AddrInfo of
       Nothing    -> exitEdhSTM pgs exit $ EdhString "<bogus-addr>"
       Just !addr -> exitEdhSTM pgs exit $ EdhString $ T.pack $ show addr
+
+
+addrWithPort :: SockAddr -> PortNumber -> SockAddr
+addrWithPort (SockAddrInet _ !host) !port = SockAddrInet port host
+addrWithPort (SockAddrInet6 _ !fi !host !scope) !port =
+  SockAddrInet6 port fi host scope
+addrWithPort (SockAddrUnix !name) _ = SockAddrUnix name
+
