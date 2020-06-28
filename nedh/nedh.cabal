@@ -75,6 +75,7 @@ library nedh-internal
         Language.Edh.Net.Addr
         Language.Edh.Net.Server
         Language.Edh.Net.Client
+        Language.Edh.Net.WebSocket
         Language.Edh.Net.Sniffer
         Language.Edh.Net.Advertiser
     hs-source-dirs: src
@@ -88,6 +89,9 @@ library nedh-internal
         base >=4.12,
         stm >=2.5,
         network >=3.1.1,
+        websockets -any,
+        snap-core -any,
+        snap-server -any,
         scientific -any,
         binary -any,
         hashable -any,

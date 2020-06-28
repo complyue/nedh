@@ -23,6 +23,7 @@ import           Language.Edh.Net.Peer
 import           Language.Edh.Net.Addr
 import           Language.Edh.Net.Server
 import           Language.Edh.Net.Client
+import           Language.Edh.Net.WebSocket
 import           Language.Edh.Net.Sniffer
 import           Language.Edh.Net.Advertiser
 
@@ -53,6 +54,10 @@ installNetBatteries !world =
                                   "Client"
                                   True
                                   (clientCtor addrClass peerClass)
+    wsServerClassVal <- mkHostClass moduScope
+                                    "WsServer"
+                                    True
+                                    (wsServerCtor addrClass peerClass)
     snifferClassVal <- mkHostClass moduScope
                                    "Sniffer"
                                    True
@@ -66,6 +71,7 @@ installNetBatteries !world =
           , ("Addr"      , addrClassVal)
           , ("Server"    , serverClassVal)
           , ("Client"    , clientClassVal)
+          , ("WsServer"  , wsServerClassVal)
           , ("Sniffer"   , snifferClassVal)
           , ("Advertiser", advertiserClassVal)
           ]
