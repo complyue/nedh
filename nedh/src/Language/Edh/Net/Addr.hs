@@ -34,6 +34,8 @@ addrCtor !pgsCtor (ArgsPack [] kwargs) !obs !ctorExit | Map.null kwargs = do
     [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
     | (nm, vc, hp, args) <-
       [ ("__repr__", EdhMethod, addrReprProc, PackReceiver [])
+      , ("host"    , EdhMethod, addrHostProc, PackReceiver [])
+      , ("port"    , EdhMethod, addrPortProc, PackReceiver [])
       , ("info"    , EdhMethod, addrInfoProc, PackReceiver [])
       ]
     ]
@@ -77,6 +79,8 @@ addrCtor !pgsCtor !apk !obs !ctorExit =
                       <> ")"
                       , PackReceiver []
                       )
+                    , ("host", EdhMethod, addrHostProc, PackReceiver [])
+                    , ("port", EdhMethod, addrPortProc, PackReceiver [])
                     , ("info", EdhMethod, addrInfoProc, PackReceiver [])
                     ]
                   ]
@@ -158,6 +162,58 @@ addrReprProc _ !exit = do
           <> show port
           <> ")"
       _ -> exitEdhSTM pgs exit $ EdhString "<unsupported-addr>"
+
+addrHostProc :: EdhProcedure
+addrHostProc _ !exit = do
+  pgs <- ask
+  let ctx  = edh'context pgs
+      this = thisObject $ contextScope ctx
+      es   = entity'store $ objEntity this
+  contEdhSTM $ do
+    esd <- readTVar es
+    case fromDynamic esd :: Maybe AddrInfo of
+      Nothing -> exitEdhSTM pgs exit $ EdhString ""
+      Just (AddrInfo _ _ _ _ (SockAddrInet _ host) _) ->
+        case hostAddressToTuple host of
+          (n1, n2, n3, n4) ->
+            exitEdhSTM pgs exit
+              $  EdhString
+              $  T.pack
+              $  show n1
+              <> "."
+              <> show n2
+              <> "."
+              <> show n3
+              <> "."
+              <> show n4
+      Just (AddrInfo _ _ _ _ (SockAddrInet6 _ _ (n1, n2, n3, n4) _) _) ->
+        exitEdhSTM pgs exit
+          $  EdhString
+          $  T.pack
+          $  show n1
+          <> ":"
+          <> show n2
+          <> ":"
+          <> show n3
+          <> "::"
+          <> show n4
+      _ -> exitEdhSTM pgs exit $ EdhString "<unsupported-addr>"
+
+addrPortProc :: EdhProcedure
+addrPortProc _ !exit = do
+  pgs <- ask
+  let ctx  = edh'context pgs
+      this = thisObject $ contextScope ctx
+      es   = entity'store $ objEntity this
+  contEdhSTM $ do
+    esd <- readTVar es
+    case fromDynamic esd :: Maybe AddrInfo of
+      Nothing -> exitEdhSTM pgs exit $ EdhDecimal 0
+      Just (AddrInfo _ _ _ _ (SockAddrInet port _) _) ->
+        exitEdhSTM pgs exit $ EdhDecimal $ fromIntegral port
+      Just (AddrInfo _ _ _ _ (SockAddrInet6 port _ _ _) _) ->
+        exitEdhSTM pgs exit $ EdhDecimal $ fromIntegral port
+      _ -> exitEdhSTM pgs exit $ EdhDecimal 0
 
 addrInfoProc :: EdhProcedure
 addrInfoProc _ !exit = do

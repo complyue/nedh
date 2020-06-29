@@ -430,15 +430,12 @@ serverCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                   `orElse` (Left <$> readTMVar clientEoL)
                   )
                 >>= \case
-                      Left _ -> return () -- stop on eol any way
-                      Right !pkt ->
-                        catch
-                            (  sendPacket clientId (sendAll sock) pkt
-                            >> serializeCmdsOut
-                            )
-                          $ \(e :: SomeException) -> -- mark eol on error
-                              atomically $ void $ tryPutTMVar clientEoL $ Left e
+                      Left  _    -> return () -- stop on eol any way
+                      Right !pkt -> do
+                        sendPacket clientId (sendAll sock) pkt
+                        serializeCmdsOut
           -- pump commands out,
           -- make this thread the only one writing the handle
-          serializeCmdsOut
+          serializeCmdsOut `catch` \(e :: SomeException) -> -- mark eol on error
+            atomically $ void $ tryPutTMVar clientEoL $ Left e
 

@@ -71,7 +71,7 @@ wsServerCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
       parseArgsPack
         ( Nothing -- modu
         , "127.0.0.1" :: WsServerAddr -- addr
-        , 3721 :: WsServerPort -- port
+        , 3790 :: WsServerPort -- port
         , Nothing -- port'max
         , nil -- __peer_init__
         , Nothing -- maybeClients
@@ -424,30 +424,35 @@ wsServerCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
           -- note this won't return, will be asynchronously killed on eol
           incomingDir <- newIORef ("" :: Text)
           let
-            pumpPkgs = do
+            settlePkt !payload = do
+              dir <- readIORef incomingDir
+              -- channel directive is effective only for the immediately
+              -- following packet
+              writeIORef incomingDir ""
+              atomically
+                  (        (Right <$> putTMVar pktSink (Packet dir payload))
+                  `orElse` (Left <$> readTMVar clientEoL)
+                  )
+                >>= \case
+                      Left (Left  e ) -> throwIO e
+                      Left (Right ()) -> return ()
+                      Right _ ->
+              -- anyway we should continue receiving, even after close request
+              -- sent,  we are expected to process a CloseRequest ctrl message
+              -- from peer.
+                        pumpPkts
+            pumpPkts = do
               pkt <- WS.receiveDataMessage wsc
               case pkt of
-                (WS.Text _bytes (Just !dir)) ->
-                  writeIORef incomingDir $ TL.toStrict dir
-                (WS.Binary !payload) -> do
-                  dir <- readIORef incomingDir
-                  -- directive is effective for only one packet
-                  writeIORef incomingDir ""
-                  atomically
-                      ((Right <$> putTMVar pktSink
-                                           (Packet dir $ BL.toStrict payload)
-                       )
-                      `orElse` (Left <$> readTMVar clientEoL)
-                      )
-                    >>= \case
-                          Left  (Left  e ) -> throwIO e
-                          Left  (Right ()) -> return ()
-                          Right _          -> pumpPkgs
-                _ -> WS.sendCloseCode wsc 1003 ("?!?" :: Text)
-              -- anyway we should continue receiving, even after close request sent, 
-              -- we are expected to process a CloseRequest ctrl message from peer.
-              pumpPkgs
-          void $ forkIOWithUnmask $ \unmask -> catch (unmask pumpPkgs) $ \case
+                (WS.Text !bytes _) -> case BL.stripPrefix "[dir#" bytes of
+                  Just !dirRest -> case BL.stripSuffix "]" dirRest of
+                    Just !dir -> do
+                      writeIORef incomingDir $ TL.toStrict $ TLE.decodeUtf8 dir
+                      pumpPkts
+                    Nothing -> settlePkt $ BL.toStrict bytes
+                  Nothing -> settlePkt $ BL.toStrict bytes
+                (WS.Binary !payload) -> settlePkt $ BL.toStrict payload
+          void $ forkIOWithUnmask $ \unmask -> catch (unmask pumpPkts) $ \case
             WS.CloseRequest closeCode closeReason
               | closeCode == 1000 || closeCode == 1001
               -> atomically $ void $ tryPutTMVar clientEoL $ Right ()
@@ -466,7 +471,7 @@ wsServerCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                   <> show closeReason
                   <> "]"
                 -- yet still try to receive ctrl msg back from peer
-                unmask pumpPkgs
+                unmask pumpPkts
             WS.ConnectionClosed ->
               atomically $ void $ tryPutTMVar clientEoL $ Right ()
             _ ->
@@ -479,14 +484,26 @@ wsServerCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
 
           let
             sendWsPacket :: Packet -> IO ()
-            sendWsPacket (Packet !dir !payload) = do
-              WS.sendDataMessage wsc
-                $  flip WS.Text Nothing
-                $  TLE.encodeUtf8
-                $  ("[#" :: TL.Text)
-                <> TL.fromStrict dir
-                <> "]"
-              WS.sendDataMessage wsc $ WS.Binary $ BL.fromStrict payload
+            sendWsPacket (Packet !dir !payload) =
+              case T.stripPrefix "blob:" dir of
+                Nothing -> do
+                  unless (T.null dir)
+                    $  WS.sendDataMessage wsc
+                    $  flip WS.Text Nothing
+                    $  TLE.encodeUtf8
+                    $  ("[dir#" :: TL.Text)
+                    <> TL.fromStrict dir
+                    <> "]"
+                  WS.sendDataMessage wsc
+                    $ WS.Text (BL.fromStrict payload) Nothing
+                Just _ -> do
+                  WS.sendDataMessage wsc
+                    $  flip WS.Text Nothing
+                    $  TLE.encodeUtf8
+                    $  ("[dir#" :: TL.Text)
+                    <> TL.fromStrict dir
+                    <> "]"
+                  WS.sendDataMessage wsc $ WS.Binary $ BL.fromStrict payload
 
             serializeCmdsOut :: IO ()
             serializeCmdsOut =
@@ -495,11 +512,12 @@ wsServerCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                   `orElse` (Left <$> readTMVar clientEoL)
                   )
                 >>= \case
-                      Left _ -> return () -- stop on eol any way
-                      Right !pkt ->
-                        catch (sendWsPacket pkt) $ \(e :: SomeException) -> -- mark eol on error
-                          atomically $ void $ tryPutTMVar clientEoL $ Left e
+                      Left  _    -> return () -- stop on eol any way
+                      Right !pkt -> do
+                        sendWsPacket pkt
+                        serializeCmdsOut
           -- pump commands out,
           -- make this thread the only one writing the handle
-          serializeCmdsOut
+          serializeCmdsOut `catch` \(e :: SomeException) -> -- mark eol on error
+            atomically $ void $ tryPutTMVar clientEoL $ Left e
 

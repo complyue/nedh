@@ -11,7 +11,7 @@ import           Control.Concurrent.STM
 import qualified Data.List.NonEmpty            as NE
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
-import           Data.Text.Encoding
+import qualified Data.Text.Encoding            as TE
 import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
@@ -38,12 +38,25 @@ postPeerCommand !pgs !peer !dir !src !exit =
         $ const
         $ exitEdhProc exit nil
 
+readPeerSource :: EdhProgState -> Peer -> EdhProcExit -> STM ()
+readPeerSource !pgs peer@(Peer _ !eol _ !ho _) !exit =
+  edhPerformSTM pgs ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) $ \case
+    -- reached normal end-of-stream
+    Left (Right _) -> exitEdhProc exit nil
+    -- previously eol due to error
+    Left (Left !ex) ->
+      contEdhSTM $ toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
+    -- got next command source incoming
+    Right pkt@(Packet !dir !payload) -> case dir of
+      "" -> exitEdhProc exit $ EdhString $ TE.decodeUtf8 payload
+      _  -> contEdhSTM $ landPeerCmd peer pkt pgs exit
+
 -- | Read next command from peer
 --
 -- Note a command may target a specific channel, thus get posted to that 
 --      channel's sink, and nil will be returned from here for it.
 readPeerCommand :: EdhProgState -> Peer -> EdhProcExit -> STM ()
-readPeerCommand !pgs (Peer !ident !eol !_po !ho !chdVar) !exit =
+readPeerCommand !pgs peer@(Peer _ !eol _ !ho _) !exit =
   edhPerformSTM pgs ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) $ \case
     -- reached normal end-of-stream
     Left (Right _) -> exitEdhProc exit nil
@@ -51,37 +64,36 @@ readPeerCommand !pgs (Peer !ident !eol !_po !ho !chdVar) !exit =
     Left (Left !ex) ->
       contEdhSTM $ toEdhError pgs ex $ \exv -> edhThrowSTM pgs exv
     -- got next command incoming
-    Right !pkt -> contEdhSTM $ landCmd pkt pgs exit
+    Right !pkt -> contEdhSTM $ landPeerCmd peer pkt pgs exit
+
+landPeerCmd :: Peer -> Packet -> EdhProgState -> EdhProcExit -> STM ()
+landPeerCmd (Peer !ident _ _ _ !chdVar) (Packet !dir !payload) !pgs !exit =
+  case T.stripPrefix "blob:" dir of
+    Just !_blobDir ->
+      throwEdhSTM pgs UsageError "Blob packet not supported yet."
+    Nothing ->
+      runEdhProc pgs $ evalEdh srcName src $ \cr@(OriginalValue !cmdVal _ _) ->
+        if T.null dir
+          -- to the default channel, which yields as direct result of 
+          --   `peer.readCommand()`
+          then exitEdhProc' exit cr
+          -- to a specific channel, which should be located by the directive
+          else evalEdh srcName dir $ \(OriginalValue !chLctr _ _) ->
+            contEdhSTM $ do
+              chd <- readTVar chdVar
+              case Map.lookup chLctr chd of
+                Nothing ->
+                  throwEdhSTM pgs UsageError
+                    $  "Missing command channel: "
+                    <> T.pack (show chLctr)
+                Just !chSink -> do
+                  publishEvent chSink cmdVal -- post the cmd to channel
+                  -- yield nil as for `peer.readCommand()` wrt this cmd packet
+                  exitEdhSTM pgs exit nil
  where
   !srcName = T.unpack ident
-  landCmd :: Packet -> EdhProgState -> EdhProcExit -> STM ()
-  landCmd (Packet !dir !payload) !pgs' !exit' =
-    case T.stripPrefix "blob:" dir of
-      Just !_blobDir ->
-        throwEdhSTM pgs' UsageError "Blob packet not supported yet."
-      Nothing ->
-        runEdhProc pgs'
-          $ evalEdh srcName src
-          $ \cr@(OriginalValue !cmdVal _ _) -> if T.null dir
-              -- to the default channel, which yields as direct result of 
-              --   `peer.readCommand()`
-              then exitEdhProc' exit' cr
-              -- to a specific channel, which should be located by the directive
-              else evalEdh srcName dir $ \(OriginalValue !chLctr _ _) ->
-                contEdhSTM $ do
-                  chd <- readTVar chdVar
-                  case Map.lookup chLctr chd of
-                    Nothing ->
-                      throwEdhSTM pgs UsageError
-                        $  "Missing command channel: "
-                        <> T.pack (show chLctr)
-                    Just !chSink -> do
-                      publishEvent chSink cmdVal -- post the cmd to channel
-                      -- yield nil as for `peer.readCommand()` wrt this cmd packet
-                      exitEdhSTM pgs' exit' nil
-    where
-          -- don't make this strict
-          src = decodeUtf8 payload
+  -- don't make this strict
+  src      = TE.decodeUtf8 payload
 
 
 -- | host constructor Peer()
@@ -110,6 +122,7 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
         , PackReceiver
           [mandatoryArg "chLctr", optionalArg "chSink" $ LitExpr SinkCtor]
         )
+      , ("readSource", EdhMethod, readPeerSrcProc, PackReceiver [])
       , ( "readCommand"
         , EdhMethod
         , readPeerCmdProc
@@ -241,6 +254,18 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
             [ ("chLctr", \arg (_, chSink') -> Right (Just arg, chSink'))
             , ("chSink", \arg (chLctr', _) -> Right (chLctr', arg))
             ]
+
+  readPeerSrcProc :: EdhProcedure
+  readPeerSrcProc _ !exit = ask >>= \pgs -> contEdhSTM $ do
+    let ctx  = edh'context pgs
+        this = thisObject $ contextScope ctx
+        es   = entity'store $ objEntity this
+    esd <- readTVar es
+    case fromDynamic esd of
+      Nothing ->
+        throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
+          (show esd)
+      Just (peer :: Peer) -> readPeerSource pgs peer exit
 
   readPeerCmdProc :: EdhProcedure
   readPeerCmdProc apk !exit = ask >>= \pgs ->
