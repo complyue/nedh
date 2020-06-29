@@ -1,0 +1,39 @@
+
+import * 'net'
+
+{
+
+  case WsServer(
+    'net/demo/web/ws', '127.0.0.1', 3790,
+    port'max=3799,
+  ) of { wsServer } -> {
+    case wsServer.addrs() of {
+      { wsAddr => _extraWsAddrs } -> {
+        console.info<| 'WebSocket service listening: ws://'
+        ++ wsAddr.host() ++ ':' ++ wsAddr.port()
+      }
+      error( 'WebSocket service failed start serving.' )
+    }
+  }
+
+  case HttpServer(
+    'net/demo/web', '127.0.0.1', 3780, routes= (
+      # tell web browser our port of WebSocket at uri `/:`
+      ( ":", '' ++ wsAddr.port(), mime= 'text/plain' ),
+    ), port'max=3789,
+  ) of { httpServer } -> {
+    case httpServer.addrs() of {
+      { httpAddr => _extraHttpAddrs } -> {
+        console.info<| 'Http service listening: http://'
+        ++ httpAddr.host() ++ ':' ++ httpAddr.port()
+      }
+      error( 'Http service failed start serving.' )
+    }
+  }
+
+}
+
+# following line helps to keep the server live if this
+# file is redirected as stdin.
+# be aware it's no good to be pasted into an repl
+httpServer.join()

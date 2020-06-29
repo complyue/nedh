@@ -1,0 +1,76 @@
+<head>
+  <meta charset="utf-8" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <title>
+    Hello Nedh Web World
+  </title>
+  <script src="/vendor/jquery/jquery.js"></script>
+</head>
+
+<body>
+  <h3>Welcome to Nedh Web World!</h3>
+  <p>
+    This is a demo Web UI, powered by
+    <a target="_blank" href="https://github.com/e-wrks/nedh">Nedh</a>
+  </p>
+
+  <div id="msg"></div>
+  <input id="keyin" type="text" autofocus />
+  <style>
+    #msg {
+      width: 90%;
+      height: 60%;
+      overflow: scroll;
+    }
+
+    #msg > div {
+      padding: 3pt 6pt;
+      border: solid silver 1px;
+    }
+
+    #keyin {
+      margin: 6pt 3pt;
+      width: 68%;
+    }
+  </style>
+
+  <script type="module">
+    const msgDiv = document.getElementById("msg");
+    const keyinBox = document.getElementById("keyin");
+
+    $(async () => {
+      let wsPort = await $.get("/:");
+      const wsUrl = "ws://" + location.hostname + ":" + wsPort;
+      const ws = new WebSocket(wsUrl);
+
+      ws.onmessage = (me) => {
+        if ("string" !== typeof me.data) {
+          debugger;
+          throw "WS msg of type " + typeof me.data + " ?!";
+        }
+        let msgPane = document.createElement("pre");
+        msgPane.appendChild(document.createTextNode(me.data));
+        let msgRecord = document.createElement("div");
+        msgRecord.appendChild(document.createTextNode("💬 " + new Date()));
+        msgRecord.appendChild(msgPane);
+        msgDiv.appendChild(msgRecord);
+        msgDiv.scrollTop = msgDiv.scrollHeight;
+      };
+
+      keyinBox.addEventListener("keydown", function onEvent(evt) {
+        if (evt.key === "Enter") {
+          if (ws.readyState !== WebSocket.OPEN) {
+            alert(
+              `You've probably been kicked out already!
+Refresh the page to reconnect.`
+            );
+            return false;
+          }
+          ws.send(keyinBox.value);
+          keyinBox.value = "";
+          return false;
+        }
+      });
+    });
+  </script>
+</body>
