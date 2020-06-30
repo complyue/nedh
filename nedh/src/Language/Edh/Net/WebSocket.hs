@@ -484,26 +484,24 @@ wsServerCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
 
           let
             sendWsPacket :: Packet -> IO ()
-            sendWsPacket (Packet !dir !payload) =
-              case T.stripPrefix "blob:" dir of
-                Nothing -> do
-                  unless (T.null dir)
-                    $  WS.sendDataMessage wsc
-                    $  flip WS.Text Nothing
-                    $  TLE.encodeUtf8
-                    $  ("[dir#" :: TL.Text)
-                    <> TL.fromStrict dir
-                    <> "]"
-                  WS.sendDataMessage wsc
-                    $ WS.Text (BL.fromStrict payload) Nothing
-                Just _ -> do
-                  WS.sendDataMessage wsc
-                    $  flip WS.Text Nothing
-                    $  TLE.encodeUtf8
-                    $  ("[dir#" :: TL.Text)
-                    <> TL.fromStrict dir
-                    <> "]"
-                  WS.sendDataMessage wsc $ WS.Binary $ BL.fromStrict payload
+            sendWsPacket (Packet !dir !payload) = if "blob:" `T.isPrefixOf` dir
+              then do
+                WS.sendDataMessage wsc
+                  $  flip WS.Text Nothing
+                  $  TLE.encodeUtf8
+                  $  ("[dir#" :: TL.Text)
+                  <> TL.fromStrict dir
+                  <> "]"
+                WS.sendDataMessage wsc $ WS.Binary $ BL.fromStrict payload
+              else do
+                unless (T.null dir)
+                  $  WS.sendDataMessage wsc
+                  $  flip WS.Text Nothing
+                  $  TLE.encodeUtf8
+                  $  ("[dir#" :: TL.Text)
+                  <> TL.fromStrict dir
+                  <> "]"
+                WS.sendDataMessage wsc $ WS.Text (BL.fromStrict payload) Nothing
 
             serializeCmdsOut :: IO ()
             serializeCmdsOut =

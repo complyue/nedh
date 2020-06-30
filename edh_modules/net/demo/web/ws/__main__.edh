@@ -43,6 +43,8 @@ effect {
         peer.postCommand( srcIn )
         srcIn = nil # clear it
       }
+      # note nil can be returned from `peer.readSource()` in case a command
+      # is posted to another channel than the default one
     }
 
   }
