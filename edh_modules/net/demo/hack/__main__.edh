@@ -103,10 +103,9 @@ go {
   #      universally work with peers speaking different languages (e.g.
   #      Python instead of Edh), while the more Haskellish (++) would be
   #      better used otherwise.
-  peer.postCommand( expr
-    peer.p2c( 1, expr
-      "You're seen as " + {$ repr( peer ) $} + " at the server." )
-  )
+  peer.postCommand( expr peer.p2c( 1, expr
+      "You're seen as " + {$ repr( peer ) $} + " at the server."
+  ) )
 
   { while false == peer.eol() {
       case peer.readCommand() of {
