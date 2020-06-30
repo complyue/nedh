@@ -13,7 +13,7 @@ cmdLineTo( '127.0.0.1', 3721, )
 
 # the demo service acts as a remote expression evaluator, post
 # it some expression and it'll post back the eval result into
-# our conout, and the 'net/demo/cli' stdio loop takes care
+# our conout, and the 'net/demo/hack' stdio loop takes care
 # of proper waiting it before reading next cli command.
 expr 3*7
 
@@ -24,8 +24,8 @@ expr service?calc &> calc( 5, 11 ) |> 'no `calc()` service'
 
 {
   # enclose multiple statements within this block, so they're not
-  # interpreted as multiple cli commands, but value of the last
-  # statement will do.
+  # interpreted as multiple cli commands, but the last statement
+  # will be.
 
   console.info<| 'Doing rpc directly - calling the police ...'
 

@@ -28,8 +28,9 @@ export method cmdLineTo(
   case Client( consumer, addr, port=port, init=init, )
   of { client } -> { pass }
 
-  case client.addrs() of { addrs } ->
-  console.info<| 'Connected to service at: ' ++ addrs
+  case client.addrs() of { addr => extraAddrs } -> {
+    console.info<| 'Connected to service at: ' ++ addr
+  }
 
   client.join() $=> { exc } -> {
     console.info<| 'The service caused some trouble: ' ++ exc
