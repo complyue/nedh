@@ -3,8 +3,10 @@ import * 'net'
 
 {
   case Server( 'net/demo/service' ) of { server } -> {
-    case server.addrs() of { addrs } ->
-    console.print( 'Demo service listening: ' ++ addrs )
+    case server.addrs() of { addr => extraAddrs }
+    -> console.info<| 'Demo service listening: ' ++ addr
+    # this waits the server to be stopped, or rethrows any failure
+    # the server encountered
     server.join()
   }
 }

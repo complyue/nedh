@@ -3,7 +3,7 @@ import * 'net'
 
 {
 
-  method calc( m, n ) {
+  export method calc( m, n ) {
     m * n + 3.14
   }
 
@@ -16,7 +16,7 @@ import * 'net'
 
   method __peer_init__ () {
     # implant the `calc()` procedure to the service module
-    that.calc = calc
+    import ( calc, **_ ) this into that
   }
 
 }
@@ -39,20 +39,19 @@ import * 'net'
   ) of { server } -> {
     this.server = server # assign it to the module level
     case server.addrs() of {
-      { addr =>_ } -> console.info<| 'Demo service listening: ' ++ addr
+      { addr => extraAddrs }
+      -> console.info<| 'Demo service listening: ' ++ addr
       # or the network has failed, propagate the error
-      server.join() # this usually throws
+      server.join() # this usually rethrows any failure the server encountered
       # in case join() didn't throw, report this error
       error( 'Demo service failed listening.' )
     }
   }
 
   method trackClientLife( peer ) {
-    # wait eol of the client, but catch any exception,
-    # so as not to crash the whole serving program.
+    # wait eol of the client, catch and report any exception
     peer.join() $=> { exc } -> {
-      console.warn<| 'Demo client ' ++ peer ++
-      ' caused some trouble: ' ++ exc
+      console.warn<| 'Demo client ' ++ peer ++ ' caused some trouble: ' ++ exc
     }
     console.info<| 'Demo client disconnected - ' ++ peer
   }

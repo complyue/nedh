@@ -297,12 +297,13 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
           close
         $ \sock -> do
             connect sock $ addrAddress addr
+            srvAddr <- getPeerName sock
             atomically
               $   fromMaybe []
               <$> tryTakeTMVar serviceAddrs
               >>= putTMVar serviceAddrs
               .   (addr :)
-            try (consumeService (T.pack $ show $ addrAddress addr) sock)
+            try (consumeService (T.pack $ show srvAddr) sock)
               >>= (gracefulClose sock 5000 <*)
               .   atomically
               .   tryPutTMVar cnsmrEoL
