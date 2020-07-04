@@ -61,7 +61,7 @@ go {
       cinArgs = (*** cinArgs, ps1=ps1, ps2=ps2, )
     }
     { ps1 } -> {
-      ; | ArgsPackType == type( ps1 ) -> {
+      ; | type( ps1 ) is ArgsPackType -> {
         cinArgs = (*** cinArgs, *** ps1, )
       }
       cinArgs = (*** cinArgs, ps1=ps1, )
@@ -73,7 +73,7 @@ go {
   # CAVEAT: the outputting is hung up during reading of console commands
   perceive peer.armChannel( conout := 1 ) { conOut } -> {
     conOutSignal <- conOutCnt += 1 # increase and announce
-    ; | ArgsPackType == type( conOut ) -> {
+    ; | type( conOut ) is ArgsPackType -> {
       console.print(*** conOut )
     }
     console.print( conOut )
@@ -107,7 +107,7 @@ go {
       "You're seen as " + {$ repr( peer ) $} + " at the server."
   ) )
 
-  { while false == peer.eol() {
+  { while peer.eol() is false {
       case peer.readCommand() of {
         # TODO interpret any specially expected command here
 
@@ -130,7 +130,7 @@ go {
 for _ from conOutSignal do { break }
 
 # pump commands from local stdio console to the service
-while false == peer.eol() {
+while peer.eol() is false {
   case console.readCommand(*** cinArgs ) of {
     batteries.quit -> { break }
 

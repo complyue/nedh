@@ -30,7 +30,7 @@ addr := Addr()
 
 
 # loop forever until eol on error, or stopped elsewhere
-while false == eol() {
+while eol() is false {
 
   # note nil result from `sniff()` is silently ignored
   case sniff() of { cmdVal } -> {
