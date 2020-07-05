@@ -65,14 +65,8 @@ data EdhSniffer = EdhSniffer {
 
 
 -- | host constructor Sniffer()
-snifferCtor
-  :: Class
-  -> EdhProgState
-  -> ArgsPack  -- ctor args, if __init__() is provided, will go there too
-  -> TVar (Map.HashMap AttrKey EdhValue)  -- out-of-band attr store
-  -> (Dynamic -> STM ())  -- in-band data to be written to entity store
-  -> STM ()
-snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
+snifferCtor :: Class -> EdhHostCtor
+snifferCtor !addrClass !pgsCtor !apk !ctorExit =
   case
       parseArgsPack
         (Nothing, "127.0.0.1" :: SniffAddr, 3721 :: SniffPort, nil)
@@ -93,30 +87,6 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
                                   , edh'sniffing'init  = __modu_init__
                                   }
             !scope = contextScope $ edh'context pgsCtor
-        methods <- sequence
-          [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
-          | (nm, vc, hp, args) <-
-            [ ("addrs", EdhMethod, addrsMth, PackReceiver [])
-            , ("eol"  , EdhMethod, eolMth  , PackReceiver [])
-            , ("join" , EdhMethod, joinMth , PackReceiver [])
-            , ("stop" , EdhMethod, stopMth , PackReceiver [])
-            ]
-          ]
-        modifyTVar' obs
-          $  Map.union
-          $  Map.fromList
-          $  methods
-          ++ [ ( AttrByName "__repr__"
-               , EdhString
-               $  "Sniffer("
-               <> T.pack (show modu)
-               <> ", "
-               <> T.pack (show addr)
-               <> ", "
-               <> T.pack (show port)
-               <> ")"
-               )
-             ]
         edhPerformIO
             pgsCtor
             -- mark service end-of-life anyway finally
@@ -160,88 +130,6 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
               _               -> Left "Invalid init"
             )
           ]
-
-  addrsMth :: EdhProcedure
-  addrsMth _ !exit = do
-    pgs <- ask
-    let
-      ctx  = edh'context pgs
-      this = thisObject $ contextScope ctx
-      es   = entity'store $ objEntity this
-      wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
-      wrapAddrs addrs [] =
-        exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
-      wrapAddrs !addrs (addr : rest) =
-        runEdhProc pgs
-          $ createEdhObject addrClass (ArgsPack [] mempty)
-          $ \(OriginalValue !addrVal _ _) -> case addrVal of
-              EdhObject !addrObj -> contEdhSTM $ do
-                -- actually fill in the in-band entity storage here
-                writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
-                wrapAddrs (addrVal : addrs) rest
-              _ -> error "bug: addr ctor returned non-object"
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhSniffer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a sniffer : " <> T.pack
-            (show esd)
-        Just !sniffer ->
-          edhPerformSTM pgs (readTMVar $ edh'sniffing'addrs sniffer)
-            $ contEdhSTM
-            . wrapAddrs []
-
-  eolMth :: EdhProcedure
-  eolMth _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhSniffer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a sniffer : " <> T.pack
-            (show esd)
-        Just !sniffer -> tryReadTMVar (edh'sniffing'eol sniffer) >>= \case
-          Nothing         -> exitEdhSTM pgs exit $ EdhBool False
-          Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
-          Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
-
-  joinMth :: EdhProcedure
-  joinMth _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhSniffer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a sniffer : " <> T.pack
-            (show esd)
-        Just !sniffer ->
-          edhPerformSTM pgs (readTMVar (edh'sniffing'eol sniffer)) $ \case
-            Left e ->
-              contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-            Right () -> exitEdhProc exit nil
-
-  stopMth :: EdhProcedure
-  stopMth _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhSniffer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a sniffer : " <> T.pack
-            (show esd)
-        Just !sniffer -> do
-          stopped <- tryPutTMVar (edh'sniffing'eol sniffer) $ Right ()
-          exitEdhSTM pgs exit $ EdhBool stopped
-
 
   sniffThread :: EdhSniffer -> IO ()
   sniffThread (EdhSniffer !snifModu !snifAddr !snifPort !snifAddrs !snifEoL !__modu_init__)
@@ -368,4 +256,68 @@ snifferCtor !addrClass !pgsCtor !apk !obs !ctorExit =
             atomically $ putTMVar pktSink (fromAddr, payload)
             pumpPkts -- tail recursion
       pumpPkts -- loop until killed on eol
+
+
+snifferMethods :: Class -> EdhProgState -> STM [(AttrKey, EdhValue)]
+snifferMethods !addrClass !pgsModule = sequence
+  [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+  | (nm, vc, hp, args) <-
+    [ ("addrs"   , EdhMethod, addrsMth, PackReceiver [])
+    , ("eol"     , EdhMethod, eolMth  , PackReceiver [])
+    , ("join"    , EdhMethod, joinMth , PackReceiver [])
+    , ("stop"    , EdhMethod, stopMth , PackReceiver [])
+    , ("__repr__", EdhMethod, reprProc, PackReceiver [])
+    ]
+  ]
+ where
+  !scope = contextScope $ edh'context pgsModule
+
+  reprProc :: EdhProcedure
+  reprProc _ !exit =
+    withThatEntityStore $ \ !pgs (EdhSniffer !modu !addr !port _ _ _) ->
+      exitEdhSTM pgs exit
+        $  EdhString
+        $  "Sniffer("
+        <> T.pack (show modu)
+        <> ", "
+        <> T.pack (show addr)
+        <> ", "
+        <> T.pack (show port)
+        <> ")"
+
+  addrsMth :: EdhProcedure
+  addrsMth _ !exit = withThatEntityStore $ \ !pgs !sniffer -> do
+    let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
+        wrapAddrs addrs [] =
+          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
+        wrapAddrs !addrs (addr : rest) =
+          runEdhProc pgs
+            $ createEdhObject addrClass (ArgsPack [] mempty)
+            $ \(OriginalValue !addrVal _ _) -> case addrVal of
+                EdhObject !addrObj -> contEdhSTM $ do
+                  -- actually fill in the in-band entity storage here
+                  writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
+                  wrapAddrs (addrVal : addrs) rest
+                _ -> error "bug: addr ctor returned non-object"
+    edhPerformSTM pgs (readTMVar $ edh'sniffing'addrs sniffer)
+      $ contEdhSTM
+      . wrapAddrs []
+
+  eolMth :: EdhProcedure
+  eolMth _ !exit = withThatEntityStore $ \ !pgs !sniffer ->
+    tryReadTMVar (edh'sniffing'eol sniffer) >>= \case
+      Nothing         -> exitEdhSTM pgs exit $ EdhBool False
+      Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
+      Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
+
+  joinMth :: EdhProcedure
+  joinMth _ !exit = withThatEntityStore $ \ !pgs !sniffer ->
+    edhPerformSTM pgs (readTMVar (edh'sniffing'eol sniffer)) $ \case
+      Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+      Right () -> exitEdhProc exit nil
+
+  stopMth :: EdhProcedure
+  stopMth _ !exit = withThatEntityStore $ \ !pgs !sniffer -> do
+    stopped <- tryPutTMVar (edh'sniffing'eol sniffer) $ Right ()
+    exitEdhSTM pgs exit $ EdhBool stopped
 

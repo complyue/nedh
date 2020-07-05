@@ -84,15 +84,8 @@ data EdhClient = EdhClient {
 
 
 -- | host constructor Client()
-clientCtor
-  :: Class
-  -> Class
-  -> EdhProgState
-  -> ArgsPack  -- ctor args, if __init__() is provided, will go there too
-  -> TVar (Map.HashMap AttrKey EdhValue)  -- out-of-band attr store
-  -> (Dynamic -> STM ())  -- in-band data to be written to entity store
-  -> STM ()
-clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
+clientCtor :: Class -> EdhHostCtor
+clientCtor !peerClass !pgsCtor !apk !ctorExit =
   case
       parseArgsPack
         (Nothing, Left ("127.0.0.1" :: ServiceAddr, 3721 :: ServicePort), nil)
@@ -119,30 +112,6 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                             , edh'consumer'init = __peer_init__
                             }
         !scope = contextScope $ edh'context pgsCtor
-    methods <- sequence
-      [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
-      | (nm, vc, hp, args) <-
-        [ ("addrs", EdhMethod, addrsProc, PackReceiver [])
-        , ("eol"  , EdhMethod, eolProc  , PackReceiver [])
-        , ("join" , EdhMethod, joinProc , PackReceiver [])
-        , ("stop" , EdhMethod, stopProc , PackReceiver [])
-        ]
-      ]
-    modifyTVar' obs
-      $  Map.union
-      $  Map.fromList
-      $  methods
-      ++ [ ( AttrByName "__repr__"
-           , EdhString
-           $  "Client("
-           <> T.pack (show consumer)
-           <> ", "
-           <> T.pack (show addr)
-           <> ", "
-           <> T.pack (show port)
-           <> ")"
-           )
-         ]
     edhPerformIO
         pgsCtor
         (forkFinally
@@ -205,88 +174,6 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
               _               -> Left "Invalid init"
             )
           ]
-
-  addrsProc :: EdhProcedure
-  addrsProc _ !exit = do
-    pgs <- ask
-    let
-      ctx  = edh'context pgs
-      this = thisObject $ contextScope ctx
-      es   = entity'store $ objEntity this
-      wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
-      wrapAddrs addrs [] =
-        exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
-      wrapAddrs !addrs (addr : rest) =
-        runEdhProc pgs
-          $ createEdhObject addrClass (ArgsPack [] mempty)
-          $ \(OriginalValue !addrVal _ _) -> case addrVal of
-              EdhObject !addrObj -> contEdhSTM $ do
-                -- actually fill in the in-band entity storage here
-                writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
-                wrapAddrs (addrVal : addrs) rest
-              _ -> error "bug: addr ctor returned non-object"
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhClient of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a client : " <> T.pack
-            (show esd)
-        Just !client ->
-          edhPerformSTM pgs (readTMVar $ edh'service'addrs client)
-            $ contEdhSTM
-            . wrapAddrs []
-
-  eolProc :: EdhProcedure
-  eolProc _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhClient of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a client : " <> T.pack
-            (show esd)
-        Just !client -> tryReadTMVar (edh'consumer'eol client) >>= \case
-          Nothing         -> exitEdhSTM pgs exit $ EdhBool False
-          Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
-          Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
-
-  joinProc :: EdhProcedure
-  joinProc _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhClient of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a client : " <> T.pack
-            (show esd)
-        Just !client ->
-          edhPerformSTM pgs (readTMVar (edh'consumer'eol client)) $ \case
-            Left e ->
-              contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-            Right () -> exitEdhProc exit nil
-
-  stopProc :: EdhProcedure
-  stopProc _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhClient of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a client : " <> T.pack
-            (show esd)
-        Just !client -> do
-          stopped <- tryPutTMVar (edh'consumer'eol client) $ Right ()
-          exitEdhSTM pgs exit $ EdhBool stopped
-
 
   consumerThread :: EdhClient -> IO ()
   consumerThread (EdhClient !cnsmrModu !servAddr !servPort !serviceAddrs !cnsmrEoL !__peer_init__)
@@ -395,4 +282,68 @@ clientCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
       -- pump commands out,
       -- make this thread the only one writing the handle
       serializeCmdsOut
+
+
+clientMethods :: Class -> EdhProgState -> STM [(AttrKey, EdhValue)]
+clientMethods !addrClass !pgsModule = sequence
+  [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+  | (nm, vc, hp, args) <-
+    [ ("addrs"   , EdhMethod, addrsProc, PackReceiver [])
+    , ("eol"     , EdhMethod, eolProc  , PackReceiver [])
+    , ("join"    , EdhMethod, joinProc , PackReceiver [])
+    , ("stop"    , EdhMethod, stopProc , PackReceiver [])
+    , ("__repr__", EdhMethod, reprProc , PackReceiver [])
+    ]
+  ]
+ where
+  !scope = contextScope $ edh'context pgsModule
+
+  reprProc :: EdhProcedure
+  reprProc _ !exit =
+    withThatEntityStore $ \ !pgs (EdhClient !consumer !addr !port _ _ _) ->
+      exitEdhSTM pgs exit
+        $  EdhString
+        $  "Client("
+        <> T.pack (show consumer)
+        <> ", "
+        <> T.pack (show addr)
+        <> ", "
+        <> T.pack (show port)
+        <> ")"
+
+  addrsProc :: EdhProcedure
+  addrsProc _ !exit = withThatEntityStore $ \ !pgs !client -> do
+    let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
+        wrapAddrs addrs [] =
+          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
+        wrapAddrs !addrs (addr : rest) =
+          runEdhProc pgs
+            $ createEdhObject addrClass (ArgsPack [] mempty)
+            $ \(OriginalValue !addrVal _ _) -> case addrVal of
+                EdhObject !addrObj -> contEdhSTM $ do
+                  -- actually fill in the in-band entity storage here
+                  writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
+                  wrapAddrs (addrVal : addrs) rest
+                _ -> error "bug: addr ctor returned non-object"
+    edhPerformSTM pgs (readTMVar $ edh'service'addrs client)
+      $ contEdhSTM
+      . wrapAddrs []
+
+  eolProc :: EdhProcedure
+  eolProc _ !exit = withThatEntityStore $ \ !pgs !client ->
+    tryReadTMVar (edh'consumer'eol client) >>= \case
+      Nothing         -> exitEdhSTM pgs exit $ EdhBool False
+      Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
+      Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
+
+  joinProc :: EdhProcedure
+  joinProc _ !exit = withThatEntityStore $ \ !pgs !client ->
+    edhPerformSTM pgs (readTMVar (edh'consumer'eol client)) $ \case
+      Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+      Right () -> exitEdhProc exit nil
+
+  stopProc :: EdhProcedure
+  stopProc _ !exit = withThatEntityStore $ \ !pgs !client -> do
+    stopped <- tryPutTMVar (edh'consumer'eol client) $ Right ()
+    exitEdhSTM pgs exit $ EdhBool stopped
 

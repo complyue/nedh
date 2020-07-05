@@ -37,40 +37,53 @@ installNetBatteries !world =
     let moduScope = contextScope $ edh'context pgs
         modu      = thisObject moduScope
 
-    peerClassVal <- mkHostClass moduScope "Peer" True peerCtor
+    peerClassVal <-
+      mkHostClass moduScope "Peer" peerCtor
+      =<< createSideEntityManipulater True
+      =<< peerMethods pgs
     let peerClass = case peerClassVal of
           EdhClass cls -> cls
           _            -> error "bug: mkHostClass returned non-class"
 
-    addrClassVal <- mkHostClass moduScope "Addr" True addrCtor
+    addrClassVal <-
+      mkHostClass moduScope "Addr" addrCtor
+      =<< createSideEntityManipulater True
+      =<< addrMethods pgs
     let addrClass = case addrClassVal of
           EdhClass cls -> cls
           _            -> error "bug: mkHostClass returned non-class"
 
-    serverClassVal <- mkHostClass moduScope
-                                  "Server"
-                                  True
-                                  (serverCtor addrClass peerClass)
-    clientClassVal <- mkHostClass moduScope
-                                  "Client"
-                                  True
-                                  (clientCtor addrClass peerClass)
-    wsServerClassVal <- mkHostClass moduScope
-                                    "WsServer"
-                                    True
-                                    (wsServerCtor addrClass peerClass)
-    httpServerClassVal <- mkHostClass moduScope
-                                      "HttpServer"
-                                      True
-                                      (httpServerCtor addrClass)
-    snifferClassVal <- mkHostClass moduScope
-                                   "Sniffer"
-                                   True
-                                   (snifferCtor addrClass)
-    advertiserClassVal <- mkHostClass moduScope
-                                      "Advertiser"
-                                      True
-                                      (advertiserCtor addrClass)
+    serverClassVal <-
+      mkHostClass moduScope "Server" (serverCtor peerClass)
+      =<< createSideEntityManipulater True
+      =<< serverMethods addrClass pgs
+
+
+    clientClassVal <-
+      mkHostClass moduScope "Client" (clientCtor peerClass)
+      =<< createSideEntityManipulater True
+      =<< clientMethods addrClass pgs
+
+    wsServerClassVal <-
+      mkHostClass moduScope "WsServer" (wsServerCtor peerClass)
+      =<< createSideEntityManipulater True
+      =<< wsServerMethods addrClass pgs
+
+    httpServerClassVal <-
+      mkHostClass moduScope "HttpServer" httpServerCtor
+      =<< createSideEntityManipulater True
+      =<< httpServerMethods addrClass pgs
+
+    snifferClassVal <-
+      mkHostClass moduScope "Sniffer" (snifferCtor addrClass)
+      =<< createSideEntityManipulater True
+      =<< snifferMethods addrClass pgs
+
+    advertiserClassVal <-
+      mkHostClass moduScope "Advertiser" advertiserCtor
+      =<< createSideEntityManipulater True
+      =<< advertiserMethods addrClass pgs
+
     let !moduArts =
           [ ("Peer"      , peerClassVal)
           , ("Addr"      , addrClassVal)

@@ -5,7 +5,6 @@ import           Prelude
 -- import           Debug.Trace
 
 import           Control.Exception
-import           Control.Monad.Reader
 import           Control.Concurrent.STM
 
 import qualified Data.List.NonEmpty            as NE
@@ -93,145 +92,97 @@ landPeerCmd (Peer !ident _ _ _ !chdVar) (Packet !dir !payload) !pgs !exit =
 
 
 -- | host constructor Peer()
-peerCtor
-  :: EdhProgState
-  -> ArgsPack  -- ctor args, if __init__() is provided, will go there too
-  -> TVar (Map.HashMap AttrKey EdhValue)  -- out-of-band attr store
-  -> (Dynamic -> STM ())  -- in-band data to be written to entity store
-  -> STM ()
-peerCtor !pgsCtor _ !obs !ctorExit = do
-  let !scope = contextScope $ edh'context pgsCtor
-  methods <- sequence
-    [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
-    | (nm, vc, hp, args) <-
-      [ ("eol" , EdhMethod, eolProc , PackReceiver [])
-      , ("join", EdhMethod, joinProc, PackReceiver [])
-      , ("stop", EdhMethod, stopProc, PackReceiver [])
-      , ( "armedChannel"
-        , EdhMethod
-        , armedChannelProc
-        , PackReceiver [mandatoryArg "chLctr"]
-        )
-      , ( "armChannel"
-        , EdhMethod
-        , armChannelProc
-        , PackReceiver
-          [mandatoryArg "chLctr", optionalArg "chSink" $ LitExpr SinkCtor]
-        )
-      , ("readSource", EdhMethod, readPeerSrcProc, PackReceiver [])
-      , ( "readCommand"
-        , EdhMethod
-        , readPeerCmdProc
-        , PackReceiver [optionalArg "inScopeOf" edhNoneExpr]
-        )
-      , ( "p2c"
-        , EdhMethod
-        , p2cProc
-        , PackReceiver [mandatoryArg "dir", mandatoryArg "cmd"]
-        )
-      , ( "postCommand"
-        , EdhMethod
-        , postPeerCmdProc
-        , PackReceiver
-          [mandatoryArg "cmd", optionalArg "dir" $ LitExpr NilLiteral]
-        )
-      , ("ident"   , EdhMethod, identProc, PackReceiver [])
-      , ("__repr__", EdhMethod, reprProc , PackReceiver [])
-      ]
-    ]
-  modifyTVar' obs $ Map.union $ Map.fromList methods
-  -- not really constructable from Edh code, relies on host code to fill
-  -- the in-band storage
-  ctorExit $ toDyn nil
+peerCtor :: EdhHostCtor
+-- not really constructable from Edh code, relies on host code to fill
+-- the in-band storage
+peerCtor _ _ !ctorExit = ctorExit $ toDyn nil
 
+peerMethods :: EdhProgState -> STM [(AttrKey, EdhValue)]
+peerMethods !pgsModule = sequence
+  [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+  | (nm, vc, hp, args) <-
+    [ ("eol" , EdhMethod, eolProc , PackReceiver [])
+    , ("join", EdhMethod, joinProc, PackReceiver [])
+    , ("stop", EdhMethod, stopProc, PackReceiver [])
+    , ( "armedChannel"
+      , EdhMethod
+      , armedChannelProc
+      , PackReceiver [mandatoryArg "chLctr"]
+      )
+    , ( "armChannel"
+      , EdhMethod
+      , armChannelProc
+      , PackReceiver
+        [mandatoryArg "chLctr", optionalArg "chSink" $ LitExpr SinkCtor]
+      )
+    , ("readSource", EdhMethod, readPeerSrcProc, PackReceiver [])
+    , ( "readCommand"
+      , EdhMethod
+      , readPeerCmdProc
+      , PackReceiver [optionalArg "inScopeOf" edhNoneExpr]
+      )
+    , ( "p2c"
+      , EdhMethod
+      , p2cProc
+      , PackReceiver [mandatoryArg "dir", mandatoryArg "cmd"]
+      )
+    , ( "postCommand"
+      , EdhMethod
+      , postPeerCmdProc
+      , PackReceiver
+        [mandatoryArg "cmd", optionalArg "dir" $ LitExpr NilLiteral]
+      )
+    , ("ident"   , EdhMethod, identProc, PackReceiver [])
+    , ("__repr__", EdhMethod, reprProc , PackReceiver [])
+    ]
+  ]
  where
+  !scope = contextScope $ edh'context pgsModule
 
   eolProc :: EdhProcedure
-  eolProc _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe Peer of
-        Nothing    -> exitEdhSTM pgs exit $ EdhBool True
-        Just !peer -> tryReadTMVar (edh'peer'eol peer) >>= \case
+  eolProc _ !exit =
+    withThatEntityStore' (\ !pgs -> exitEdhSTM pgs exit $ EdhBool True)
+      $ \ !pgs !peer -> tryReadTMVar (edh'peer'eol peer) >>= \case
           Nothing         -> exitEdhSTM pgs exit $ EdhBool False
           Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
           Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
 
   joinProc :: EdhProcedure
-  joinProc _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe Peer of
-        Nothing    -> exitEdhSTM pgs exit nil
-        Just !peer -> edhPerformSTM pgs (readTMVar (edh'peer'eol peer)) $ \case
-          Left e -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-          Right () -> exitEdhProc exit nil
+  joinProc _ !exit =
+    withThatEntityStore' (\ !pgs -> exitEdhSTM pgs exit nil) $ \ !pgs !peer ->
+      edhPerformSTM pgs (readTMVar (edh'peer'eol peer)) $ \case
+        Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+        Right () -> exitEdhProc exit nil
 
   stopProc :: EdhProcedure
-  stopProc _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe Peer of
-        Nothing    -> exitEdhSTM pgs exit $ EdhBool False
-        Just !peer -> do
+  stopProc _ !exit =
+    withThatEntityStore' (\ !pgs -> exitEdhSTM pgs exit $ EdhBool False)
+      $ \ !pgs !peer -> do
           stopped <- tryPutTMVar (edh'peer'eol peer) $ Right ()
           exitEdhSTM pgs exit $ EdhBool stopped
 
   armedChannelProc :: EdhProcedure
-  armedChannelProc !apk !exit = do
-    pgs <- ask
-    let
-      this = thisObject $ contextScope $ edh'context pgs
-      es   = entity'store $ objEntity this
-      getArmedSink :: EdhValue -> STM ()
-      getArmedSink !chLctr = do
-        esd <- readTVar es
-        case fromDynamic esd of
-          Nothing ->
-            throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
-              (show esd)
-          Just (peer :: Peer) ->
-            Map.lookup chLctr <$> readTVar (edh'peer'channels peer) >>= \case
-              Nothing      -> exitEdhSTM pgs exit nil
-              Just !chSink -> exitEdhSTM pgs exit $ EdhSink chSink
+  armedChannelProc !apk !exit = withThatEntityStore $ \ !pgs !peer -> do
+    let getArmedSink :: EdhValue -> STM ()
+        getArmedSink !chLctr =
+          Map.lookup chLctr <$> readTVar (edh'peer'channels peer) >>= \case
+            Nothing      -> exitEdhSTM pgs exit nil
+            Just !chSink -> exitEdhSTM pgs exit $ EdhSink chSink
     case apk of
-      ArgsPack [!chLctr] !kwargs | Map.null kwargs ->
-        contEdhSTM $ getArmedSink chLctr
-      _ -> throwEdh UsageError "Invalid args to armedChannelProc"
+      ArgsPack [!chLctr] !kwargs | Map.null kwargs -> getArmedSink chLctr
+      _ -> throwEdhSTM pgs UsageError "Invalid args to armedChannelProc"
 
   armChannelProc :: EdhProcedure
-  armChannelProc !apk !exit = do
-    pgs <- ask
-    let
-      this = thisObject $ contextScope $ edh'context pgs
-      es   = entity'store $ objEntity this
-      armSink :: EdhValue -> EventSink -> STM ()
-      armSink !chLctr !chSink = do
-        esd <- readTVar es
-        case fromDynamic esd of
-          Nothing ->
-            throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
-              (show esd)
-          Just (peer :: Peer) -> do
-            modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
-            exitEdhSTM pgs exit $ EdhSink chSink
+  armChannelProc !apk !exit = withThatEntityStore $ \ !pgs !peer -> do
+    let armSink :: EdhValue -> EventSink -> STM ()
+        armSink !chLctr !chSink = do
+          modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
+          exitEdhSTM pgs exit $ EdhSink chSink
     case parseArgsPack (Nothing, nil) parseArgs apk of
-      Left  err                  -> throwEdh UsageError err
+      Left  err                  -> throwEdhSTM pgs UsageError err
       Right (maybeLctr, sinkVal) -> case maybeLctr of
-        Nothing      -> throwEdh UsageError "Missing channel locator"
-        Just !chLctr -> contEdhSTM $ case edhUltimate sinkVal of
+        Nothing      -> throwEdhSTM pgs UsageError "Missing channel locator"
+        Just !chLctr -> case edhUltimate sinkVal of
           EdhNil -> do
             chSink <- newEventSink
             armSink chLctr chSink
@@ -252,25 +203,15 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
             ]
 
   readPeerSrcProc :: EdhProcedure
-  readPeerSrcProc _ !exit = ask >>= \pgs -> contEdhSTM $ do
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    esd <- readTVar es
-    case fromDynamic esd of
-      Nothing ->
-        throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
-          (show esd)
-      Just (peer :: Peer) -> readPeerSource pgs peer exit
+  readPeerSrcProc _ !exit =
+    withThatEntityStore $ \ !pgs !peer -> readPeerSource pgs peer exit
 
   readPeerCmdProc :: EdhProcedure
-  readPeerCmdProc apk !exit = ask >>= \pgs ->
+  readPeerCmdProc apk !exit = withThatEntityStore $ \ !pgs !peer ->
     case parseArgsPack Nothing argsParser apk of
-      Left  err       -> throwEdh UsageError err
-      Right inScopeOf -> contEdhSTM $ do
-        let ctx  = edh'context pgs
-            this = thisObject $ contextScope ctx
-            es   = entity'store $ objEntity this
+      Left  err        -> throwEdhSTM pgs UsageError err
+      Right !inScopeOf -> do
+        let !ctx = edh'context pgs
         -- mind to inherit this host proc's exception handler anyway
         cmdScope <- case inScopeOf of
           Just !so -> isScopeWrapper ctx so >>= \case
@@ -309,12 +250,7 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
                                 , contextExporting = False
                                 }
               }
-        esd <- readTVar es
-        case fromDynamic esd of
-          Nothing ->
-            throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
-              (show esd)
-          Just (peer :: Peer) -> readPeerCommand pgsCmd peer exit
+        readPeerCommand pgsCmd peer exit
    where
     argsParser = ArgsPackParser [] $ Map.fromList
       [ ( "inScopeOf"
@@ -324,43 +260,31 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
         )
       ]
 
-  postCmd :: EdhProgState -> EdhValue -> EdhValue -> EdhProcExit -> STM ()
-  postCmd !pgs !dirVal !cmdVal !exit = do
-    let this = thisObject $ contextScope $ edh'context pgs
-        es   = entity'store $ objEntity this
-    esd <- readTVar es
-    case fromDynamic esd of
-      Nothing ->
-        throwEdhSTM pgs UsageError $ "bug: this is not a peer : " <> T.pack
-          (show esd)
-      Just (peer :: Peer) -> withDir $ \dir -> case cmdVal of
-        EdhString !src   -> postPeerCommand pgs peer (textPacket dir src) exit
-        EdhExpr _ _ !src -> if src == ""
-          then throwEdhSTM pgs
-                           UsageError
-                           "Missing source from the expr as command"
-          else postPeerCommand pgs peer (textPacket dir src) exit
-        EdhBlob !payload ->
-          postPeerCommand pgs peer (Packet ("blob:" <> dir) payload) exit
-        _ ->
-          throwEdhSTM pgs UsageError $ "Unsupported command type: " <> T.pack
-            (edhTypeNameOf cmdVal)
-   where
-    withDir :: (PacketDirective -> STM ()) -> STM ()
-    withDir !exit' = case edhUltimate dirVal of
-      EdhNil  -> exit' ""
-      !chLctr -> edhValueReprSTM pgs chLctr $ \lctr -> exit' lctr
+  postCmd :: EdhValue -> EdhValue -> EdhProcExit -> EdhProc
+  postCmd !dirVal !cmdVal !exit = withThatEntityStore $ \ !pgs !peer -> do
+    let withDir :: (PacketDirective -> STM ()) -> STM ()
+        withDir !exit' = case edhUltimate dirVal of
+          EdhNil  -> exit' ""
+          !chLctr -> edhValueReprSTM pgs chLctr $ \lctr -> exit' lctr
+    withDir $ \dir -> case cmdVal of
+      EdhString !src   -> postPeerCommand pgs peer (textPacket dir src) exit
+      EdhExpr _ _ !src -> if src == ""
+        then throwEdhSTM pgs
+                         UsageError
+                         "Missing source from the expr as command"
+        else postPeerCommand pgs peer (textPacket dir src) exit
+      EdhBlob !payload ->
+        postPeerCommand pgs peer (Packet ("blob:" <> dir) payload) exit
+      _ -> throwEdhSTM pgs UsageError $ "Unsupported command type: " <> T.pack
+        (edhTypeNameOf cmdVal)
 
   -- | peer.p2c( dir, cmd ) - shorthand for post-to-channel
   p2cProc :: EdhProcedure
-  p2cProc !apk !exit = do
-    pgs <- ask
-    case parseArgsPack (Nothing, Nothing) parseArgs apk of
-      Left  err                -> throwEdh UsageError err
-      Right (Nothing, _      ) -> throwEdh UsageError "Missing directive"
-      Right (_      , Nothing) -> throwEdh UsageError "Missing command"
-      Right (Just !dirVal, Just !cmdVal) ->
-        contEdhSTM $ postCmd pgs dirVal cmdVal exit
+  p2cProc !apk !exit = case parseArgsPack (Nothing, Nothing) parseArgs apk of
+    Left  err                          -> throwEdh UsageError err
+    Right (Nothing, _) -> throwEdh UsageError "Missing directive"
+    Right (_           , Nothing     ) -> throwEdh UsageError "Missing command"
+    Right (Just !dirVal, Just !cmdVal) -> postCmd dirVal cmdVal exit
    where
     parseArgs =
       ArgsPackParser
@@ -373,13 +297,11 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
             ]
 
   postPeerCmdProc :: EdhProcedure
-  postPeerCmdProc !apk !exit = do
-    pgs <- ask
+  postPeerCmdProc !apk !exit =
     case parseArgsPack (Nothing, nil) parseArgs apk of
-      Left  err          -> throwEdh UsageError err
-      Right (Nothing, _) -> throwEdh UsageError "Missing command"
-      Right (Just !cmdVal, !dirVal) ->
-        contEdhSTM $ postCmd pgs dirVal cmdVal exit
+      Left  err                     -> throwEdh UsageError err
+      Right (Nothing     , _      ) -> throwEdh UsageError "Missing command"
+      Right (Just !cmdVal, !dirVal) -> postCmd dirVal cmdVal exit
    where
     parseArgs =
       ArgsPackParser
@@ -392,27 +314,16 @@ peerCtor !pgsCtor _ !obs !ctorExit = do
             ]
 
   identProc :: EdhProcedure
-  identProc _ !exit = do
-    pgs <- ask
-    let this = thisObject $ contextScope $ edh'context pgs
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd of
-        Nothing -> exitEdhSTM pgs exit $ EdhString "<bogon>"
-        Just (peer :: Peer) ->
-          exitEdhSTM pgs exit $ EdhString $ edh'peer'ident peer
+  identProc _ !exit =
+    withThatEntityStore'
+        (\ !pgs -> exitEdhSTM pgs exit $ EdhString "<bogus-peer>")
+      $ \ !pgs !peer -> exitEdhSTM pgs exit $ EdhString $ edh'peer'ident peer
 
   reprProc :: EdhProcedure
-  reprProc _ !exit = do
-    pgs <- ask
-    let this = thisObject $ contextScope $ edh'context pgs
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd of
-        Nothing -> exitEdhSTM pgs exit $ EdhString "<bogus-peer>"
-        Just (peer :: Peer) ->
+  reprProc _ !exit =
+    withThatEntityStore'
+        (\ !pgs -> exitEdhSTM pgs exit $ EdhString "peer:<bogus>")
+      $ \ !pgs !peer ->
           exitEdhSTM pgs exit
             $  EdhString
             $  "peer:<"

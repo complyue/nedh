@@ -9,8 +9,6 @@ import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
 
-import           Control.Monad.Reader
-
 import           Data.Maybe
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
@@ -25,6 +23,7 @@ import qualified Data.Lossless.Decimal         as D
 
 import           Language.Edh.EHI
 
+import           Language.Edh.Net.Addr
 import           Language.Edh.Net.Sniffer
 
 
@@ -55,32 +54,25 @@ data EdhAdvertiser = EdhAdvertiser {
   }
 
 -- | host constructor Advertiser()
-advertiserCtor
-  :: Class
-  -> EdhProgState
-  -> ArgsPack  -- ctor args, if __init__() is provided, will go there too
-  -> TVar (Map.HashMap AttrKey EdhValue)  -- out-of-band attr store
-  -> (Dynamic -> STM ())  -- in-band data to be written to entity store
-  -> STM ()
-advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
+advertiserCtor :: EdhHostCtor
+advertiserCtor !pgsCtor !apk !ctorExit =
   case
       parseArgsPack ("255.255.255.255" :: TargetAddr, 3721 :: TargetPort, nil)
                     parseCtorArgs
                     apk
     of
-      Left  err                       -> throwEdhSTM pgsCtor UsageError err
-      Right (addr, port, fromAddrVal) -> case edhUltimate fromAddrVal of
-        EdhObject fromAddrObj -> do
+      Left  !err                         -> throwEdhSTM pgsCtor UsageError err
+      Right (!addr, !port, !fromAddrVal) -> case edhUltimate fromAddrVal of
+        EdhObject !fromAddrObj -> do
           esd <- readTVar $ entity'store $ objEntity fromAddrObj
           case fromDynamic esd :: Maybe AddrInfo of
-            Nothing       -> throwEdhSTM pgsCtor UsageError "bogus addr object"
-            Just fromAddr -> edhValueReprSTM pgsCtor fromAddrVal
-              $ \r -> go addr port (Just fromAddr) r
-        EdhNil -> go addr port Nothing ""
+            Nothing        -> throwEdhSTM pgsCtor UsageError "bogus addr object"
+            Just !fromAddr -> go addr port (Just fromAddr)
+        EdhNil -> go addr port Nothing
         _ -> throwEdhSTM pgsCtor UsageError $ "Invalid fromAddr: " <> T.pack
           (show fromAddrVal)
  where
-  go addr port fromAddr fromAddrRepr = do
+  go addr port fromAddr = do
     adSrc     <- newEmptyTMVar
     advtAddrs <- newEmptyTMVar
     advtEoL   <- newEmptyTMVar
@@ -91,31 +83,6 @@ advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
                                     , edh'advertiser'addr = fromAddr
                                     , edh'advertising'eol = advtEoL
                                     }
-        !scope = contextScope $ edh'context pgsCtor
-    methods <- sequence
-      [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
-      | (nm, vc, hp, args) <-
-        [ ("addrs", EdhMethod, addrsMth, PackReceiver [])
-        , ("post" , EdhMethod, postMth , PackReceiver [])
-        , ("eol"  , EdhMethod, eolMth  , PackReceiver [])
-        , ("join" , EdhMethod, joinMth , PackReceiver [])
-        , ("stop" , EdhMethod, stopMth , PackReceiver [])
-        ]
-      ]
-    modifyTVar' obs
-      $  Map.union
-      $  Map.fromList
-      $  methods
-      ++ [ ( AttrByName "__repr__"
-           , EdhString
-           $  "Advertiser("
-           <> T.pack (show addr)
-           <> ", "
-           <> T.pack (show port)
-           <> (if T.null fromAddrRepr then "" else ", " <> fromAddrRepr)
-           <> ")"
-           )
-         ]
     edhPerformIO
         pgsCtor
         -- mark service end-of-life anyway finally
@@ -152,116 +119,6 @@ advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
             , \arg (addr', port', _) -> Right (addr', port', edhUltimate arg)
             )
           ]
-
-  addrsMth :: EdhProcedure
-  addrsMth _ !exit = do
-    pgs <- ask
-    let
-      ctx  = edh'context pgs
-      this = thisObject $ contextScope ctx
-      es   = entity'store $ objEntity this
-      wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
-      wrapAddrs addrs [] =
-        exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
-      wrapAddrs !addrs (addr : rest) =
-        runEdhProc pgs
-          $ createEdhObject addrClass (ArgsPack [] mempty)
-          $ \(OriginalValue !addrVal _ _) -> case addrVal of
-              EdhObject !addrObj -> contEdhSTM $ do
-                -- actually fill in the in-band entity storage here
-                writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
-                wrapAddrs (addrVal : addrs) rest
-              _ -> error "bug: addr ctor returned non-object"
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhAdvertiser of
-        Nothing ->
-          throwEdhSTM pgs UsageError
-            $  "bug: this is not a advertiser : "
-            <> T.pack (show esd)
-        Just !advertiser ->
-          edhPerformSTM pgs (readTMVar $ edh'ad'target'addrs advertiser)
-            $ contEdhSTM
-            . wrapAddrs []
-
-  postMth :: EdhProcedure
-  postMth (ArgsPack !args _) !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-        advt :: [Text] -> TMVar Text -> STM ()
-        advt [] _ = exitEdhSTM pgs exit nil
-        advt (cmd : rest) q =
-          -- don't let Edh track stm retries,
-          -- and post each cmd to ad queue with separate tx
-          edhPerformSTM pgs (putTMVar q cmd) $ \_ -> contEdhSTM $ advt rest q
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhAdvertiser of
-        Nothing ->
-          throwEdhSTM pgs UsageError
-            $  "bug: this is not a advertiser : "
-            <> T.pack (show esd)
-        Just !advertiser -> seqcontSTM (edhValueReprSTM pgs <$> args)
-          $ \reprs -> advt reprs $ edh'ad'source advertiser
-
-
-  eolMth :: EdhProcedure
-  eolMth _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhAdvertiser of
-        Nothing ->
-          throwEdhSTM pgs UsageError
-            $  "bug: this is not a advertiser : "
-            <> T.pack (show esd)
-        Just !advertiser ->
-          tryReadTMVar (edh'advertising'eol advertiser) >>= \case
-            Nothing -> exitEdhSTM pgs exit $ EdhBool False
-            Just (Left e) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
-            Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
-
-  joinMth :: EdhProcedure
-  joinMth _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhAdvertiser of
-        Nothing ->
-          throwEdhSTM pgs UsageError
-            $  "bug: this is not a advertiser : "
-            <> T.pack (show esd)
-        Just !advertiser ->
-          edhPerformSTM pgs (readTMVar (edh'advertising'eol advertiser)) $ \case
-            Left e ->
-              contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-            Right () -> exitEdhProc exit nil
-
-  stopMth :: EdhProcedure
-  stopMth _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhAdvertiser of
-        Nothing ->
-          throwEdhSTM pgs UsageError
-            $  "bug: this is not a advertiser : "
-            <> T.pack (show esd)
-        Just !advertiser -> do
-          stopped <- tryPutTMVar (edh'advertising'eol advertiser) $ Right ()
-          exitEdhSTM pgs exit $ EdhBool stopped
-
 
   advtThread :: EdhAdvertiser -> IO ()
   advtThread (EdhAdvertiser !adSrc !advtAddr !advtPort !advtAddrs !fromAddr !advtEoL)
@@ -318,3 +175,83 @@ advertiserCtor !addrClass !pgsCtor !apk !obs !ctorExit =
       let !payload = encodeUtf8 cmd
       sendAllTo sock payload addr
       advtTo addr sock
+
+
+advertiserMethods :: Class -> EdhProgState -> STM [(AttrKey, EdhValue)]
+advertiserMethods !addrClass !pgsModule = sequence
+  [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+  | (nm, vc, hp, args) <-
+    [ ("addrs"   , EdhMethod, addrsMth, PackReceiver [])
+    , ("post"    , EdhMethod, postMth , PackReceiver [])
+    , ("eol"     , EdhMethod, eolMth  , PackReceiver [])
+    , ("join"    , EdhMethod, joinMth , PackReceiver [])
+    , ("stop"    , EdhMethod, stopMth , PackReceiver [])
+    , ("__repr__", EdhMethod, reprProc, PackReceiver [])
+    ]
+  ]
+ where
+  !scope = contextScope $ edh'context pgsModule
+
+  reprProc :: EdhProcedure
+  reprProc _ !exit =
+    withThatEntityStore $ \ !pgs (EdhAdvertiser _ !addr !port _ !adAddr _) ->
+      exitEdhSTM pgs exit
+        $  EdhString
+        $  "Advertiser("
+        <> T.pack (show addr)
+        <> ", "
+        <> T.pack (show port)
+        <> (case adAddr of
+             Nothing        -> ""
+             Just !fromAddr -> ", " <> addrRepr fromAddr
+           )
+        <> ")"
+
+  addrsMth :: EdhProcedure
+  addrsMth _ !exit = withThatEntityStore $ \ !pgs !advertiser -> do
+    let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
+        wrapAddrs addrs [] =
+          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
+        wrapAddrs !addrs (addr : rest) =
+          runEdhProc pgs
+            $ createEdhObject addrClass (ArgsPack [] mempty)
+            $ \(OriginalValue !addrVal _ _) -> case addrVal of
+                EdhObject !addrObj -> contEdhSTM $ do
+                  -- actually fill in the in-band entity storage here
+                  writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
+                  wrapAddrs (addrVal : addrs) rest
+                _ -> error "bug: addr ctor returned non-object"
+    edhPerformSTM pgs (readTMVar $ edh'ad'target'addrs advertiser)
+      $ contEdhSTM
+      . wrapAddrs []
+
+  postMth :: EdhProcedure
+  postMth (ArgsPack !args _) !exit =
+    withThatEntityStore $ \ !pgs !advertiser -> do
+      let advt :: [Text] -> TMVar Text -> STM ()
+          advt [] _ = exitEdhSTM pgs exit nil
+          advt (cmd : rest) q =
+            -- don't let Edh track stm retries,
+            -- and post each cmd to ad queue with separate tx
+            edhPerformSTM pgs (putTMVar q cmd) $ \_ -> contEdhSTM $ advt rest q
+      seqcontSTM (edhValueReprSTM pgs <$> args)
+        $ \reprs -> advt reprs $ edh'ad'source advertiser
+
+  eolMth :: EdhProcedure
+  eolMth _ !exit = withThatEntityStore $ \ !pgs !advertiser ->
+    tryReadTMVar (edh'advertising'eol advertiser) >>= \case
+      Nothing         -> exitEdhSTM pgs exit $ EdhBool False
+      Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
+      Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
+
+  joinMth :: EdhProcedure
+  joinMth _ !exit = withThatEntityStore $ \ !pgs !advertiser ->
+    edhPerformSTM pgs (readTMVar (edh'advertising'eol advertiser)) $ \case
+      Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+      Right () -> exitEdhProc exit nil
+
+  stopMth :: EdhProcedure
+  stopMth _ !exit = withThatEntityStore $ \ !pgs !advertiser -> do
+    stopped <- tryPutTMVar (edh'advertising'eol advertiser) $ Right ()
+    exitEdhSTM pgs exit $ EdhBool stopped
+

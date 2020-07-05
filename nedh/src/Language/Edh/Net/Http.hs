@@ -93,14 +93,8 @@ data EdhHttpServer = EdhHttpServer {
   }
 
 -- | host constructor HttpServer()
-httpServerCtor
-  :: Class
-  -> EdhProgState
-  -> ArgsPack  -- ctor args, if __init__() is provided, will go there too
-  -> TVar (Map.HashMap AttrKey EdhValue)  -- out-of-band attr store
-  -> (Dynamic -> STM ())  -- in-band data to be written to entity store
-  -> STM ()
-httpServerCtor !addrClass !pgsCtor !apk !obs !ctorExit =
+httpServerCtor :: EdhHostCtor
+httpServerCtor !pgsCtor !apk !ctorExit =
   case
       parseArgsPack
         ( Nothing -- modus
@@ -129,30 +123,6 @@ httpServerCtor !addrClass !pgsCtor !apk !obs !ctorExit =
                 , edh'http'server'eol      = servEoL
                 }
               !scope = contextScope $ edh'context pgsCtor
-          methods <- sequence
-            [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
-            | (nm, vc, hp, args) <-
-              [ ("addrs", EdhMethod, addrsProc, PackReceiver [])
-              , ("eol"  , EdhMethod, eolProc  , PackReceiver [])
-              , ("join" , EdhMethod, joinProc , PackReceiver [])
-              , ("stop" , EdhMethod, stopProc , PackReceiver [])
-              ]
-            ]
-          modifyTVar' obs
-            $  Map.union
-            $  Map.fromList
-            $  methods
-            ++ [ ( AttrByName "__repr__"
-                 , EdhString
-                 $  "HttpServer("
-                 <> T.pack (show modus)
-                 <> ", "
-                 <> T.pack (show addr)
-                 <> ", "
-                 <> T.pack (show port)
-                 <> ")"
-                 )
-               ]
           edhPerformIO
               pgsCtor
               (forkFinally
@@ -221,88 +191,6 @@ httpServerCtor !addrClass !pgsCtor !apk !obs !ctorExit =
             )
           ]
 
-  addrsProc :: EdhProcedure
-  addrsProc _ !exit = do
-    pgs <- ask
-    let
-      ctx  = edh'context pgs
-      this = thisObject $ contextScope ctx
-      es   = entity'store $ objEntity this
-      wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
-      wrapAddrs addrs [] =
-        exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
-      wrapAddrs !addrs (addr : rest) =
-        runEdhProc pgs
-          $ createEdhObject addrClass (ArgsPack [] mempty)
-          $ \(OriginalValue !addrVal _ _) -> case addrVal of
-              EdhObject !addrObj -> contEdhSTM $ do
-                -- actually fill in the in-band entity storage here
-                writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
-                wrapAddrs (addrVal : addrs) rest
-              _ -> error "bug: addr ctor returned non-object"
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhHttpServer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
-            (show esd)
-        Just !server ->
-          edhPerformSTM pgs (readTMVar $ edh'http'serving'addrs server)
-            $ contEdhSTM
-            . wrapAddrs []
-
-  eolProc :: EdhProcedure
-  eolProc _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhHttpServer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
-            (show esd)
-        Just !server -> tryReadTMVar (edh'http'server'eol server) >>= \case
-          Nothing         -> exitEdhSTM pgs exit $ EdhBool False
-          Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
-          Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
-
-  joinProc :: EdhProcedure
-  joinProc _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhHttpServer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
-            (show esd)
-        Just !server ->
-          edhPerformSTM pgs (readTMVar (edh'http'server'eol server)) $ \case
-            Left e ->
-              contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-            Right () -> exitEdhProc exit nil
-
-  stopProc :: EdhProcedure
-  stopProc _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhHttpServer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
-            (show esd)
-        Just !server -> do
-          stopped <- tryPutTMVar (edh'http'server'eol server) $ Right ()
-          exitEdhSTM pgs exit $ EdhBool stopped
-
-
   serverThread :: EdhHttpServer -> IO ()
   serverThread (EdhHttpServer !resModus !custRoutes !servAddr !servPort !portMax !servAddrs !servEoL)
     = do
@@ -356,6 +244,73 @@ httpServerCtor !addrClass !pgsCtor !apk !obs !ctorExit =
                               (Just $ T.unpack servAddr)
                               (Just (show servPort))
       return addr
+
+
+httpServerMethods :: Class -> EdhProgState -> STM [(AttrKey, EdhValue)]
+httpServerMethods !addrClass !pgsModule = sequence
+  [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+  | (nm, vc, hp, args) <-
+    [ ("addrs"   , EdhMethod, addrsProc, PackReceiver [])
+    , ("eol"     , EdhMethod, eolProc  , PackReceiver [])
+    , ("join"    , EdhMethod, joinProc , PackReceiver [])
+    , ("stop"    , EdhMethod, stopProc , PackReceiver [])
+    , ("__repr__", EdhMethod, reprProc , PackReceiver [])
+    ]
+  ]
+ where
+  !scope = contextScope $ edh'context pgsModule
+
+  reprProc :: EdhProcedure
+  reprProc _ !exit =
+    withThatEntityStore
+      $ \ !pgs (EdhHttpServer !modus _ !addr !port !port'max _ _) ->
+          exitEdhSTM pgs exit
+            $  EdhString
+            $  "HttpServer("
+            <> T.pack (show modus)
+            <> ", "
+            <> T.pack (show addr)
+            <> ", "
+            <> T.pack (show port)
+            <> ", port'max="
+            <> T.pack (show port'max)
+            <> ")"
+
+  addrsProc :: EdhProcedure
+  addrsProc _ !exit = withThatEntityStore $ \ !pgs !server -> do
+    let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
+        wrapAddrs addrs [] =
+          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
+        wrapAddrs !addrs (addr : rest) =
+          runEdhProc pgs
+            $ createEdhObject addrClass (ArgsPack [] mempty)
+            $ \(OriginalValue !addrVal _ _) -> case addrVal of
+                EdhObject !addrObj -> contEdhSTM $ do
+                  -- actually fill in the in-band entity storage here
+                  writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
+                  wrapAddrs (addrVal : addrs) rest
+                _ -> error "bug: addr ctor returned non-object"
+    edhPerformSTM pgs (readTMVar $ edh'http'serving'addrs server)
+      $ contEdhSTM
+      . wrapAddrs []
+
+  eolProc :: EdhProcedure
+  eolProc _ !exit = withThatEntityStore $ \ !pgs !server ->
+    tryReadTMVar (edh'http'server'eol server) >>= \case
+      Nothing         -> exitEdhSTM pgs exit $ EdhBool False
+      Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
+      Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
+
+  joinProc :: EdhProcedure
+  joinProc _ !exit = withThatEntityStore $ \ !pgs !server ->
+    edhPerformSTM pgs (readTMVar (edh'http'server'eol server)) $ \case
+      Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+      Right () -> exitEdhProc exit nil
+
+  stopProc :: EdhProcedure
+  stopProc _ !exit = withThatEntityStore $ \ !pgs !server -> do
+    stopped <- tryPutTMVar (edh'http'server'eol server) $ Right ()
+    exitEdhSTM pgs exit $ EdhBool stopped
 
 
 serveStaticArtifacts

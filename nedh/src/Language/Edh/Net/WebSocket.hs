@@ -9,8 +9,6 @@ import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
 
-import           Control.Monad.Reader
-
 import           Data.Maybe
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
@@ -58,15 +56,8 @@ data EdhWsServer = EdhWsServer {
 
 
 -- | host constructor WsServer()
-wsServerCtor
-  :: Class
-  -> Class
-  -> EdhProgState
-  -> ArgsPack  -- ctor args, if __init__() is provided, will go there too
-  -> TVar (Map.HashMap AttrKey EdhValue)  -- out-of-band attr store
-  -> (Dynamic -> STM ())  -- in-band data to be written to entity store
-  -> STM ()
-wsServerCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
+wsServerCtor :: Class -> EdhHostCtor
+wsServerCtor !peerClass !pgsCtor !apk !ctorExit =
   case
       parseArgsPack
         ( Nothing -- modu
@@ -97,32 +88,6 @@ wsServerCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                 , edh'ws'server'init     = __peer_init__
                 , edh'ws'serving'clients = clients
                 }
-              !scope = contextScope $ edh'context pgsCtor
-          methods <- sequence
-            [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
-            | (nm, vc, hp, args) <-
-              [ ("addrs", EdhMethod, addrsProc, PackReceiver [])
-              , ("eol"  , EdhMethod, eolProc  , PackReceiver [])
-              , ("join" , EdhMethod, joinProc , PackReceiver [])
-              , ("stop" , EdhMethod, stopProc , PackReceiver [])
-              ]
-            ]
-          modifyTVar' obs
-            $  Map.union
-            $  Map.fromList
-            $  methods
-            ++ [ (AttrByName "clients", EdhSink clients)
-               , ( AttrByName "__repr__"
-                 , EdhString
-                 $  "WsServer("
-                 <> T.pack (show modu)
-                 <> ", "
-                 <> T.pack (show addr)
-                 <> ", "
-                 <> T.pack (show port)
-                 <> ")"
-                 )
-               ]
           edhPerformIO
               pgsCtor
               (forkFinally
@@ -217,88 +182,6 @@ wsServerCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
                 _ -> Left "Invalid clients"
             )
           ]
-
-  addrsProc :: EdhProcedure
-  addrsProc _ !exit = do
-    pgs <- ask
-    let
-      ctx  = edh'context pgs
-      this = thisObject $ contextScope ctx
-      es   = entity'store $ objEntity this
-      wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
-      wrapAddrs addrs [] =
-        exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
-      wrapAddrs !addrs (addr : rest) =
-        runEdhProc pgs
-          $ createEdhObject addrClass (ArgsPack [] mempty)
-          $ \(OriginalValue !addrVal _ _) -> case addrVal of
-              EdhObject !addrObj -> contEdhSTM $ do
-                -- actually fill in the in-band entity storage here
-                writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
-                wrapAddrs (addrVal : addrs) rest
-              _ -> error "bug: addr ctor returned non-object"
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhWsServer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
-            (show esd)
-        Just !server ->
-          edhPerformSTM pgs (readTMVar $ edh'ws'serving'addrs server)
-            $ contEdhSTM
-            . wrapAddrs []
-
-  eolProc :: EdhProcedure
-  eolProc _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhWsServer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
-            (show esd)
-        Just !server -> tryReadTMVar (edh'ws'server'eol server) >>= \case
-          Nothing         -> exitEdhSTM pgs exit $ EdhBool False
-          Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
-          Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
-
-  joinProc :: EdhProcedure
-  joinProc _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhWsServer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
-            (show esd)
-        Just !server ->
-          edhPerformSTM pgs (readTMVar (edh'ws'server'eol server)) $ \case
-            Left e ->
-              contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-            Right () -> exitEdhProc exit nil
-
-  stopProc :: EdhProcedure
-  stopProc _ !exit = do
-    pgs <- ask
-    let ctx  = edh'context pgs
-        this = thisObject $ contextScope ctx
-        es   = entity'store $ objEntity this
-    contEdhSTM $ do
-      esd <- readTVar es
-      case fromDynamic esd :: Maybe EdhWsServer of
-        Nothing ->
-          throwEdhSTM pgs UsageError $ "bug: this is not a server : " <> T.pack
-            (show esd)
-        Just !server -> do
-          stopped <- tryPutTMVar (edh'ws'server'eol server) $ Right ()
-          exitEdhSTM pgs exit $ EdhBool stopped
-
 
   serverThread :: EdhWsServer -> IO ()
   serverThread (EdhWsServer !servModu !servAddr !servPort !portMax !servAddrs !servEoL !__peer_init__ !clients)
@@ -518,4 +401,78 @@ wsServerCtor !addrClass !peerClass !pgsCtor !apk !obs !ctorExit =
           -- make this thread the only one writing the handle
           serializeCmdsOut `catch` \(e :: SomeException) -> -- mark eol on error
             atomically $ void $ tryPutTMVar clientEoL $ Left e
+
+
+wsServerMethods :: Class -> EdhProgState -> STM [(AttrKey, EdhValue)]
+wsServerMethods !addrClass !pgsModule = sequence
+  [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+  | (nm, vc, hp, args) <-
+    [ ("addrs"   , EdhMethod, addrsProc  , PackReceiver [])
+    , ("eol"     , EdhMethod, eolProc    , PackReceiver [])
+    , ("join"    , EdhMethod, joinProc   , PackReceiver [])
+    , ("stop"    , EdhMethod, stopProc   , PackReceiver [])
+    , ("clients" , EdhMethod, clientsProc, PackReceiver [])
+    , ("__repr__", EdhMethod, reprProc   , PackReceiver [])
+    ]
+  ]
+ where
+  !scope = contextScope $ edh'context pgsModule
+
+  clientsProc :: EdhProcedure
+  clientsProc _ !exit = withThatEntityStore $ \ !pgs !server ->
+    exitEdhSTM pgs exit $ EdhSink $ edh'ws'serving'clients server
+
+  reprProc :: EdhProcedure
+  reprProc _ !exit =
+    withThatEntityStore
+      $ \ !pgs (EdhWsServer !modu !addr !port !port'max _ _ _ _) ->
+          exitEdhSTM pgs exit
+            $  EdhString
+            $  "WsServer("
+            <> T.pack (show modu)
+            <> ", "
+            <> T.pack (show addr)
+            <> ", "
+            <> T.pack (show port)
+            <> T.pack (show port)
+            <> ", port'max="
+            <> T.pack (show port'max)
+            <> ")"
+
+  addrsProc :: EdhProcedure
+  addrsProc _ !exit = withThatEntityStore $ \ !pgs !server -> do
+    let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
+        wrapAddrs addrs [] =
+          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
+        wrapAddrs !addrs (addr : rest) =
+          runEdhProc pgs
+            $ createEdhObject addrClass (ArgsPack [] mempty)
+            $ \(OriginalValue !addrVal _ _) -> case addrVal of
+                EdhObject !addrObj -> contEdhSTM $ do
+                  -- actually fill in the in-band entity storage here
+                  writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
+                  wrapAddrs (addrVal : addrs) rest
+                _ -> error "bug: addr ctor returned non-object"
+    edhPerformSTM pgs (readTMVar $ edh'ws'serving'addrs server)
+      $ contEdhSTM
+      . wrapAddrs []
+
+  eolProc :: EdhProcedure
+  eolProc _ !exit = withThatEntityStore $ \ !pgs !server ->
+    tryReadTMVar (edh'ws'server'eol server) >>= \case
+      Nothing         -> exitEdhSTM pgs exit $ EdhBool False
+      Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
+      Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
+
+  joinProc :: EdhProcedure
+  joinProc _ !exit = withThatEntityStore $ \ !pgs !server ->
+    edhPerformSTM pgs (readTMVar (edh'ws'server'eol server)) $ \case
+      Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
+      Right () -> exitEdhProc exit nil
+
+  stopProc :: EdhProcedure
+  stopProc _ !exit = withThatEntityStore $ \ !pgs !server -> do
+    stopped <- tryPutTMVar (edh'ws'server'eol server) $ Right ()
+    exitEdhSTM pgs exit $ EdhBool stopped
+
 

@@ -5,6 +5,12 @@
 
 import * 'net'
 
+
+method trackPeer( peer ) peer.join() $=> { nccExc } -> {
+  console.warn<| 'Console client caused trouble - '
+  ++ peer ++ '\n' ++ nccExc
+}
+
 export method consoleOn (
   conModu, # the console service module
   servAddr = '127.0.0.1', # local addr to bind
@@ -24,15 +30,9 @@ export method consoleOn (
   }
 
   # wait end-of-life for each client, log err if any
-  go { {
-      for peer from ncon.clients do {
-        # NOTE exceptions in forkees are catchable by forker
-        go peer.join()
-      }
-    } $=> { nccExc } -> { # NOTE this handler can multi-shot
-      console.warn<| 'Console client caused trouble - '
-      ++ peer' ++ '\n' ++ nccExc
-  } }
+  go for peer from ncon.clients() do {
+    go trackPeer( peer )
+  }
 
   return ncon
 }
