@@ -141,7 +141,7 @@ peerMethods !pgsModule = sequence
 
   eolProc :: EdhProcedure
   eolProc _ !exit =
-    withThatEntityStore' (\ !pgs -> exitEdhSTM pgs exit $ EdhBool True)
+    withThatEntity' (\ !pgs -> exitEdhSTM pgs exit $ EdhBool True)
       $ \ !pgs !peer -> tryReadTMVar (edh'peer'eol peer) >>= \case
           Nothing         -> exitEdhSTM pgs exit $ EdhBool False
           Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
@@ -149,20 +149,20 @@ peerMethods !pgsModule = sequence
 
   joinProc :: EdhProcedure
   joinProc _ !exit =
-    withThatEntityStore' (\ !pgs -> exitEdhSTM pgs exit nil) $ \ !pgs !peer ->
+    withThatEntity' (\ !pgs -> exitEdhSTM pgs exit nil) $ \ !pgs !peer ->
       edhPerformSTM pgs (readTMVar (edh'peer'eol peer)) $ \case
         Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
         Right () -> exitEdhProc exit nil
 
   stopProc :: EdhProcedure
   stopProc _ !exit =
-    withThatEntityStore' (\ !pgs -> exitEdhSTM pgs exit $ EdhBool False)
+    withThatEntity' (\ !pgs -> exitEdhSTM pgs exit $ EdhBool False)
       $ \ !pgs !peer -> do
           stopped <- tryPutTMVar (edh'peer'eol peer) $ Right ()
           exitEdhSTM pgs exit $ EdhBool stopped
 
   armedChannelProc :: EdhProcedure
-  armedChannelProc !apk !exit = withThatEntityStore $ \ !pgs !peer -> do
+  armedChannelProc !apk !exit = withThatEntity $ \ !pgs !peer -> do
     let getArmedSink :: EdhValue -> STM ()
         getArmedSink !chLctr =
           Map.lookup chLctr <$> readTVar (edh'peer'channels peer) >>= \case
@@ -173,7 +173,7 @@ peerMethods !pgsModule = sequence
       _ -> throwEdhSTM pgs UsageError "Invalid args to armedChannelProc"
 
   armChannelProc :: EdhProcedure
-  armChannelProc !apk !exit = withThatEntityStore $ \ !pgs !peer -> do
+  armChannelProc !apk !exit = withThatEntity $ \ !pgs !peer -> do
     let armSink :: EdhValue -> EventSink -> STM ()
         armSink !chLctr !chSink = do
           modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
@@ -204,10 +204,10 @@ peerMethods !pgsModule = sequence
 
   readPeerSrcProc :: EdhProcedure
   readPeerSrcProc _ !exit =
-    withThatEntityStore $ \ !pgs !peer -> readPeerSource pgs peer exit
+    withThatEntity $ \ !pgs !peer -> readPeerSource pgs peer exit
 
   readPeerCmdProc :: EdhProcedure
-  readPeerCmdProc apk !exit = withThatEntityStore $ \ !pgs !peer ->
+  readPeerCmdProc apk !exit = withThatEntity $ \ !pgs !peer ->
     case parseArgsPack Nothing argsParser apk of
       Left  err        -> throwEdhSTM pgs UsageError err
       Right !inScopeOf -> do
@@ -261,7 +261,7 @@ peerMethods !pgsModule = sequence
       ]
 
   postCmd :: EdhValue -> EdhValue -> EdhProcExit -> EdhProc
-  postCmd !dirVal !cmdVal !exit = withThatEntityStore $ \ !pgs !peer -> do
+  postCmd !dirVal !cmdVal !exit = withThatEntity $ \ !pgs !peer -> do
     let withDir :: (PacketDirective -> STM ()) -> STM ()
         withDir !exit' = case edhUltimate dirVal of
           EdhNil  -> exit' ""
@@ -315,13 +315,13 @@ peerMethods !pgsModule = sequence
 
   identProc :: EdhProcedure
   identProc _ !exit =
-    withThatEntityStore'
+    withThatEntity'
         (\ !pgs -> exitEdhSTM pgs exit $ EdhString "<bogus-peer>")
       $ \ !pgs !peer -> exitEdhSTM pgs exit $ EdhString $ edh'peer'ident peer
 
   reprProc :: EdhProcedure
   reprProc _ !exit =
-    withThatEntityStore'
+    withThatEntity'
         (\ !pgs -> exitEdhSTM pgs exit $ EdhString "peer:<bogus>")
       $ \ !pgs !peer ->
           exitEdhSTM pgs exit

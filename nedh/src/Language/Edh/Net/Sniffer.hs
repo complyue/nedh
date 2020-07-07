@@ -274,7 +274,7 @@ snifferMethods !addrClass !pgsModule = sequence
 
   reprProc :: EdhProcedure
   reprProc _ !exit =
-    withThatEntityStore $ \ !pgs (EdhSniffer !modu !addr !port _ _ _) ->
+    withThatEntity $ \ !pgs (EdhSniffer !modu !addr !port _ _ _) ->
       exitEdhSTM pgs exit
         $  EdhString
         $  "Sniffer("
@@ -286,7 +286,7 @@ snifferMethods !addrClass !pgsModule = sequence
         <> ")"
 
   addrsMth :: EdhProcedure
-  addrsMth _ !exit = withThatEntityStore $ \ !pgs !sniffer -> do
+  addrsMth _ !exit = withThatEntity $ \ !pgs !sniffer -> do
     let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
         wrapAddrs addrs [] =
           exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
@@ -304,20 +304,20 @@ snifferMethods !addrClass !pgsModule = sequence
       . wrapAddrs []
 
   eolMth :: EdhProcedure
-  eolMth _ !exit = withThatEntityStore $ \ !pgs !sniffer ->
+  eolMth _ !exit = withThatEntity $ \ !pgs !sniffer ->
     tryReadTMVar (edh'sniffing'eol sniffer) >>= \case
       Nothing         -> exitEdhSTM pgs exit $ EdhBool False
       Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
       Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
 
   joinMth :: EdhProcedure
-  joinMth _ !exit = withThatEntityStore $ \ !pgs !sniffer ->
+  joinMth _ !exit = withThatEntity $ \ !pgs !sniffer ->
     edhPerformSTM pgs (readTMVar (edh'sniffing'eol sniffer)) $ \case
       Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
       Right () -> exitEdhProc exit nil
 
   stopMth :: EdhProcedure
-  stopMth _ !exit = withThatEntityStore $ \ !pgs !sniffer -> do
+  stopMth _ !exit = withThatEntity $ \ !pgs !sniffer -> do
     stopped <- tryPutTMVar (edh'sniffing'eol sniffer) $ Right ()
     exitEdhSTM pgs exit $ EdhBool stopped
 

@@ -194,7 +194,7 @@ advertiserMethods !addrClass !pgsModule = sequence
 
   reprProc :: EdhProcedure
   reprProc _ !exit =
-    withThatEntityStore $ \ !pgs (EdhAdvertiser _ !addr !port _ !adAddr _) ->
+    withThatEntity $ \ !pgs (EdhAdvertiser _ !addr !port _ !adAddr _) ->
       exitEdhSTM pgs exit
         $  EdhString
         $  "Advertiser("
@@ -208,7 +208,7 @@ advertiserMethods !addrClass !pgsModule = sequence
         <> ")"
 
   addrsMth :: EdhProcedure
-  addrsMth _ !exit = withThatEntityStore $ \ !pgs !advertiser -> do
+  addrsMth _ !exit = withThatEntity $ \ !pgs !advertiser -> do
     let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
         wrapAddrs addrs [] =
           exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
@@ -227,7 +227,7 @@ advertiserMethods !addrClass !pgsModule = sequence
 
   postMth :: EdhProcedure
   postMth (ArgsPack !args _) !exit =
-    withThatEntityStore $ \ !pgs !advertiser -> do
+    withThatEntity $ \ !pgs !advertiser -> do
       let advt :: [Text] -> TMVar Text -> STM ()
           advt [] _ = exitEdhSTM pgs exit nil
           advt (cmd : rest) q =
@@ -238,20 +238,20 @@ advertiserMethods !addrClass !pgsModule = sequence
         $ \reprs -> advt reprs $ edh'ad'source advertiser
 
   eolMth :: EdhProcedure
-  eolMth _ !exit = withThatEntityStore $ \ !pgs !advertiser ->
+  eolMth _ !exit = withThatEntity $ \ !pgs !advertiser ->
     tryReadTMVar (edh'advertising'eol advertiser) >>= \case
       Nothing         -> exitEdhSTM pgs exit $ EdhBool False
       Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
       Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
 
   joinMth :: EdhProcedure
-  joinMth _ !exit = withThatEntityStore $ \ !pgs !advertiser ->
+  joinMth _ !exit = withThatEntity $ \ !pgs !advertiser ->
     edhPerformSTM pgs (readTMVar (edh'advertising'eol advertiser)) $ \case
       Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
       Right () -> exitEdhProc exit nil
 
   stopMth :: EdhProcedure
-  stopMth _ !exit = withThatEntityStore $ \ !pgs !advertiser -> do
+  stopMth _ !exit = withThatEntity $ \ !pgs !advertiser -> do
     stopped <- tryPutTMVar (edh'advertising'eol advertiser) $ Right ()
     exitEdhSTM pgs exit $ EdhBool stopped
 

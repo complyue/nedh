@@ -262,7 +262,7 @@ httpServerMethods !addrClass !pgsModule = sequence
 
   reprProc :: EdhProcedure
   reprProc _ !exit =
-    withThatEntityStore
+    withThatEntity
       $ \ !pgs (EdhHttpServer !modus _ !addr !port !port'max _ _) ->
           exitEdhSTM pgs exit
             $  EdhString
@@ -277,7 +277,7 @@ httpServerMethods !addrClass !pgsModule = sequence
             <> ")"
 
   addrsProc :: EdhProcedure
-  addrsProc _ !exit = withThatEntityStore $ \ !pgs !server -> do
+  addrsProc _ !exit = withThatEntity $ \ !pgs !server -> do
     let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
         wrapAddrs addrs [] =
           exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
@@ -295,20 +295,20 @@ httpServerMethods !addrClass !pgsModule = sequence
       . wrapAddrs []
 
   eolProc :: EdhProcedure
-  eolProc _ !exit = withThatEntityStore $ \ !pgs !server ->
+  eolProc _ !exit = withThatEntity $ \ !pgs !server ->
     tryReadTMVar (edh'http'server'eol server) >>= \case
       Nothing         -> exitEdhSTM pgs exit $ EdhBool False
       Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
       Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
 
   joinProc :: EdhProcedure
-  joinProc _ !exit = withThatEntityStore $ \ !pgs !server ->
+  joinProc _ !exit = withThatEntity $ \ !pgs !server ->
     edhPerformSTM pgs (readTMVar (edh'http'server'eol server)) $ \case
       Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
       Right () -> exitEdhProc exit nil
 
   stopProc :: EdhProcedure
-  stopProc _ !exit = withThatEntityStore $ \ !pgs !server -> do
+  stopProc _ !exit = withThatEntity $ \ !pgs !server -> do
     stopped <- tryPutTMVar (edh'http'server'eol server) $ Right ()
     exitEdhSTM pgs exit $ EdhBool stopped
 

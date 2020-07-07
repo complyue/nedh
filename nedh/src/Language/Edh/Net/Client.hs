@@ -300,7 +300,7 @@ clientMethods !addrClass !pgsModule = sequence
 
   reprProc :: EdhProcedure
   reprProc _ !exit =
-    withThatEntityStore $ \ !pgs (EdhClient !consumer !addr !port _ _ _) ->
+    withThatEntity $ \ !pgs (EdhClient !consumer !addr !port _ _ _) ->
       exitEdhSTM pgs exit
         $  EdhString
         $  "Client("
@@ -312,7 +312,7 @@ clientMethods !addrClass !pgsModule = sequence
         <> ")"
 
   addrsProc :: EdhProcedure
-  addrsProc _ !exit = withThatEntityStore $ \ !pgs !client -> do
+  addrsProc _ !exit = withThatEntity $ \ !pgs !client -> do
     let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
         wrapAddrs addrs [] =
           exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
@@ -330,20 +330,20 @@ clientMethods !addrClass !pgsModule = sequence
       . wrapAddrs []
 
   eolProc :: EdhProcedure
-  eolProc _ !exit = withThatEntityStore $ \ !pgs !client ->
+  eolProc _ !exit = withThatEntity $ \ !pgs !client ->
     tryReadTMVar (edh'consumer'eol client) >>= \case
       Nothing         -> exitEdhSTM pgs exit $ EdhBool False
       Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
       Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
 
   joinProc :: EdhProcedure
-  joinProc _ !exit = withThatEntityStore $ \ !pgs !client ->
+  joinProc _ !exit = withThatEntity $ \ !pgs !client ->
     edhPerformSTM pgs (readTMVar (edh'consumer'eol client)) $ \case
       Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
       Right () -> exitEdhProc exit nil
 
   stopProc :: EdhProcedure
-  stopProc _ !exit = withThatEntityStore $ \ !pgs !client -> do
+  stopProc _ !exit = withThatEntity $ \ !pgs !client -> do
     stopped <- tryPutTMVar (edh'consumer'eol client) $ Right ()
     exitEdhSTM pgs exit $ EdhBool stopped
 

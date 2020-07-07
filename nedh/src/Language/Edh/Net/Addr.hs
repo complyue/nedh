@@ -87,13 +87,13 @@ addrMethods !pgsModule = sequence
 
   addrReprProc :: EdhProcedure
   addrReprProc _ !exit =
-    withThatEntityStore' (\ !pgs -> exitEdhSTM pgs exit $ EdhString "Addr()")
+    withThatEntity' (\ !pgs -> exitEdhSTM pgs exit $ EdhString "Addr()")
       $ \ !pgs (addr :: AddrInfo) ->
           exitEdhSTM pgs exit $ EdhString $ addrRepr addr
 
   addrHostProc :: EdhProcedure
   addrHostProc _ !exit =
-    withThatEntityStore' (\ !pgs -> exitEdhSTM pgs exit $ EdhString "")
+    withThatEntity' (\ !pgs -> exitEdhSTM pgs exit $ EdhString "")
       $ \ !pgs (addr :: AddrInfo) -> case addrAddress addr of
           SockAddrInet _ !host -> case hostAddressToTuple host of
             (n1, n2, n3, n4) ->
@@ -122,7 +122,7 @@ addrMethods !pgsModule = sequence
 
   addrPortProc :: EdhProcedure
   addrPortProc _ !exit =
-    withThatEntityStore' (\ !pgs -> exitEdhSTM pgs exit $ EdhDecimal 0)
+    withThatEntity' (\ !pgs -> exitEdhSTM pgs exit $ EdhDecimal 0)
       $ \ !pgs (addr :: AddrInfo) -> case addrAddress addr of
           SockAddrInet !port _ ->
             exitEdhSTM pgs exit $ EdhDecimal $ fromIntegral port
@@ -132,7 +132,7 @@ addrMethods !pgsModule = sequence
 
   addrInfoProc :: EdhProcedure
   addrInfoProc _ !exit =
-    withThatEntityStore'
+    withThatEntity'
         (\ !pgs -> exitEdhSTM pgs exit $ EdhString "<bogus-addr>")
       $ \ !pgs (addr :: AddrInfo) ->
           exitEdhSTM pgs exit $ EdhString $ T.pack $ show addr
