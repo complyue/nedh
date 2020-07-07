@@ -30,7 +30,7 @@ export method consoleOn (
   }
 
   # wait end-of-life for each client, log err if any
-  go for peer from ncon.clients() do {
+  go for peer from ncon.clients do {
     go trackPeer( peer )
   }
 

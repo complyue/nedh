@@ -404,17 +404,20 @@ wsServerCtor !peerClass !pgsCtor !apk !ctorExit =
 
 
 wsServerMethods :: Class -> EdhProgState -> STM [(AttrKey, EdhValue)]
-wsServerMethods !addrClass !pgsModule = sequence
-  [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
-  | (nm, vc, hp, args) <-
-    [ ("addrs"   , EdhMethod, addrsProc  , PackReceiver [])
-    , ("eol"     , EdhMethod, eolProc    , PackReceiver [])
-    , ("join"    , EdhMethod, joinProc   , PackReceiver [])
-    , ("stop"    , EdhMethod, stopProc   , PackReceiver [])
-    , ("clients" , EdhMethod, clientsProc, PackReceiver [])
-    , ("__repr__", EdhMethod, reprProc   , PackReceiver [])
-    ]
-  ]
+wsServerMethods !addrClass !pgsModule =
+  sequence
+    $  [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+       | (nm, vc, hp, args) <-
+         [ ("addrs"   , EdhMethod, addrsProc, PackReceiver [])
+         , ("eol"     , EdhMethod, eolProc  , PackReceiver [])
+         , ("join"    , EdhMethod, joinProc , PackReceiver [])
+         , ("stop"    , EdhMethod, stopProc , PackReceiver [])
+         , ("__repr__", EdhMethod, reprProc , PackReceiver [])
+         ]
+       ]
+    ++ [ (AttrByName nm, ) <$> mkHostProperty scope nm getter setter
+       | (nm, getter, setter) <- [("clients", clientsProc, Nothing)]
+       ]
  where
   !scope = contextScope $ edh'context pgsModule
 

@@ -324,17 +324,20 @@ serverCtor !peerClass !pgsCtor !apk !ctorExit =
 
 
 serverMethods :: Class -> EdhProgState -> STM [(AttrKey, EdhValue)]
-serverMethods !addrClass !pgsModule = sequence
-  [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
-  | (nm, vc, hp, args) <-
-    [ ("addrs"   , EdhMethod, addrsProc  , PackReceiver [])
-    , ("eol"     , EdhMethod, eolProc    , PackReceiver [])
-    , ("join"    , EdhMethod, joinProc   , PackReceiver [])
-    , ("stop"    , EdhMethod, stopProc   , PackReceiver [])
-    , ("clients" , EdhMethod, clientsProc, PackReceiver [])
-    , ("__repr__", EdhMethod, reprProc   , PackReceiver [])
-    ]
-  ]
+serverMethods !addrClass !pgsModule =
+  sequence
+    $  [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+       | (nm, vc, hp, args) <-
+         [ ("addrs"   , EdhMethod, addrsProc, PackReceiver [])
+         , ("eol"     , EdhMethod, eolProc  , PackReceiver [])
+         , ("join"    , EdhMethod, joinProc , PackReceiver [])
+         , ("stop"    , EdhMethod, stopProc , PackReceiver [])
+         , ("__repr__", EdhMethod, reprProc , PackReceiver [])
+         ]
+       ]
+    ++ [ (AttrByName nm, ) <$> mkHostProperty scope nm getter setter
+       | (nm, getter, setter) <- [("clients", clientsProc, Nothing)]
+       ]
  where
   !scope = contextScope $ edh'context pgsModule
 
@@ -344,19 +347,18 @@ serverMethods !addrClass !pgsModule = sequence
 
   reprProc :: EdhProcedure
   reprProc _ !exit =
-    withThatEntity
-      $ \ !pgs (EdhServer !modu !addr !port !port'max _ _ _ _) ->
-          exitEdhSTM pgs exit
-            $  EdhString
-            $  "Server("
-            <> T.pack (show modu)
-            <> ", "
-            <> T.pack (show addr)
-            <> ", "
-            <> T.pack (show port)
-            <> ", port'max="
-            <> T.pack (show port'max)
-            <> ")"
+    withThatEntity $ \ !pgs (EdhServer !modu !addr !port !port'max _ _ _ _) ->
+      exitEdhSTM pgs exit
+        $  EdhString
+        $  "Server("
+        <> T.pack (show modu)
+        <> ", "
+        <> T.pack (show addr)
+        <> ", "
+        <> T.pack (show port)
+        <> ", port'max="
+        <> T.pack (show port'max)
+        <> ")"
 
   addrsProc :: EdhProcedure
   addrsProc _ !exit = withThatEntity $ \ !pgs !server -> do
