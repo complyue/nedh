@@ -122,7 +122,6 @@ httpServerCtor !pgsCtor !apk !ctorExit =
                 , edh'http'serving'addrs   = servAddrs
                 , edh'http'server'eol      = servEoL
                 }
-              !scope = contextScope $ edh'context pgsCtor
           edhPerformIO
               pgsCtor
               (forkFinally

@@ -9,8 +9,6 @@ import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
 
-import           Control.Monad.Reader
-
 import           Data.Maybe
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
@@ -111,7 +109,6 @@ clientCtor !peerClass !pgsCtor !apk !ctorExit =
                             , edh'consumer'eol  = cnsmrEoL
                             , edh'consumer'init = __peer_init__
                             }
-        !scope = contextScope $ edh'context pgsCtor
     edhPerformIO
         pgsCtor
         (forkFinally

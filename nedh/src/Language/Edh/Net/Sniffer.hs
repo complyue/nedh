@@ -86,7 +86,6 @@ snifferCtor !addrClass !pgsCtor !apk !ctorExit =
                                   , edh'sniffing'eol   = snifEoL
                                   , edh'sniffing'init  = __modu_init__
                                   }
-            !scope = contextScope $ edh'context pgsCtor
         edhPerformIO
             pgsCtor
             -- mark service end-of-life anyway finally
