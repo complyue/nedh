@@ -187,10 +187,10 @@ peerMethods !pgsModule = sequence
             chSink <- newEventSink
             armSink chLctr chSink
           EdhSink !chSink -> armSink chLctr chSink
-          _ ->
+          !badSinkVal ->
             throwEdhSTM pgs UsageError
               $  "Invalid command channel type: "
-              <> T.pack (edhTypeNameOf sinkVal)
+              <> T.pack (edhTypeNameOf badSinkVal)
    where
     parseArgs =
       ArgsPackParser
@@ -315,14 +315,12 @@ peerMethods !pgsModule = sequence
 
   identProc :: EdhProcedure
   identProc _ !exit =
-    withThatEntity'
-        (\ !pgs -> exitEdhSTM pgs exit $ EdhString "<bogus-peer>")
+    withThatEntity' (\ !pgs -> exitEdhSTM pgs exit $ EdhString "<bogus-peer>")
       $ \ !pgs !peer -> exitEdhSTM pgs exit $ EdhString $ edh'peer'ident peer
 
   reprProc :: EdhProcedure
   reprProc _ !exit =
-    withThatEntity'
-        (\ !pgs -> exitEdhSTM pgs exit $ EdhString "peer:<bogus>")
+    withThatEntity' (\ !pgs -> exitEdhSTM pgs exit $ EdhString "peer:<bogus>")
       $ \ !pgs !peer ->
           exitEdhSTM pgs exit
             $  EdhString
