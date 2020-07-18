@@ -195,7 +195,7 @@ snifferCtor !addrClass !pgsCtor !apk !ctorExit =
           contEdhSTM
             $ edhPerformSTM pgs (takeTMVar pktSink)
             $ \(fromAddr, payload) ->
-                createEdhObject addrClass (ArgsPack [] mempty)
+                createEdhObject addrClass (ArgsPack [] odEmpty)
                   $ \(OriginalValue !addrVal _ _) -> case addrVal of
                       EdhObject !addrObj -> contEdhSTM $ do
                         writeTVar (entity'store $ objEntity addrObj)
@@ -288,10 +288,10 @@ snifferMethods !addrClass !pgsModule = sequence
   addrsMth _ !exit = withThatEntity $ \ !pgs !sniffer -> do
     let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
         wrapAddrs addrs [] =
-          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
+          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs odEmpty
         wrapAddrs !addrs (addr : rest) =
           runEdhProc pgs
-            $ createEdhObject addrClass (ArgsPack [] mempty)
+            $ createEdhObject addrClass (ArgsPack [] odEmpty)
             $ \(OriginalValue !addrVal _ _) -> case addrVal of
                 EdhObject !addrObj -> contEdhSTM $ do
                   -- actually fill in the in-band entity storage here

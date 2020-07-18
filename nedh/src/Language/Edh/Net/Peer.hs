@@ -169,7 +169,7 @@ peerMethods !pgsModule = sequence
             Nothing      -> exitEdhSTM pgs exit nil
             Just !chSink -> exitEdhSTM pgs exit $ EdhSink chSink
     case apk of
-      ArgsPack [!chLctr] !kwargs | Map.null kwargs -> getArmedSink chLctr
+      ArgsPack [!chLctr] !kwargs | odNull kwargs -> getArmedSink chLctr
       _ -> throwEdhSTM pgs UsageError "Invalid args to armedChannelProc"
 
   armChannelProc :: EdhProcedure

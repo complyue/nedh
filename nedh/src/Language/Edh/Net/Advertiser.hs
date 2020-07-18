@@ -211,10 +211,10 @@ advertiserMethods !addrClass !pgsModule = sequence
   addrsMth _ !exit = withThatEntity $ \ !pgs !advertiser -> do
     let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
         wrapAddrs addrs [] =
-          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
+          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs odEmpty
         wrapAddrs !addrs (addr : rest) =
           runEdhProc pgs
-            $ createEdhObject addrClass (ArgsPack [] mempty)
+            $ createEdhObject addrClass (ArgsPack [] odEmpty)
             $ \(OriginalValue !addrVal _ _) -> case addrVal of
                 EdhObject !addrObj -> contEdhSTM $ do
                   -- actually fill in the in-band entity storage here
@@ -226,16 +226,15 @@ advertiserMethods !addrClass !pgsModule = sequence
       . wrapAddrs []
 
   postMth :: EdhProcedure
-  postMth (ArgsPack !args _) !exit =
-    withThatEntity $ \ !pgs !advertiser -> do
-      let advt :: [Text] -> TMVar Text -> STM ()
-          advt [] _ = exitEdhSTM pgs exit nil
-          advt (cmd : rest) q =
-            -- don't let Edh track stm retries,
-            -- and post each cmd to ad queue with separate tx
-            edhPerformSTM pgs (putTMVar q cmd) $ \_ -> contEdhSTM $ advt rest q
-      seqcontSTM (edhValueReprSTM pgs <$> args)
-        $ \reprs -> advt reprs $ edh'ad'source advertiser
+  postMth (ArgsPack !args _) !exit = withThatEntity $ \ !pgs !advertiser -> do
+    let advt :: [Text] -> TMVar Text -> STM ()
+        advt [] _ = exitEdhSTM pgs exit nil
+        advt (cmd : rest) q =
+          -- don't let Edh track stm retries,
+          -- and post each cmd to ad queue with separate tx
+          edhPerformSTM pgs (putTMVar q cmd) $ \_ -> contEdhSTM $ advt rest q
+    seqcontSTM (edhValueReprSTM pgs <$> args)
+      $ \reprs -> advt reprs $ edh'ad'source advertiser
 
   eolMth :: EdhProcedure
   eolMth _ !exit = withThatEntity $ \ !pgs !advertiser ->

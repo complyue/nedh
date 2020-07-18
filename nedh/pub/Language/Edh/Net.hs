@@ -94,8 +94,7 @@ installNetBatteries !world =
           , ("Sniffer"   , snifferClassVal)
           , ("Advertiser", advertiserClassVal)
           ]
-    artsDict <- createEdhDict
-      $ Map.fromList [ (EdhString k, v) | (k, v) <- moduArts ]
+    artsDict <- createEdhDict [ (EdhString k, v) | (k, v) <- moduArts ]
     updateEntityAttrs pgs (objEntity modu)
       $  [ (AttrByName k, v) | (k, v) <- moduArts ]
       ++ [(AttrByName "__exports__", artsDict)]

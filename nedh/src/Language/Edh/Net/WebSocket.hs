@@ -254,7 +254,7 @@ wsServerCtor !peerClass !pgsCtor !apk !ctorExit =
           peerVar <- newTVarIO undefined
           void
             $ runEdhProgram' ctx
-            $ createEdhObject peerClass (ArgsPack [] mempty)
+            $ createEdhObject peerClass (ArgsPack [] odEmpty)
             $ \(OriginalValue !peerVal _ _) -> case peerVal of
                 EdhObject !peerObj -> contEdhSTM $ do
                   -- actually fill in the in-band entity storage here
@@ -446,10 +446,10 @@ wsServerMethods !addrClass !pgsModule =
   addrsProc _ !exit = withThatEntity $ \ !pgs !server -> do
     let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
         wrapAddrs addrs [] =
-          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
+          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs odEmpty
         wrapAddrs !addrs (addr : rest) =
           runEdhProc pgs
-            $ createEdhObject addrClass (ArgsPack [] mempty)
+            $ createEdhObject addrClass (ArgsPack [] odEmpty)
             $ \(OriginalValue !addrVal _ _) -> case addrVal of
                 EdhObject !addrObj -> contEdhSTM $ do
                   -- actually fill in the in-band entity storage here

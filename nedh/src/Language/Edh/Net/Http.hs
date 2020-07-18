@@ -45,13 +45,12 @@ parseRoutes !pgs !routes !exit = case edhUltimate routes of
       else foldl'contSTM Snap.pass (<|>) (parseRoute defMime <$> args) exit
   _ -> throwEdhSTM pgs UsageError "Invalid routes"
  where
-  mimeArg :: Text -> Map.HashMap AttrKey EdhValue -> (Text -> STM ()) -> STM ()
-  mimeArg !defMime !kwargs !exit' =
-    case Map.lookup (AttrByName "mime") kwargs of
-      Nothing                -> exit' defMime
-      Just (EdhString !mime) -> exit' mime
-      Just !badMime ->
-        throwEdhSTM pgs UsageError $ "Invalid mime: " <> T.pack (show badMime)
+  mimeArg :: Text -> OrderedDict AttrKey EdhValue -> (Text -> STM ()) -> STM ()
+  mimeArg !defMime !kwargs !exit' = case odLookup (AttrByName "mime") kwargs of
+    Nothing                -> exit' defMime
+    Just (EdhString !mime) -> exit' mime
+    Just !badMime ->
+      throwEdhSTM pgs UsageError $ "Invalid mime: " <> T.pack (show badMime)
   inMemRoute :: Text -> Text -> ByteString -> Snap.Snap ()
   inMemRoute !path !mime !payload = Snap.path (TE.encodeUtf8 path) $ do
     Snap.modifyResponse
@@ -279,10 +278,10 @@ httpServerMethods !addrClass !pgsModule = sequence
   addrsProc _ !exit = withThatEntity $ \ !pgs !server -> do
     let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
         wrapAddrs addrs [] =
-          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs mempty
+          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs odEmpty
         wrapAddrs !addrs (addr : rest) =
           runEdhProc pgs
-            $ createEdhObject addrClass (ArgsPack [] mempty)
+            $ createEdhObject addrClass (ArgsPack [] odEmpty)
             $ \(OriginalValue !addrVal _ _) -> case addrVal of
                 EdhObject !addrObj -> contEdhSTM $ do
                   -- actually fill in the in-band entity storage here
