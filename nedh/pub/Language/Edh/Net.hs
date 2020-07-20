@@ -14,8 +14,6 @@ import           Prelude
 
 import           Control.Monad.Reader
 
-import qualified Data.HashMap.Strict           as Map
-
 import           Language.Edh.EHI
 
 import           Language.Edh.Net.MicroProto
@@ -94,7 +92,8 @@ installNetBatteries !world =
           , ("Sniffer"   , snifferClassVal)
           , ("Advertiser", advertiserClassVal)
           ]
-    artsDict <- createEdhDict [ (EdhString k, v) | (k, v) <- moduArts ]
+    artsDict <- EdhDict
+      <$> createEdhDict [ (EdhString k, v) | (k, v) <- moduArts ]
     updateEntityAttrs pgs (objEntity modu)
       $  [ (AttrByName k, v) | (k, v) <- moduArts ]
       ++ [(AttrByName "__exports__", artsDict)]
