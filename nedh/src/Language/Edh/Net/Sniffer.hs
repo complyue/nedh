@@ -89,8 +89,14 @@ snifferCtor !addrClass !pgsCtor !apk !ctorExit =
         edhPerformIO
             pgsCtor
             -- mark service end-of-life anyway finally
-            (forkFinally (sniffThread sniffer)
-                         (atomically . void . tryPutTMVar snifEoL)
+            (forkFinally
+              (sniffThread sniffer)
+              ( atomically
+              -- fill empty addrs if the sniffing has ever failed
+              . ((void $ tryPutTMVar snifAddrs []) <*)
+              -- mark end-of-life anyway finally
+              . tryPutTMVar snifEoL
+              )
             )
           $ \_ -> contEdhSTM $ ctorExit $ toDyn sniffer
  where
