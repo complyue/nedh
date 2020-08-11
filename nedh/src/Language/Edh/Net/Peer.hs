@@ -265,8 +265,8 @@ peerMethods !pgsModule = sequence
     let withDir :: (PacketDirective -> STM ()) -> STM ()
         withDir !exit' = case edhUltimate dirVal of
           EdhNil  -> exit' ""
-          !chLctr -> edhValueReprSTM pgs chLctr $ \lctr -> exit' lctr
-    withDir $ \dir -> case cmdVal of
+          !chLctr -> edhValueReprSTM pgs chLctr $ \ !lctr -> exit' lctr
+    withDir $ \ !dir -> case cmdVal of
       EdhString !src   -> postPeerCommand pgs peer (textPacket dir src) exit
       EdhExpr _ _ !src -> if src == ""
         then throwEdhSTM pgs
