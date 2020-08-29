@@ -56,7 +56,7 @@ executable nedh
     default-language: Haskell2010
     default-extensions: NoImplicitPrelude OverloadedStrings LambdaCase
                         BangPatterns TupleSections ScopedTypeVariables
-    ghc-options: -Wall -threaded
+    ghc-options: -Wall -threaded -rtsopts
     build-depends:
         nedh -any,
         edh -any,

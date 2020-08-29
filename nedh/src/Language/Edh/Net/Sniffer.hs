@@ -9,8 +9,6 @@ import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
 
-import           Control.Monad.Reader
-
 import           Data.Maybe
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
@@ -64,32 +62,51 @@ data EdhSniffer = EdhSniffer {
   }
 
 
--- | host constructor Sniffer()
-snifferCtor :: Class -> EdhHostCtor
-snifferCtor !addrClass !pgsCtor !apk !ctorExit =
-  case
-      parseArgsPack
-        (Nothing, "127.0.0.1" :: SniffAddr, 3721 :: SniffPort, nil)
-        parseCtorArgs
-        apk
-    of
-      Left err -> throwEdhSTM pgsCtor UsageError err
-      Right (Nothing, _, _, _) ->
-        throwEdhSTM pgsCtor UsageError "missing sniffer module"
-      Right (Just modu, addr, port, __modu_init__) -> do
-        snifAddrs <- newEmptyTMVar
-        snifEoL   <- newEmptyTMVar
-        let !sniffer = EdhSniffer { edh'sniffer'modu   = modu
-                                  , edh'sniffer'addr   = addr
-                                  , edh'sniffer'port   = port
-                                  , edh'sniffing'addrs = snifAddrs
-                                  , edh'sniffing'eol   = snifEoL
-                                  , edh'sniffing'init  = __modu_init__
-                                  }
-        edhPerformIO
-            pgsCtor
-            -- mark service end-of-life anyway finally
-            (forkFinally
+createSnifferClass :: Object -> Scope -> STM Object
+createSnifferClass !addrClass !clsOuterScope =
+  mkHostClass' clsOuterScope "Sniffer" snifferAllocator [] $ \ !clsScope -> do
+    !mths <- sequence
+      [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp args
+      | (nm, vc, hp, args) <-
+        [ ("addrs"   , EdhMethod, addrsMth, PackReceiver [])
+        , ("eol"     , EdhMethod, eolMth  , PackReceiver [])
+        , ("join"    , EdhMethod, joinMth , PackReceiver [])
+        , ("stop"    , EdhMethod, stopMth , PackReceiver [])
+        , ("__repr__", EdhMethod, reprProc, PackReceiver [])
+        ]
+      ]
+    iopdUpdate mths $ edh'scope'entity clsScope
+
+ where
+
+  -- | host constructor Sniffer()
+  snifferAllocator :: EdhObjectAllocator
+  snifferAllocator !etsCtor !apk !ctorExit = if edh'in'tx etsCtor
+    then throwEdh etsCtor
+                  UsageError
+                  "you don't create network objects within a transaction"
+    else
+      case
+        parseArgsPack
+          (Nothing, "127.0.0.1" :: SniffAddr, 3721 :: SniffPort, nil)
+          parseCtorArgs
+          apk
+      of
+        Left err -> throwEdh etsCtor UsageError err
+        Right (Nothing, _, _, _) ->
+          throwEdh etsCtor UsageError "missing sniffer module"
+        Right (Just modu, addr, port, __modu_init__) -> do
+          snifAddrs <- newEmptyTMVar
+          snifEoL   <- newEmptyTMVar
+          let !sniffer = EdhSniffer { edh'sniffer'modu   = modu
+                                    , edh'sniffer'addr   = addr
+                                    , edh'sniffer'port   = port
+                                    , edh'sniffing'addrs = snifAddrs
+                                    , edh'sniffing'eol   = snifEoL
+                                    , edh'sniffing'init  = __modu_init__
+                                    }
+          runEdhTx etsCtor $ edhContIO $ do
+            void $ forkFinally
               (sniffThread sniffer)
               ( atomically
               -- fill empty addrs if the sniffing has ever failed
@@ -97,190 +114,170 @@ snifferCtor !addrClass !pgsCtor !apk !ctorExit =
               -- mark end-of-life anyway finally
               . tryPutTMVar snifEoL
               )
-            )
-          $ \_ -> contEdhSTM $ ctorExit $ toDyn sniffer
- where
-  parseCtorArgs =
-    ArgsPackParser
-        [ \arg (_, addr', port', init') -> case edhUltimate arg of
-          EdhString !modu -> Right (Just modu, addr', port', init')
-          _               -> Left "Invalid sniffer module"
-        , \arg (modu', _, port', init') -> case edhUltimate arg of
-          EdhString addr -> Right (modu', addr, port', init')
-          _              -> Left "Invalid addr"
-        , \arg (modu', addr', _, init') -> case edhUltimate arg of
-          EdhDecimal d -> case D.decimalToInteger d of
-            Just port -> Right (modu', addr', fromIntegral port, init')
-            Nothing   -> Left "port must be integer"
-          _ -> Left "Invalid port"
-        ]
-      $ Map.fromList
-          [ ( "addr"
-            , \arg (modu', _, port', init') -> case edhUltimate arg of
-              EdhString addr -> Right (modu', addr, port', init')
-              _              -> Left "Invalid addr"
-            )
-          , ( "port"
-            , \arg (modu', addr', _, init') -> case edhUltimate arg of
-              EdhDecimal d -> case D.decimalToInteger d of
-                Just port -> Right (modu', addr', fromIntegral port, init')
-                Nothing   -> Left "port must be integer"
-              _ -> Left "Invalid port"
-            )
-          , ( "init"
-            , \arg (modu', addr', port', _) -> case edhUltimate arg of
-              EdhNil          -> Right (modu', addr', port', nil)
-              mth@EdhMethod{} -> Right (modu', addr', port', mth)
-              mth@EdhIntrpr{} -> Right (modu', addr', port', mth)
-              _               -> Left "Invalid init"
-            )
-          ]
-
-  sniffThread :: EdhSniffer -> IO ()
-  sniffThread (EdhSniffer !snifModu !snifAddr !snifPort !snifAddrs !snifEoL !__modu_init__)
-    = do
-      snifThId <- myThreadId
-      void $ forkIO $ do -- async terminate the sniffing thread on stop signal
-        _ <- atomically $ readTMVar snifEoL
-        killThread snifThId
-      addr <- resolveServAddr
-      bracket (open addr) close $ sniffFrom addr
+            atomically $ ctorExit =<< HostStore <$> newTVar (toDyn sniffer)
    where
-    ctx             = edh'context pgsCtor
-    world           = contextWorld ctx
+    parseCtorArgs =
+      ArgsPackParser
+          [ \arg (_, addr', port', init') -> case edhUltimate arg of
+            EdhString !modu -> Right (Just modu, addr', port', init')
+            _               -> Left "invalid sniffer module"
+          , \arg (modu', _, port', init') -> case edhUltimate arg of
+            EdhString addr -> Right (modu', addr, port', init')
+            _              -> Left "invalid addr"
+          , \arg (modu', addr', _, init') -> case edhUltimate arg of
+            EdhDecimal d -> case D.decimalToInteger d of
+              Just port -> Right (modu', addr', fromIntegral port, init')
+              Nothing   -> Left "port must be integer"
+            _ -> Left "invalid port"
+          ]
+        $ Map.fromList
+            [ ( "addr"
+              , \arg (modu', _, port', init') -> case edhUltimate arg of
+                EdhString addr -> Right (modu', addr, port', init')
+                _              -> Left "invalid addr"
+              )
+            , ( "port"
+              , \arg (modu', addr', _, init') -> case edhUltimate arg of
+                EdhDecimal d -> case D.decimalToInteger d of
+                  Just port -> Right (modu', addr', fromIntegral port, init')
+                  Nothing   -> Left "port must be integer"
+                _ -> Left "invalid port"
+              )
+            , ( "init"
+              , \arg (modu', addr', port', _) -> case edhUltimate arg of
+                EdhNil -> Right (modu', addr', port', nil)
+                mth@(EdhProcedure EdhMethod{} _) ->
+                  Right (modu', addr', port', mth)
+                mth@(EdhProcedure EdhIntrpr{} _) ->
+                  Right (modu', addr', port', mth)
+                mth@(EdhBoundProc EdhMethod{} _ _ _) ->
+                  Right (modu', addr', port', mth)
+                mth@(EdhBoundProc EdhIntrpr{} _ _ _) ->
+                  Right (modu', addr', port', mth)
+                _ -> Left "invalid init"
+              )
+            ]
 
-    resolveServAddr = do
-      let hints =
+    sniffThread :: EdhSniffer -> IO ()
+    sniffThread (EdhSniffer !snifModu !snifAddr !snifPort !snifAddrs !snifEoL !__modu_init__)
+      = do
+        snifThId <- myThreadId
+        void $ forkIO $ do -- async terminate the sniffing thread on stop signal
+          _ <- atomically $ readTMVar snifEoL
+          killThread snifThId
+        addr <- resolveServAddr
+        bracket (open addr) close $ sniffFrom addr
+     where
+      ctx             = edh'context etsCtor
+      world           = edh'ctx'world ctx
+
+      resolveServAddr = do
+        let
+          hints =
             defaultHints { addrFlags = [AI_PASSIVE], addrSocketType = Datagram }
-      addr : _ <- getAddrInfo (Just hints)
-                              (Just $ T.unpack snifAddr)
-                              (Just (show snifPort))
-      return addr
-    open addr =
-      bracketOnError
-          (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
-          close
-        $ \sock -> do
-            if isMultiCastAddr addr
-              then do
-                setSocketOption sock ReuseAddr 1
-                -- setSocketOption sock ReusePort 1
-                -- todo support mcast 
-                --   for now `setSockOpt` is not released yet, 
-                --   HIE ceases to render a project with .hsc files,
-                --   not a good time to get it straight.
-                -- setSockOpt sock (SockOpt _IPPROTO_IP _IP_ADD_MEMBERSHIP) xxx
-                -- bind sock (addrAddress addr)
-                error "mcast not supported yet"
-              else -- receiving broadcast/unicast to the specified addr
-                -- don't reuse addr/port here, if another process is sniffing,
-                -- should fail loudly here
-                   bind sock (addrAddress addr)
-            atomically
-              $   fromMaybe []
-              <$> tryTakeTMVar snifAddrs
-              >>= putTMVar snifAddrs
-              .   (addr :)
-            return sock
+        addr : _ <- getAddrInfo (Just hints)
+                                (Just $ T.unpack snifAddr)
+                                (Just (show snifPort))
+        return addr
+      open addr =
+        bracketOnError
+            (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
+            close
+          $ \sock -> do
+              if isMultiCastAddr addr
+                then do
+                  setSocketOption sock ReuseAddr 1
+                  -- setSocketOption sock ReusePort 1
+                  -- todo support mcast 
+                  --   for now `setSockOpt` is not released yet, 
+                  --   HIE ceases to render a project with .hsc files,
+                  --   not a good time to get it straight.
+                  -- setSockOpt sock (SockOpt _IPPROTO_IP _IP_ADD_MEMBERSHIP) xxx
+                  -- bind sock (addrAddress addr)
+                  error "mcast not supported yet"
+                else -- receiving broadcast/unicast to the specified addr
+                  -- don't reuse addr/port here, if another process is sniffing,
+                  -- should fail loudly here
+                     bind sock (addrAddress addr)
+              atomically
+                $   fromMaybe []
+                <$> tryTakeTMVar snifAddrs
+                >>= putTMVar snifAddrs
+                .   (addr :)
+              return sock
 
-    sniffFrom :: AddrInfo -> Socket -> IO ()
-    sniffFrom !onAddr !sock = do
-      pktSink <- newEmptyTMVarIO
-      let
-        eolProc :: EdhProcedure
-        eolProc _ !exit = do
-          pgs <- ask
-          contEdhSTM $ tryReadTMVar snifEoL >>= \case
-            Nothing -> exitEdhSTM pgs exit $ EdhBool False
-            Just (Left e) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
-            Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
-        sniffProc :: EdhProcedure
-        sniffProc _ !exit = do
-          pgs <- ask
-          let modu = thisObject $ contextScope $ edh'context pgs
-          contEdhSTM
-            $ edhPerformSTM pgs (takeTMVar pktSink)
-            $ \(fromAddr, payload) ->
-                createEdhObject addrClass (ArgsPack [] odEmpty)
-                  $ \(OriginalValue !addrVal _ _) -> case addrVal of
-                      EdhObject !addrObj -> contEdhSTM $ do
-                        writeTVar (entity'store $ objEntity addrObj)
-                          $ toDyn onAddr { addrAddress = fromAddr }
-                        -- update sniffer module global `addr`
-                        changeEntityAttr pgs
-                                         (objEntity modu)
-                                         (AttrByName "addr")
-                                         addrVal
-                        -- interpret the payload as command, return as is
-                        let !src = decodeUtf8 payload
-                        runEdhProc pgs
-                          $ evalEdh (show fromAddr) src
-                          $ exitEdhProc' exit
-                      _ -> error "bug: Addr ctor returned non-object"
-        prepSniffer :: EdhModulePreparation
-        prepSniffer !pgs !exit = do
-          let !scope = contextScope $ edh'context pgs
-              !modu  = thisObject scope
-          runEdhProc pgs $ contEdhSTM $ do
-            methods <- sequence
-              [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
+      sniffFrom :: AddrInfo -> Socket -> IO ()
+      sniffFrom !onAddr !sock = do
+        pktSink <- newEmptyTMVarIO
+        let
+          eolProc :: EdhHostProc
+          eolProc _ !exit !ets = tryReadTMVar snifEoL >>= \case
+            Nothing        -> exitEdh ets exit $ EdhBool False
+            Just (Left !e) -> edh'exception'wrapper world e
+              >>= \ !exo -> exitEdh ets exit $ EdhObject exo
+            Just (Right ()) -> exitEdh ets exit $ EdhBool True
+          sniffProc :: EdhHostProc
+          sniffProc _ !exit !ets =
+            takeTMVar pktSink >>= \(!fromAddr, !payload) ->
+              edhCreateHostObj addrClass
+                               (toDyn onAddr { addrAddress = fromAddr })
+                               []
+                >>= \ !addrObj -> do
+                    -- update sniffer module's global `addr`
+                      iopdInsert
+                        (AttrByName "addr")
+                        (EdhObject addrObj)
+                        (edh'scope'entity $ contextScope $ edh'context ets)
+                      -- interpret the payload as command, return as is
+                      let !src = decodeUtf8 payload
+                      runEdhTx ets $ evalEdh (show fromAddr) src exit
+          prepSniffer :: EdhModulePreparation
+          prepSniffer !etsModu !exit = do
+
+            -- define and implant procedures to the module being prepared
+            !moduMths <- sequence
+              [ (AttrByName nm, ) <$> mkHostProc moduScope vc nm hp args
               | (nm, vc, hp, args) <-
                 [ ("eol"  , EdhMethod, eolProc  , PackReceiver [])
                 , ("sniff", EdhMethod, sniffProc, PackReceiver [])
                 ]
               ]
-            -- implant to the module being prepared
-            updateEntityAttrs pgs (objEntity modu) methods
+            iopdUpdate moduMths $ edh'scope'entity moduScope
+
+            -- call the sniffer module initialization method in the module
+            -- context (where both contextual this/that are the module object)
             if __modu_init__ == nil
               then exit
               else
-                -- call the sniffer module initialization method,
-                -- with the module object as `that`
-                edhMakeCall pgs
-                            __modu_init__
-                            (thisObject $ contextScope $ edh'context pgs)
-                            []
-                            id
-                  $ \mkCall -> runEdhProc pgs $ mkCall $ \_ -> contEdhSTM exit
+                edhPrepareCall' etsModu __modu_init__ (ArgsPack [] odEmpty)
+                  $ \ !mkCall ->
+                      runEdhTx etsModu $ mkCall $ \_result _ets -> exit
+            where !moduScope = contextScope $ edh'context etsModu
 
-      void
-        -- run the sniffer module as another program
-        $ forkFinally (runEdhModule' world (T.unpack snifModu) prepSniffer)
-        -- mark sniffer end-of-life with the result anyway
-        $ void
-        . atomically
-        . tryPutTMVar snifEoL
-        . void
+        void
+          -- run the sniffer module as another program
+          $ forkFinally (runEdhModule' world (T.unpack snifModu) prepSniffer)
+          -- mark sniffer end-of-life with the result anyway
+          $ void
+          . atomically
+          . tryPutTMVar snifEoL
+          . void
 
-      -- pump sniffed packets into the sniffer loop
-      let pumpPkts = do
-            -- todo expecting packets within typical ethernet MTU=1500 for
-            --      now, should we expect larger packets, e.g. with jumbo
-            --      frames, in the future?
-            (payload, fromAddr) <- Sock.recvFrom sock 1500
-            atomically $ putTMVar pktSink (fromAddr, payload)
-            pumpPkts -- tail recursion
-      pumpPkts -- loop until killed on eol
+        -- pump sniffed packets into the sniffer loop
+        let pumpPkts = do
+              -- todo expecting packets within typical ethernet MTU=1500 for
+              --      now, should we expect larger packets, e.g. with jumbo
+              --      frames, in the future?
+              (payload, fromAddr) <- Sock.recvFrom sock 1500
+              atomically $ putTMVar pktSink (fromAddr, payload)
+              pumpPkts -- tail recursion
+        pumpPkts -- loop until killed on eol
 
 
-snifferMethods :: Class -> EdhProgState -> STM [(AttrKey, EdhValue)]
-snifferMethods !addrClass !pgsModule = sequence
-  [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
-  | (nm, vc, hp, args) <-
-    [ ("addrs"   , EdhMethod, addrsMth, PackReceiver [])
-    , ("eol"     , EdhMethod, eolMth  , PackReceiver [])
-    , ("join"    , EdhMethod, joinMth , PackReceiver [])
-    , ("stop"    , EdhMethod, stopMth , PackReceiver [])
-    , ("__repr__", EdhMethod, reprProc, PackReceiver [])
-    ]
-  ]
- where
-  !scope = contextScope $ edh'context pgsModule
-
-  reprProc :: EdhProcedure
-  reprProc _ !exit =
-    withThatEntity $ \ !pgs (EdhSniffer !modu !addr !port _ _ _) ->
-      exitEdhSTM pgs exit
+  reprProc :: EdhHostProc
+  reprProc _ !exit !ets =
+    withThisHostObj ets $ \_hsv (EdhSniffer !modu !addr !port _ _ _) ->
+      exitEdh ets exit
         $  EdhString
         $  "Sniffer("
         <> T.pack (show modu)
@@ -290,39 +287,35 @@ snifferMethods !addrClass !pgsModule = sequence
         <> T.pack (show port)
         <> ")"
 
-  addrsMth :: EdhProcedure
-  addrsMth _ !exit = withThatEntity $ \ !pgs !sniffer -> do
-    let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
-        wrapAddrs addrs [] =
-          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs odEmpty
-        wrapAddrs !addrs (addr : rest) =
-          runEdhProc pgs
-            $ createEdhObject addrClass (ArgsPack [] odEmpty)
-            $ \(OriginalValue !addrVal _ _) -> case addrVal of
-                EdhObject !addrObj -> contEdhSTM $ do
-                  -- actually fill in the in-band entity storage here
-                  writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
-                  wrapAddrs (addrVal : addrs) rest
-                _ -> error "bug: addr ctor returned non-object"
-    edhPerformSTM pgs (readTMVar $ edh'sniffing'addrs sniffer)
-      $ contEdhSTM
-      . wrapAddrs []
+  addrsMth :: EdhHostProc
+  addrsMth _ !exit !ets = withThisHostObj ets
+    $ \_hsv !sniffer -> readTMVar (edh'sniffing'addrs sniffer) >>= wrapAddrs []
+   where
+    wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
+    wrapAddrs addrs [] =
+      exitEdh ets exit $ EdhArgsPack $ ArgsPack addrs odEmpty
+    wrapAddrs !addrs (addr : rest) = edhCreateHostObj addrClass (toDyn addr) []
+      >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
-  eolMth :: EdhProcedure
-  eolMth _ !exit = withThatEntity $ \ !pgs !sniffer ->
+  eolMth :: EdhHostProc
+  eolMth _ !exit !ets = withThisHostObj ets $ \_hsv !sniffer ->
     tryReadTMVar (edh'sniffing'eol sniffer) >>= \case
-      Nothing         -> exitEdhSTM pgs exit $ EdhBool False
-      Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
-      Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
+      Nothing        -> exitEdh ets exit $ EdhBool False
+      Just (Left !e) -> edh'exception'wrapper world e
+        >>= \ !exo -> exitEdh ets exit $ EdhObject exo
+      Just (Right ()) -> exitEdh ets exit $ EdhBool True
+    where world = edh'ctx'world $ edh'context ets
 
-  joinMth :: EdhProcedure
-  joinMth _ !exit = withThatEntity $ \ !pgs !sniffer ->
-    edhPerformSTM pgs (readTMVar (edh'sniffing'eol sniffer)) $ \case
-      Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-      Right () -> exitEdhProc exit nil
+  joinMth :: EdhHostProc
+  joinMth _ !exit !ets = withThisHostObj ets $ \_hsv !sniffer ->
+    readTMVar (edh'sniffing'eol sniffer) >>= \case
+      Left !e ->
+        edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
+      Right () -> exitEdh ets exit nil
+    where world = edh'ctx'world $ edh'context ets
 
-  stopMth :: EdhProcedure
-  stopMth _ !exit = withThatEntity $ \ !pgs !sniffer -> do
-    stopped <- tryPutTMVar (edh'sniffing'eol sniffer) $ Right ()
-    exitEdhSTM pgs exit $ EdhBool stopped
+  stopMth :: EdhHostProc
+  stopMth _ !exit !ets = withThisHostObj ets $ \_hsv !sniffer -> do
+    !stopped <- tryPutTMVar (edh'sniffing'eol sniffer) $ Right ()
+    exitEdh ets exit $ EdhBool stopped
 

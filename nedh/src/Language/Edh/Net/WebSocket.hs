@@ -55,42 +55,66 @@ data EdhWsServer = EdhWsServer {
   }
 
 
--- | host constructor WsServer()
-wsServerCtor :: Class -> EdhHostCtor
-wsServerCtor !peerClass !pgsCtor !apk !ctorExit =
-  case
-      parseArgsPack
-        ( Nothing -- modu
-        , "127.0.0.1" :: WsServerAddr -- addr
-        , 3790 :: WsServerPort -- port
-        , Nothing -- port'max
-        , nil -- __peer_init__
-        , Nothing -- maybeClients
-        )
-        parseCtorArgs
-        apk
-    of
-      Left err -> throwEdhSTM pgsCtor UsageError err
-      Right (Nothing, _, _, _, _, _) ->
-        throwEdhSTM pgsCtor UsageError "missing server module"
-      Right (Just !modu, !addr, !port, !port'max, !__peer_init__, !maybeClients)
-        -> do
-          servAddrs <- newEmptyTMVar
-          servEoL   <- newEmptyTMVar
-          clients   <- maybe newEventSink return maybeClients
-          let !server = EdhWsServer
-                { edh'ws'server'modu     = modu
-                , edh'ws'server'addr     = addr
-                , edh'ws'server'port     = port
-                , edh'ws'server'port'max = fromMaybe port port'max
-                , edh'ws'serving'addrs   = servAddrs
-                , edh'ws'server'eol      = servEoL
-                , edh'ws'server'init     = __peer_init__
-                , edh'ws'serving'clients = clients
-                }
-          edhPerformIO
-              pgsCtor
-              (forkFinally
+createWsServerClass :: Object -> Object -> Scope -> STM Object
+createWsServerClass !addrClass !peerClass !clsOuterScope =
+  mkHostClass' clsOuterScope "WsServer" serverAllocator [] $ \ !clsScope -> do
+    !mths <-
+      sequence
+      $  [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp args
+         | (nm, vc, hp, args) <-
+           [ ("addrs"   , EdhMethod, addrsProc, PackReceiver [])
+           , ("eol"     , EdhMethod, eolProc  , PackReceiver [])
+           , ("join"    , EdhMethod, joinProc , PackReceiver [])
+           , ("stop"    , EdhMethod, stopProc , PackReceiver [])
+           , ("__repr__", EdhMethod, reprProc , PackReceiver [])
+           ]
+         ]
+      ++ [ (AttrByName nm, ) <$> mkHostProperty clsScope nm getter setter
+         | (nm, getter, setter) <- [("clients", clientsProc, Nothing)]
+         ]
+    iopdUpdate mths $ edh'scope'entity clsScope
+
+ where
+
+  -- | host constructor WsServer()
+  serverAllocator :: EdhObjectAllocator
+  serverAllocator !etsCtor !apk !ctorExit = if edh'in'tx etsCtor
+    then throwEdh etsCtor
+                  UsageError
+                  "you don't create network objects within a transaction"
+    else
+      case
+        parseArgsPack
+          ( Nothing -- modu
+          , "127.0.0.1" :: WsServerAddr -- addr
+          , 3790 :: WsServerPort -- port
+          , Nothing -- port'max
+          , nil -- __peer_init__
+          , Nothing -- maybeClients
+          )
+          parseCtorArgs
+          apk
+      of
+        Left err -> throwEdh etsCtor UsageError err
+        Right (Nothing, _, _, _, _, _) ->
+          throwEdh etsCtor UsageError "missing server module"
+        Right (Just !modu, !addr, !port, !port'max, !__peer_init__, !maybeClients)
+          -> do
+            servAddrs <- newEmptyTMVar
+            servEoL   <- newEmptyTMVar
+            clients   <- maybe newEventSink return maybeClients
+            let !server = EdhWsServer
+                  { edh'ws'server'modu     = modu
+                  , edh'ws'server'addr     = addr
+                  , edh'ws'server'port     = port
+                  , edh'ws'server'port'max = fromMaybe port port'max
+                  , edh'ws'serving'addrs   = servAddrs
+                  , edh'ws'server'eol      = servEoL
+                  , edh'ws'server'init     = __peer_init__
+                  , edh'ws'serving'clients = clients
+                  }
+            runEdhTx etsCtor $ edhContIO $ do
+              void $ forkFinally
                 (serverThread server)
                 ( atomically
                 . ((
@@ -101,335 +125,314 @@ wsServerCtor !peerClass !pgsCtor !apk !ctorExit =
                   -- mark server end-of-life anyway finally
                 . tryPutTMVar servEoL
                 )
-              )
-            $ \_ -> contEdhSTM $ ctorExit $ toDyn server
- where
-  parseCtorArgs =
-    ArgsPackParser
-        [ \arg (_, addr', port', port'max, init', clients') ->
-          case edhUltimate arg of
-            EdhString !modu ->
-              Right (Just modu, addr', port', port'max, init', clients')
-            _ -> Left "Invalid modu"
-        , \arg (modu', _, port', port'max, init', clients') ->
-          case edhUltimate arg of
-            EdhString !addr ->
-              Right (modu', addr, port', port'max, init', clients')
-            _ -> Left "Invalid addr"
-        , \arg (modu', addr', _, port'max, init', clients') ->
-          case edhUltimate arg of
-            EdhDecimal !d -> case D.decimalToInteger d of
-              Just !port -> Right
-                (modu', addr', fromIntegral port, port'max, init', clients')
-              Nothing -> Left "port must be integer"
-            _ -> Left "Invalid port"
-        ]
-      $ Map.fromList
-          [ ( "addr"
-            , \arg (modu', _, port', port'max, init', clients') ->
-              case edhUltimate arg of
-                EdhString !addr ->
-                  Right (modu', addr, port', port'max, init', clients')
-                _ -> Left "Invalid addr"
-            )
-          , ( "port"
-            , \arg (modu', addr', _, port'max, init', clients') ->
-              case edhUltimate arg of
-                EdhDecimal !d -> case D.decimalToInteger d of
-                  Just !port ->
-                    Right
-                      ( modu'
-                      , addr'
-                      , fromIntegral port
-                      , port'max
-                      , init'
-                      , clients'
-                      )
-                  Nothing -> Left "port must be integer"
-                _ -> Left "Invalid port"
-            )
-          , ( "port'max"
-            , \arg (modu', addr', port', _, init', clients') ->
-              case edhUltimate arg of
-                EdhDecimal d -> case D.decimalToInteger d of
-                  Just !port'max ->
-                    Right
-                      ( modu'
-                      , addr'
-                      , port'
-                      , Just $ fromInteger port'max
-                      , init'
-                      , clients'
-                      )
-                  Nothing -> Left "port'max must be integer"
-                _ -> Left "Invalid port'max"
-            )
-          , ( "init"
-            , \arg (modu', addr', port', port'max, _, clients') ->
-              case edhUltimate arg of
-                EdhNil -> Right (modu', addr', port', port'max, nil, clients')
-                mth@EdhMethod{} ->
-                  Right (modu', addr', port', port'max, mth, clients')
-                mth@EdhIntrpr{} ->
-                  Right (modu', addr', port', port'max, mth, clients')
-                _ -> Left "Invalid init"
-            )
-          , ( "clients"
-            , \arg (modu', addr', port', port'max, init', _) ->
-              case edhUltimate arg of
-                EdhSink !sink ->
-                  Right (modu', addr', port', port'max, init', Just sink)
-                _ -> Left "Invalid clients"
-            )
-          ]
-
-  serverThread :: EdhWsServer -> IO ()
-  serverThread (EdhWsServer !servModu !servAddr !servPort !portMax !servAddrs !servEoL !__peer_init__ !clients)
-    = do
-      servThId <- myThreadId
-      void $ forkIO $ do -- async terminate the accepter thread on stop signal
-        _ <- atomically $ readTMVar servEoL
-        killThread servThId
-      addr <- resolveServAddr
-      bracket (open addr) close acceptClients
+              atomically $ ctorExit =<< HostStore <$> newTVar (toDyn server)
    where
-    ctx             = edh'context pgsCtor
-    world           = contextWorld ctx
+    parseCtorArgs =
+      ArgsPackParser
+          [ \arg (_, addr', port', port'max, init', clients') ->
+            case edhUltimate arg of
+              EdhString !modu ->
+                Right (Just modu, addr', port', port'max, init', clients')
+              _ -> Left "invalid modu"
+          , \arg (modu', _, port', port'max, init', clients') ->
+            case edhUltimate arg of
+              EdhString !addr ->
+                Right (modu', addr, port', port'max, init', clients')
+              _ -> Left "invalid addr"
+          , \arg (modu', addr', _, port'max, init', clients') ->
+            case edhUltimate arg of
+              EdhDecimal !d -> case D.decimalToInteger d of
+                Just !port -> Right
+                  (modu', addr', fromIntegral port, port'max, init', clients')
+                Nothing -> Left "port must be integer"
+              _ -> Left "invalid port"
+          ]
+        $ Map.fromList
+            [ ( "addr"
+              , \arg (modu', _, port', port'max, init', clients') ->
+                case edhUltimate arg of
+                  EdhString !addr ->
+                    Right (modu', addr, port', port'max, init', clients')
+                  _ -> Left "invalid addr"
+              )
+            , ( "port"
+              , \arg (modu', addr', _, port'max, init', clients') ->
+                case edhUltimate arg of
+                  EdhDecimal !d -> case D.decimalToInteger d of
+                    Just !port ->
+                      Right
+                        ( modu'
+                        , addr'
+                        , fromIntegral port
+                        , port'max
+                        , init'
+                        , clients'
+                        )
+                    Nothing -> Left "port must be integer"
+                  _ -> Left "invalid port"
+              )
+            , ( "port'max"
+              , \arg (modu', addr', port', _, init', clients') ->
+                case edhUltimate arg of
+                  EdhDecimal d -> case D.decimalToInteger d of
+                    Just !port'max ->
+                      Right
+                        ( modu'
+                        , addr'
+                        , port'
+                        , Just $ fromInteger port'max
+                        , init'
+                        , clients'
+                        )
+                    Nothing -> Left "port'max must be integer"
+                  _ -> Left "invalid port'max"
+              )
+            , ( "init"
+              , \arg (modu', addr', port', port'max, _, clients') ->
+                case edhUltimate arg of
+                  EdhNil ->
+                    Right (modu', addr', port', port'max, nil, clients')
+                  mth@(EdhProcedure EdhMethod{} _) ->
+                    Right (modu', addr', port', port'max, mth, clients')
+                  mth@(EdhProcedure EdhIntrpr{} _) ->
+                    Right (modu', addr', port', port'max, mth, clients')
+                  mth@(EdhBoundProc EdhMethod{} _ _ _) ->
+                    Right (modu', addr', port', port'max, mth, clients')
+                  mth@(EdhBoundProc EdhIntrpr{} _ _ _) ->
+                    Right (modu', addr', port', port'max, mth, clients')
+                  _ -> Left "invalid init"
+              )
+            , ( "clients"
+              , \arg (modu', addr', port', port'max, init', _) ->
+                case edhUltimate arg of
+                  EdhSink !sink ->
+                    Right (modu', addr', port', port'max, init', Just sink)
+                  _ -> Left "invalid clients"
+              )
+            ]
 
-    resolveServAddr = do
-      let hints =
-            defaultHints { addrFlags = [AI_PASSIVE], addrSocketType = Stream }
-      addr : _ <- getAddrInfo (Just hints)
-                              (Just $ T.unpack servAddr)
-                              (Just (show servPort))
-      return addr
+    serverThread :: EdhWsServer -> IO ()
+    serverThread (EdhWsServer !servModu !servAddr !servPort !portMax !servAddrs !servEoL !__peer_init__ !clients)
+      = do
+        servThId <- myThreadId
+        void $ forkIO $ do -- async terminate the accepter thread on stop signal
+          _ <- atomically $ readTMVar servEoL
+          killThread servThId
+        addr <- resolveServAddr
+        bracket (open addr) close acceptClients
+     where
+      ctx             = edh'context etsCtor
+      world           = edh'ctx'world ctx
 
-    tryBind !ssock !addr !port =
-      catch (bind ssock $ addrWithPort addr port) $ \(e :: SomeException) ->
-        if port < portMax then tryBind ssock addr (port + 1) else throw e
-    open addr =
-      bracketOnError
-          (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
-          close
-        $ \ssock -> do
-            tryBind ssock (addrAddress addr) servPort
-            listen ssock 300 -- todo make this tunable ?
-            listenAddr <- getSocketName ssock
-            atomically
-              $   fromMaybe []
-              <$> tryTakeTMVar servAddrs
-              >>= putTMVar servAddrs
-              .   (addr { addrAddress = listenAddr } :)
-            return ssock
+      resolveServAddr = do
+        let hints =
+              defaultHints { addrFlags = [AI_PASSIVE], addrSocketType = Stream }
+        addr : _ <- getAddrInfo (Just hints)
+                                (Just $ T.unpack servAddr)
+                                (Just (show servPort))
+        return addr
 
-    acceptClients :: Socket -> IO ()
-    acceptClients ssock = do
-      bracketOnError (accept ssock) (close . fst) $ \(sock, addr) -> do
-        clientEoL <- newEmptyTMVarIO
-        void
-          $ forkFinally (servClient clientEoL (T.pack $ show addr) sock)
-          $ (gracefulClose sock 5000 <*)
-          . atomically
-          . tryPutTMVar clientEoL
-      acceptClients ssock -- tail recursion
+      tryBind !ssock !addr !port =
+        catch (bind ssock $ addrWithPort addr port) $ \(e :: SomeException) ->
+          if port < portMax then tryBind ssock addr (port + 1) else throw e
+      open addr =
+        bracketOnError
+            (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
+            close
+          $ \ssock -> do
+              tryBind ssock (addrAddress addr) servPort
+              listen ssock 300 -- todo make this tunable ?
+              listenAddr <- getSocketName ssock
+              atomically
+                $   fromMaybe []
+                <$> tryTakeTMVar servAddrs
+                >>= putTMVar servAddrs
+                .   (addr { addrAddress = listenAddr } :)
+              return ssock
 
-    servClient :: TMVar (Either SomeException ()) -> Text -> Socket -> IO ()
-    servClient !clientEoL !clientId !sock = do
-      pConn <- WS.makePendingConnection sock
-        $ WS.defaultConnectionOptions { WS.connectionStrictUnicode = True }
-      wsc     <- WS.acceptRequest pConn
-      pktSink <- newEmptyTMVarIO
-      poq     <- newEmptyTMVarIO
-      chdVar  <- newTVarIO mempty
-
-      let
-        !peer = Peer { edh'peer'ident    = clientId
-                     , edh'peer'eol      = clientEoL
-                     , edh'peer'posting  = putTMVar poq
-                     , edh'peer'hosting  = takeTMVar pktSink
-                     , edh'peer'channels = chdVar
-                     }
-        prepPeer :: IO EdhValue
-        prepPeer = do
-          peerVar <- newTVarIO undefined
+      acceptClients :: Socket -> IO ()
+      acceptClients ssock = do
+        bracketOnError (accept ssock) (close . fst) $ \(sock, addr) -> do
+          clientEoL <- newEmptyTMVarIO
           void
-            $ runEdhProgram' ctx
-            $ createEdhObject peerClass (ArgsPack [] odEmpty)
-            $ \(OriginalValue !peerVal _ _) -> case peerVal of
-                EdhObject !peerObj -> contEdhSTM $ do
-                  -- actually fill in the in-band entity storage here
-                  writeTVar (entity'store $ objEntity peerObj) $ toDyn peer
-                  -- announce this new peer to the event sink
-                  publishEvent clients peerVal
-                  -- save it and this part done
-                  writeTVar peerVar peerVal
-                _ -> error "bug: Peer ctor returned non-object"
-          readTVarIO peerVar
-        prepService :: EdhValue -> EdhModulePreparation
-        prepService !peerVal !pgs !exit = do
-          let !modu = thisObject $ contextScope $ edh'context pgs
-          -- implant to the module being prepared
-          changeEntityAttr pgs (objEntity modu) (AttrByName "peer") peerVal
-          -- insert a tick here, for serving to start in next stm tx
-          flip (exitEdhSTM pgs) nil $ \_ -> contEdhSTM $ if __peer_init__ == nil
-            then exit
-            else
-              -- call the per-connection peer module initialization method,
-              -- with the module object as `that`
-              edhMakeCall pgs
-                          __peer_init__
-                          (thisObject $ contextScope $ edh'context pgs)
-                          []
-                          id
-                $ \mkCall -> runEdhProc pgs $ mkCall $ \_ -> contEdhSTM exit
-
-      try prepPeer >>= \case
-        Left err -> atomically $ do
-          -- mark the client eol with this error
-          void $ tryPutTMVar clientEoL (Left err)
-          -- failure in preparation for a peer object is considered so fatal
-          -- that the server should terminate as well
-          void $ tryPutTMVar servEoL (Left err)
-        Right !peerVal -> do
-
-          void
-            -- run the server module on a separate thread as another program
-            $ forkFinally
-                (runEdhModule' world (T.unpack servModu) (prepService peerVal))
-            -- mark client end-of-life with the result anyway
-            $ void
+            $ forkFinally (servClient clientEoL (T.pack $ show addr) sock)
+            $ (gracefulClose sock 5000 <*)
             . atomically
             . tryPutTMVar clientEoL
-            . void
+        acceptClients ssock -- tail recursion
 
-          -- pump commands in, 
-          -- make this thread the only one reading the handle
-          -- note this won't return, will be asynchronously killed on eol
-          incomingDir <- newIORef ("" :: Text)
-          let
-            settlePkt !payload = do
-              dir <- readIORef incomingDir
-              -- channel directive is effective only for the immediately
-              -- following packet
-              writeIORef incomingDir ""
-              atomically
-                  (        (Right <$> putTMVar pktSink (Packet dir payload))
-                  `orElse` (Left <$> readTMVar clientEoL)
+      servClient :: TMVar (Either SomeException ()) -> Text -> Socket -> IO ()
+      servClient !clientEoL !clientId !sock = do
+        pConn <- WS.makePendingConnection sock
+          $ WS.defaultConnectionOptions { WS.connectionStrictUnicode = True }
+        wsc     <- WS.acceptRequest pConn
+        pktSink <- newEmptyTMVarIO
+        poq     <- newEmptyTMVarIO
+        chdVar  <- newTVarIO mempty
+
+        let
+          !peer = Peer { edh'peer'ident    = clientId
+                       , edh'peer'eol      = clientEoL
+                       , edh'peer'posting  = putTMVar poq
+                       , edh'peer'hosting  = takeTMVar pktSink
+                       , edh'peer'channels = chdVar
+                       }
+          prepPeer :: STM Object
+          prepPeer = do
+            !peerObj <- edhCreateHostObj peerClass (toDyn peer) []
+            -- announce this new peer to the event sink
+            publishEvent clients $ EdhObject peerObj
+            return peerObj
+          prepService :: Object -> EdhModulePreparation
+          prepService !peerObj !etsModu !exit = do
+              -- implant to the module being prepared
+            iopdInsert (AttrByName "peer")
+                       (EdhObject peerObj)
+                       (edh'scope'entity moduScope)
+            -- call the per-connection peer module initialization method in the
+            -- module context (where both contextual this/that are the module
+            -- object)
+            if __peer_init__ == nil
+              then exit
+              else
+                edhPrepareCall' etsModu __peer_init__ (ArgsPack [] odEmpty)
+                  $ \ !mkCall ->
+                      runEdhTx etsModu $ mkCall $ \_result _ets -> exit
+            where !moduScope = contextScope $ edh'context etsModu
+
+        try (atomically prepPeer) >>= \case
+          Left err -> atomically $ do
+            -- mark the client eol with this error
+            void $ tryPutTMVar clientEoL (Left err)
+            -- failure in preparation for a peer object is considered so fatal
+            -- that the server should terminate as well
+            void $ tryPutTMVar servEoL (Left err)
+          Right !peerVal -> do
+
+            void
+              -- run the server module on a separate thread as another program
+              $ forkFinally
+                  (runEdhModule' world (T.unpack servModu) (prepService peerVal)
                   )
-                >>= \case
-                      Left (Left  e ) -> throwIO e
-                      Left (Right ()) -> return ()
-                      Right _ ->
-              -- anyway we should continue receiving, even after close request
-              -- sent,  we are expected to process a CloseRequest ctrl message
-              -- from peer.
-                        pumpPkts
-            pumpPkts = do
-              pkt <- WS.receiveDataMessage wsc
-              case pkt of
-                (WS.Text !bytes _) -> case BL.stripPrefix "[dir#" bytes of
-                  Just !dirRest -> case BL.stripSuffix "]" dirRest of
-                    Just !dir -> do
-                      writeIORef incomingDir $ TL.toStrict $ TLE.decodeUtf8 dir
-                      pumpPkts
-                    Nothing -> settlePkt $ BL.toStrict bytes
-                  Nothing -> settlePkt $ BL.toStrict bytes
-                (WS.Binary !payload) -> settlePkt $ BL.toStrict payload
-          void $ forkIOWithUnmask $ \unmask -> catch (unmask pumpPkts) $ \case
-            WS.CloseRequest closeCode closeReason
-              | closeCode == 1000 || closeCode == 1001
-              -> atomically $ void $ tryPutTMVar clientEoL $ Right ()
-              | otherwise
-              -> do
+              -- mark client end-of-life with the result anyway
+              $ void
+              . atomically
+              . tryPutTMVar clientEoL
+              . void
+
+            -- pump commands in, 
+            -- make this thread the only one reading the handle
+            -- note this won't return, will be asynchronously killed on eol
+            incomingDir <- newIORef ("" :: Text)
+            let
+              settlePkt !payload = do
+                dir <- readIORef incomingDir
+                -- channel directive is effective only for the immediately
+                -- following packet
+                writeIORef incomingDir ""
                 atomically
-                  $  void
-                  $  tryPutTMVar clientEoL
-                  $  Left
-                  $  toException
-                  $  EdhPeerError clientId
-                  $  T.pack
-                  $  "Client closing WebSocket with code "
-                  <> show closeCode
-                  <> " and reason ["
-                  <> show closeReason
-                  <> "]"
-                -- yet still try to receive ctrl msg back from peer
-                unmask pumpPkts
-            WS.ConnectionClosed ->
-              atomically $ void $ tryPutTMVar clientEoL $ Right ()
-            _ ->
-              atomically
-                $ void
-                $ tryPutTMVar clientEoL
-                $ Left
-                $ toException
-                $ EdhPeerError clientId "Unexpected WebSocket packet."
+                    (        (Right <$> putTMVar pktSink (Packet dir payload))
+                    `orElse` (Left <$> readTMVar clientEoL)
+                    )
+                  >>= \case
+                        Left (Left  e ) -> throwIO e
+                        Left (Right ()) -> return ()
+                        Right _ ->
+                -- anyway we should continue receiving, even after close request
+                -- sent,  we are expected to process a CloseRequest ctrl message
+                -- from peer.
+                          pumpPkts
+              pumpPkts = do
+                pkt <- WS.receiveDataMessage wsc
+                case pkt of
+                  (WS.Text !bytes _) -> case BL.stripPrefix "[dir#" bytes of
+                    Just !dirRest -> case BL.stripSuffix "]" dirRest of
+                      Just !dir -> do
+                        writeIORef incomingDir $ TL.toStrict $ TLE.decodeUtf8
+                          dir
+                        pumpPkts
+                      Nothing -> settlePkt $ BL.toStrict bytes
+                    Nothing -> settlePkt $ BL.toStrict bytes
+                  (WS.Binary !payload) -> settlePkt $ BL.toStrict payload
+            void $ forkIOWithUnmask $ \unmask -> catch (unmask pumpPkts) $ \case
+              WS.CloseRequest closeCode closeReason
+                | closeCode == 1000 || closeCode == 1001
+                -> atomically $ void $ tryPutTMVar clientEoL $ Right ()
+                | otherwise
+                -> do
+                  atomically
+                    $  void
+                    $  tryPutTMVar clientEoL
+                    $  Left
+                    $  toException
+                    $  EdhPeerError clientId
+                    $  T.pack
+                    $  "Client closing WebSocket with code "
+                    <> show closeCode
+                    <> " and reason ["
+                    <> show closeReason
+                    <> "]"
+                  -- yet still try to receive ctrl msg back from peer
+                  unmask pumpPkts
+              WS.ConnectionClosed ->
+                atomically $ void $ tryPutTMVar clientEoL $ Right ()
+              _ ->
+                atomically
+                  $ void
+                  $ tryPutTMVar clientEoL
+                  $ Left
+                  $ toException
+                  $ EdhPeerError clientId "unexpected WebSocket packet."
 
-          let
-            sendWsPacket :: Packet -> IO ()
-            sendWsPacket (Packet !dir !payload) = if "blob:" `T.isPrefixOf` dir
-              then do
-                WS.sendDataMessage wsc
-                  $  flip WS.Text Nothing
-                  $  TLE.encodeUtf8
-                  $  ("[dir#" :: TL.Text)
-                  <> TL.fromStrict dir
-                  <> "]"
-                WS.sendDataMessage wsc $ WS.Binary $ BL.fromStrict payload
-              else do
-                unless (T.null dir)
-                  $  WS.sendDataMessage wsc
-                  $  flip WS.Text Nothing
-                  $  TLE.encodeUtf8
-                  $  ("[dir#" :: TL.Text)
-                  <> TL.fromStrict dir
-                  <> "]"
-                WS.sendDataMessage wsc $ WS.Text (BL.fromStrict payload) Nothing
+            let
+              sendWsPacket :: Packet -> IO ()
+              sendWsPacket (Packet !dir !payload) =
+                if "blob:" `T.isPrefixOf` dir
+                  then do
+                    WS.sendDataMessage wsc
+                      $  flip WS.Text Nothing
+                      $  TLE.encodeUtf8
+                      $  ("[dir#" :: TL.Text)
+                      <> TL.fromStrict dir
+                      <> "]"
+                    WS.sendDataMessage wsc $ WS.Binary $ BL.fromStrict payload
+                  else do
+                    unless (T.null dir)
+                      $  WS.sendDataMessage wsc
+                      $  flip WS.Text Nothing
+                      $  TLE.encodeUtf8
+                      $  ("[dir#" :: TL.Text)
+                      <> TL.fromStrict dir
+                      <> "]"
+                    WS.sendDataMessage wsc
+                      $ WS.Text (BL.fromStrict payload) Nothing
 
-            serializeCmdsOut :: IO ()
-            serializeCmdsOut =
-              atomically
-                  (        (Right <$> takeTMVar poq)
-                  `orElse` (Left <$> readTMVar clientEoL)
-                  )
-                >>= \case
-                      Left  _    -> return () -- stop on eol any way
-                      Right !pkt -> do
-                        sendWsPacket pkt
-                        serializeCmdsOut
-          -- pump commands out,
-          -- make this thread the only one writing the handle
-          serializeCmdsOut `catch` \(e :: SomeException) -> -- mark eol on error
-            atomically $ void $ tryPutTMVar clientEoL $ Left e
+              serializeCmdsOut :: IO ()
+              serializeCmdsOut =
+                atomically
+                    (        (Right <$> takeTMVar poq)
+                    `orElse` (Left <$> readTMVar clientEoL)
+                    )
+                  >>= \case
+                        Left  _    -> return () -- stop on eol any way
+                        Right !pkt -> do
+                          sendWsPacket pkt
+                          serializeCmdsOut
+            -- pump commands out,
+            -- make this thread the only one writing the handle
+            serializeCmdsOut `catch` \(e :: SomeException) -> -- mark eol on error
+              atomically $ void $ tryPutTMVar clientEoL $ Left e
 
 
-wsServerMethods :: Class -> EdhProgState -> STM [(AttrKey, EdhValue)]
-wsServerMethods !addrClass !pgsModule =
-  sequence
-    $  [ (AttrByName nm, ) <$> mkHostProc scope vc nm hp args
-       | (nm, vc, hp, args) <-
-         [ ("addrs"   , EdhMethod, addrsProc, PackReceiver [])
-         , ("eol"     , EdhMethod, eolProc  , PackReceiver [])
-         , ("join"    , EdhMethod, joinProc , PackReceiver [])
-         , ("stop"    , EdhMethod, stopProc , PackReceiver [])
-         , ("__repr__", EdhMethod, reprProc , PackReceiver [])
-         ]
-       ]
-    ++ [ (AttrByName nm, ) <$> mkHostProperty scope nm getter setter
-       | (nm, getter, setter) <- [("clients", clientsProc, Nothing)]
-       ]
- where
-  !scope = contextScope $ edh'context pgsModule
+  clientsProc :: EdhHostProc
+  clientsProc _ !exit !ets = withThisHostObj ets $ \_hsv !server ->
+    exitEdh ets exit $ EdhSink $ edh'ws'serving'clients server
 
-  clientsProc :: EdhProcedure
-  clientsProc _ !exit = withThatEntity $ \ !pgs !server ->
-    exitEdhSTM pgs exit $ EdhSink $ edh'ws'serving'clients server
-
-  reprProc :: EdhProcedure
-  reprProc _ !exit =
-    withThatEntity
-      $ \ !pgs (EdhWsServer !modu !addr !port !port'max _ _ _ _) ->
-          exitEdhSTM pgs exit
+  reprProc :: EdhHostProc
+  reprProc _ !exit !ets =
+    withThisHostObj ets
+      $ \_hsv (EdhWsServer !modu !addr !port !port'max _ _ _ _) ->
+          exitEdh ets exit
             $  EdhString
             $  "WsServer("
             <> T.pack (show modu)
@@ -442,40 +445,35 @@ wsServerMethods !addrClass !pgsModule =
             <> T.pack (show port'max)
             <> ")"
 
-  addrsProc :: EdhProcedure
-  addrsProc _ !exit = withThatEntity $ \ !pgs !server -> do
-    let wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
-        wrapAddrs addrs [] =
-          exitEdhSTM pgs exit $ EdhArgsPack $ ArgsPack addrs odEmpty
-        wrapAddrs !addrs (addr : rest) =
-          runEdhProc pgs
-            $ createEdhObject addrClass (ArgsPack [] odEmpty)
-            $ \(OriginalValue !addrVal _ _) -> case addrVal of
-                EdhObject !addrObj -> contEdhSTM $ do
-                  -- actually fill in the in-band entity storage here
-                  writeTVar (entity'store $ objEntity addrObj) $ toDyn addr
-                  wrapAddrs (addrVal : addrs) rest
-                _ -> error "bug: addr ctor returned non-object"
-    edhPerformSTM pgs (readTMVar $ edh'ws'serving'addrs server)
-      $ contEdhSTM
-      . wrapAddrs []
+  addrsProc :: EdhHostProc
+  addrsProc _ !exit !ets = withThisHostObj ets
+    $ \_hsv !server -> readTMVar (edh'ws'serving'addrs server) >>= wrapAddrs []
+   where
+    wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
+    wrapAddrs addrs [] =
+      exitEdh ets exit $ EdhArgsPack $ ArgsPack addrs odEmpty
+    wrapAddrs !addrs (addr : rest) = edhCreateHostObj addrClass (toDyn addr) []
+      >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
-  eolProc :: EdhProcedure
-  eolProc _ !exit = withThatEntity $ \ !pgs !server ->
+  eolProc :: EdhHostProc
+  eolProc _ !exit !ets = withThisHostObj ets $ \_hsv !server ->
     tryReadTMVar (edh'ws'server'eol server) >>= \case
-      Nothing         -> exitEdhSTM pgs exit $ EdhBool False
-      Just (Left  e ) -> toEdhError pgs e $ \exv -> exitEdhSTM pgs exit exv
-      Just (Right ()) -> exitEdhSTM pgs exit $ EdhBool True
+      Nothing        -> exitEdh ets exit $ EdhBool False
+      Just (Left !e) -> edh'exception'wrapper world e
+        >>= \ !exo -> exitEdh ets exit $ EdhObject exo
+      Just (Right ()) -> exitEdh ets exit $ EdhBool True
+    where world = edh'ctx'world $ edh'context ets
 
-  joinProc :: EdhProcedure
-  joinProc _ !exit = withThatEntity $ \ !pgs !server ->
-    edhPerformSTM pgs (readTMVar (edh'ws'server'eol server)) $ \case
-      Left  e  -> contEdhSTM $ toEdhError pgs e $ \exv -> edhThrowSTM pgs exv
-      Right () -> exitEdhProc exit nil
+  joinProc :: EdhHostProc
+  joinProc _ !exit !ets = withThisHostObj ets $ \_hsv !server ->
+    readTMVar (edh'ws'server'eol server) >>= \case
+      Left !e ->
+        edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
+      Right () -> exitEdh ets exit nil
+    where world = edh'ctx'world $ edh'context ets
 
-  stopProc :: EdhProcedure
-  stopProc _ !exit = withThatEntity $ \ !pgs !server -> do
+  stopProc :: EdhHostProc
+  stopProc _ !exit !ets = withThisHostObj ets $ \_hsv !server -> do
     stopped <- tryPutTMVar (edh'ws'server'eol server) $ Right ()
-    exitEdhSTM pgs exit $ EdhBool stopped
-
+    exitEdh ets exit $ EdhBool stopped
 

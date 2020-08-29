@@ -30,71 +30,35 @@ import           Language.Edh.Net.Advertiser
 installNetBatteries :: EdhWorld -> IO ()
 installNetBatteries !world =
 
-  void $ installEdhModule world "net/RT" $ \pgs exit -> do
+  void $ installEdhModule world "net/RT" $ \ !ets exit -> do
 
-    let moduScope = contextScope $ edh'context pgs
-        modu      = thisObject moduScope
+    let !moduScope = contextScope $ edh'context ets
 
-    peerClassVal <-
-      mkHostClass moduScope "Peer" peerCtor
-      =<< createSideEntityManipulater True
-      =<< peerMethods pgs
-    let peerClass = case peerClassVal of
-          EdhClass cls -> cls
-          _            -> error "bug: mkHostClass returned non-class"
+    !peerClass       <- createPeerClass moduScope
+    !addrClass       <- createAddrClass moduScope
 
-    addrClassVal <-
-      mkHostClass moduScope "Addr" addrCtor
-      =<< createSideEntityManipulater True
-      =<< addrMethods pgs
-    let addrClass = case addrClassVal of
-          EdhClass cls -> cls
-          _            -> error "bug: mkHostClass returned non-class"
+    !serverClass     <- createServerClass addrClass peerClass moduScope
+    !clientClass     <- createClientClass addrClass peerClass moduScope
 
-    serverClassVal <-
-      mkHostClass moduScope "Server" (serverCtor peerClass)
-      =<< createSideEntityManipulater True
-      =<< serverMethods addrClass pgs
+    !wsServerClass   <- createWsServerClass addrClass peerClass moduScope
+    !httpServerClass <- createHttpServerClass addrClass moduScope
 
-
-    clientClassVal <-
-      mkHostClass moduScope "Client" (clientCtor peerClass)
-      =<< createSideEntityManipulater True
-      =<< clientMethods addrClass pgs
-
-    wsServerClassVal <-
-      mkHostClass moduScope "WsServer" (wsServerCtor peerClass)
-      =<< createSideEntityManipulater True
-      =<< wsServerMethods addrClass pgs
-
-    httpServerClassVal <-
-      mkHostClass moduScope "HttpServer" httpServerCtor
-      =<< createSideEntityManipulater True
-      =<< httpServerMethods addrClass pgs
-
-    snifferClassVal <-
-      mkHostClass moduScope "Sniffer" (snifferCtor addrClass)
-      =<< createSideEntityManipulater True
-      =<< snifferMethods addrClass pgs
-
-    advertiserClassVal <-
-      mkHostClass moduScope "Advertiser" advertiserCtor
-      =<< createSideEntityManipulater True
-      =<< advertiserMethods addrClass pgs
+    !snifferClass    <- createSnifferClass addrClass moduScope
+    !advertiserClass <- createAdvertiserClass addrClass moduScope
 
     let !moduArts =
-          [ ("Peer"      , peerClassVal)
-          , ("Addr"      , addrClassVal)
-          , ("Server"    , serverClassVal)
-          , ("Client"    , clientClassVal)
-          , ("WsServer"  , wsServerClassVal)
-          , ("HttpServer", httpServerClassVal)
-          , ("Sniffer"   , snifferClassVal)
-          , ("Advertiser", advertiserClassVal)
+          [ ("Peer"      , EdhObject peerClass)
+          , ("Addr"      , EdhObject addrClass)
+          , ("Server"    , EdhObject serverClass)
+          , ("Client"    , EdhObject clientClass)
+          , ("WsServer"  , EdhObject wsServerClass)
+          , ("HttpServer", EdhObject httpServerClass)
+          , ("Sniffer"   , EdhObject snifferClass)
+          , ("Advertiser", EdhObject advertiserClass)
           ]
     artsDict <- EdhDict
       <$> createEdhDict [ (EdhString k, v) | (k, v) <- moduArts ]
-    updateEntityAttrs pgs (objEntity modu)
+    flip iopdUpdate (edh'scope'entity moduScope)
       $  [ (AttrByName k, v) | (k, v) <- moduArts ]
       ++ [(AttrByName "__exports__", artsDict)]
 
