@@ -3,49 +3,68 @@ import * 'net'
 
 {
 
-  export method calc( m, n ) {
-    m * n + 3.14
+  namespace a'dose'to'inject (
+    pi = 3.14, e = 2.72,
+  ) export { # this exports all nested definitions
+
+    # TODO demostrate access to some enclosed resources here
+
+    method calc( m, n ) {
+      ( m + e ) * n + pi
+    }
+
   }
 
-  # a service initialization method can be used to inject
-  # artifacts into a client facing service module after it is
-  # instantiated but before running. such a service module can
-  # obtain globally shared resources by vanilla importing, but
-  # for private resources prepared without global visibility,
-  # injection is the only way to pass them on to there.
+  # a service initialization method can be used to inject artifacts into a
+  # client facing service module after it is instantiated but before running
+  #
+  # such a service module can actively import artifacts from other modules,
+  # but to put some closure service methods there, injection is the only way
 
   method __peer_init__ () {
-    # implant the `calc()` procedure to the service module
-    import ( calc, **_ ) this into that
+    # implant some more service method (e.g. `calc()`) to the service module
+
+    # note contextual this/that are both the service module object for the
+    # per-connection peer module initialization method, and we have access
+    # to lexical outer scopes from here
+
+    # you can do it the plain way
+    that.calc = a'dose'to'inject.calc
+
+    # or do it the fancy way
+    import * a'dose'to'inject into that
   }
 
 }
-
-# here we use case-of + wild capture pattern to avoid the
-# transaction imposed by assignment, that's to say:
-#   server = Server ()
-# won't work as the assignment transaction will prevent the
-# necessary IO action to be performed during construction of
-# the server instance.
 
 # we use a producer procedure here, so as to consume each
 # connected client without the race condition to miss any one
 # of them.
 
 {
-  producer serveClients( outlet, ***apk ) case Server (
-    ***apk,
-    clients=outlet, # do the production of newly connected peers
-  ) of { server } -> {
-    this.server = server # assign it to the module level
+  producer serveClients( outlet, ***apk ) {
+
+    # export the server instance so someone can import it from this module
+    #
+    # note @export@ adds the assigned attribute to current `this` object's
+    # @__exports__@ dict at the same time it's defined into local scope
+    export server = Server (
+      ***apk,
+      clients=outlet, # do the production of newly connected peers
+    )
+
+    # @.addrs()@ will only be populated after successful listening at os level,
+    # this call waits a result before return
     case server.addrs() of {
       { addr => extraAddrs }
       -> console.info<| 'Demo service listening: ' ++ addr
-      # or the network has failed, propagate the error
+
+      # empty @.addrs()@ means the network has failed, propagate the error
       server.join() # this usually rethrows any failure the server encountered
-      # in case join() didn't throw, report this error
+      # in case @.join()@ didn't throw, still report the error
       error( 'Demo service failed listening.' )
     }
+
   }
 
   method trackClientLife( peer ) {
@@ -67,7 +86,7 @@ import * 'net'
     peer.postCommand(
       repr( `Note you are tracked, ` ++ peer ),
       # direct this command to the cli peer's conmsg channel
-      expr conmsg
+      conmsg
     )
 
     # `peer` attribute here is repeatedly changed during the loop,
