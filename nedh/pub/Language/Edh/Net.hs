@@ -56,7 +56,7 @@ installNetBatteries !world =
           , ("Sniffer"   , EdhObject snifferClass)
           , ("Advertiser", EdhObject advertiserClass)
           ]
-    artsDict <- EdhDict
+    !artsDict <- EdhDict
       <$> createEdhDict [ (EdhString k, v) | (k, v) <- moduArts ]
     flip iopdUpdate (edh'scope'entity moduScope)
       $  [ (AttrByName k, v) | (k, v) <- moduArts ]

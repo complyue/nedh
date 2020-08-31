@@ -223,11 +223,11 @@ createSnifferClass !addrClass !clsOuterScope =
                                (toDyn onAddr { addrAddress = fromAddr })
                                []
                 >>= \ !addrObj -> do
-                    -- update sniffer module's global `addr`
-                      iopdInsert
-                        (AttrByName "addr")
-                        (EdhObject addrObj)
+                      -- provide the effectful sourceAddr
+                      implantEffect
                         (edh'scope'entity $ contextScope $ edh'context ets)
+                        (AttrByName "sourceAddr")
+                        (EdhObject addrObj)
                       -- interpret the payload as command, return as is
                       let !src = decodeUtf8 payload
                       runEdhTx ets $ evalEdh (show fromAddr) src exit
