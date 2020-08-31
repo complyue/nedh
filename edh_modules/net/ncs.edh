@@ -17,9 +17,9 @@ export method consoleOn (
   servPort =3720, # local port to bind
   init =None, # peer module initialization
 ) {
-  case Server (
+  ncon = Server (
     conModu, servAddr, servPort, init=init,
-  ) of { ncon } -> { pass }
+  )
 
   case ncon.addrs() of {
     { addr =>_ } -> console.info<| 'Serving networked console at: ' ++ addr

@@ -68,7 +68,7 @@ service := this
 } @=> {
   { exc } -> {
     console.error<| 'Disconnecting demo client ' ++ peer
-    ++ ' for error: ' ++ exc
+    ++ ' for error: ' ++ desc( exc )
   }
   console.info<| 'Disconnecting demo client ' ++ peer
 }

@@ -1,6 +1,8 @@
 
+import * 'net'
+
 {
-  case Sniffer(
+  sniffer = Sniffer(
 
     # sniffer module
     'net/demo/sniffer',
@@ -11,7 +13,7 @@
     # sniffer module initializer
     init = method _ () that.purpose = 'demo',
 
-  ) of { sniffer } -> { pass }
+  )
 }
 
 

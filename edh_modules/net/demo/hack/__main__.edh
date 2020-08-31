@@ -120,14 +120,14 @@ go {
       }
   } } $=> { exc } -> {
     console.warn<| 'Error with the service - ' ++ peer
-    ++ '\n' ++ exc
+    ++ '\n' ++ desc( exc )
   }
 }
 
 # wait the 1st cmd to our conout, whether the server will issue one
 # on connection on its own, we will post one (see above), so this
 # won't dead lock
-for _ from conOutSignal do { break }
+for _ from conOutSignal do break
 
 # pump commands from local stdio console to the service
 while peer.eol() is false {
@@ -137,10 +137,10 @@ while peer.eol() is false {
     { cmdVal } -> {
       cntrBefore = mre( conOutSignal )
       peer.postCommand( cmdVal )
-      for cntrAfter from conOutSignal do if cntrAfter != cntrBefore then
+      for cntrAfter from conOutSignal do if cntrAfter != cntrBefore
       # got new conout (supposed to be the eval result) from server,
       # let's continue reading next cmd from local stdio console
-      { break }
+      then break
     }
 
     # note nil as cmd value is ignored here, so a nil is effectively nop

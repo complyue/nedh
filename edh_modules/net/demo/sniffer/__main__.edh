@@ -20,10 +20,6 @@ false -> { # this block is impossible to run
 
 }
 
-# source address of the sniffed command packet, updated each
-# time a packet is sniffed and executed as command
-addr := Addr()
-
 
 # TODO define artifacts in hosting the execution of incoming
 #      commands
@@ -38,5 +34,5 @@ while eol() is false {
   }
 
 } $=> { exc } -> {
-  console.error<| 'Error sniffing: ' ++ exc
+  console.error<| 'Error sniffing: ' ++ desc( exc )
 }

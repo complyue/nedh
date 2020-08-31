@@ -68,7 +68,7 @@ effect {
     }
 
   } $=> { # catch exceptions
-    if false != peer.eol() then {
+    if peer.eol() is not false then {
       break # already disconnected
     }
     { cmdExc } -> {
@@ -76,7 +76,7 @@ effect {
       # this case, but the console here merely notify the client about it
       peer.p2c(
         1, # direct to channel conout := 1
-        repr( 'Recovered from error\n  exception=' ++ cmdExc ),
+        repr( 'Recovered from error: ' ++ desc( cmdExc ) ),
       )
     }
   }
@@ -84,7 +84,7 @@ effect {
 } @=> {
   { exc } -> {
     console.error<| 'Disconnecting console client ' ++ peer
-    ++ ' for error: ' ++ exc
+    ++ ' for error: ' ++ desc( exc )
   }
   console.info<| 'Disconnecting console client ' ++ peer
 }

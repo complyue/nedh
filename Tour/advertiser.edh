@@ -1,6 +1,8 @@
 
+import * 'net'
+
 {
-  case Advertiser(
+  ad = Advertiser(
 
     # near-field broadcast
     '255.255.255.255', 3721,
@@ -11,18 +13,23 @@
     # unicast
     #'127.0.0.1', 3721,
 
-  ) of { ad } -> { pass }
+  )
 }
 
 console.info<| 'Advertising to ' ++ ad.addrs()
 
-ad.post( expr 'Ad from ' ++ addr )
+ad.post( expr 'Ad from ' ++ perform sourceAddr )
 
 {
   ad.post(
     3, 2, 1,
     expr 3*7,
     expr console.warn<| "You've got it",
+  )
+
+  for _ from console.everyMillis( 300 ) do break
+
+  ad.post(
     expr console.print( " *** That's all *** " ),
   )
 }

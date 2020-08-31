@@ -25,15 +25,14 @@ export method cmdLineTo(
   init= None, # peer module initialization
 ) {
 
-  case Client( consumer, addr, port=port, init=init, )
-  of { client } -> { pass }
+  client = Client( consumer, addr, port=port, init=init, )
 
   case client.addrs() of { addr => extraAddrs } -> {
     console.info<| 'Connected to service at: ' ++ addr
   }
 
   client.join() $=> { exc } -> {
-    console.info<| 'The service caused some trouble: ' ++ exc
+    console.info<| 'The service caused some trouble: ' ++ desc( exc )
   }
 
   console.info<| 'Disconnected from the service.'

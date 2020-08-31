@@ -25,7 +25,7 @@ while true { # this is the *Loop* in so-called REPL
   }
 
   { cmdExc } -> {
-    console.print( 'Recovered from error', exception=cmdExc )
+    console.print( 'Recovered from error: ' ++ desc( cmdExc ) )
   }
 
 }

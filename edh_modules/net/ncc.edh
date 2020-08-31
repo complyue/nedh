@@ -19,14 +19,14 @@ export method consoleTo(
   init= None, # peer module initialization
 ) {
 
-  case Client( consumer, addr, port=port, init=init, ) of { clnt } -> {
-    case clnt.addrs() of {
-      { addr =>_ } -> console.info<| 'Connected to console server at: ' ++ addr
-      # or the network has failed, propagate the error
-      clnt.join() # this usually throws
-      # in case join() didn't throw, report this error
-      error( 'Networked console client failed connecting.' )
-    }
+  clnt = Client( consumer, addr, port=port, init=init, )
+
+  case clnt.addrs() of {
+    { addr =>_ } -> console.info<| 'Connected to console server at: ' ++ addr
+    # or the network has failed, propagate the error
+    clnt.join() # this usually throws
+    # in case join() didn't throw, report this error
+    error( 'Networked console client failed connecting.' )
   }
 
   clnt.join() $=> { exc } -> {

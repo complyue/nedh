@@ -52,7 +52,7 @@ effect {
 } @=> {
   { exc } -> {
     console.error<| 'Disconnecting ws client ' ++ peer
-    ++ ' for error: ' ++ exc
+    ++ ' for error: ' ++ desc( exc )
   }
   console.info<| 'Disconnecting ws client ' ++ peer
 }

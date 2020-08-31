@@ -60,7 +60,7 @@ expr service?calc &> calc( 5, 11 ) |> 'no `calc()` service'
       # explicit non-nil value as result here.
       # and after a slight delay so conout output won't interfer
       # with conmsg output induced by ack() above.
-      for _ from console.everyMillis( 80 ) do { break }
+      for _ from console.everyMillis( 80 ) do break
       "You've been informed."
   } )
 }
