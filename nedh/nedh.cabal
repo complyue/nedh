@@ -53,9 +53,9 @@ library
     , unix
     , unordered-containers
 
-executable nedhi
+executable nedh
   main-is:            Main.hs
-  hs-source-dirs:     repl
+  hs-source-dirs:     runmodu
   other-modules:      Repl
   default-language:   Haskell2010
   default-extensions:
@@ -78,9 +78,9 @@ executable nedhi
     , text
     , transformers
 
-executable nedh
+executable runnedh
   main-is:            Main.hs
-  hs-source-dirs:     exec
+  hs-source-dirs:     runfile
   default-language:   Haskell2010
   default-extensions:
     NoImplicitPrelude
