@@ -3,36 +3,43 @@ import * 'net'
 
 {
 
-  namespace a'dose'to'inject (
-    pi = 3.14, e = 2.72,
-  ) export { # this exports all nested definitions
-
-    # TODO demostrate access to some enclosed resources here
-
-    method calc( m, n ) {
-      ( m + e ) * n + pi
-    }
-
-  }
+  # though a service module can actively import artifacts from other modules,
+  # to put some service methods enclosing access to some private resource,
+  # injection is the only way
 
   # a service initialization method can be used to inject artifacts into a
   # client facing service module after it is instantiated but before running
-  #
-  # such a service module can actively import artifacts from other modules,
-  # but to put some closure service methods there, injection is the only way
 
-  method __peer_init__ () {
-    # implant some more service method (e.g. `calc()`) to the service module
+  # we use a namespace here to organize the artifacts going there
 
-    # note contextual this/that are both the service module object for the
-    # per-connection peer module initialization method, and we have access
-    # to lexical outer scopes from here
+  namespace a'dose'to'inject (
+    pi = 3.14, cntr = 0,
+    # note args above are assigned to the namespace but not exported
+  ) export { # export all definitions within this block
 
-    # you can do it the plain way
-    that.calc = a'dose'to'inject.calc
+    method calc( m, n ) {
 
-    # or do it the fancy way
-    import * a'dose'to'inject into that
+      # atomically increase our counter, with wrap back at 100
+      #
+      # note: `cntr` is accessed via this reference,
+      #       contextual this/that here are both the namespace object
+      # if we ever assigned an attribute into the local scope also named
+      # `cntr`, it'll shadow the namespace's `cntr`, i.e. we'll only be able
+      # to access `cntr` in the namespace via this or that reference
+      ai this.cntr = case this.cntr+1 of {@
+        100 -> 0 # do the wrap back
+        # {@ ... @} is a scoped block, it can be used to limit the shadowing
+        # i.e. assignments inside a scoped block have no effect on outside of
+        # it, so even we assign (via the pattern match) to `cntr` here, the
+        # formula below can still reference `cntr` in the namespace lexically
+        { cntr } -> cntr
+      @}
+
+      # note: `pi` and `cntr` are accessed lexically at outer scope (of the
+      #       namespace), i.e. enclosed by this method procedure
+      n + m * cntr / pi
+    }
+
   }
 
 }
@@ -79,7 +86,21 @@ import * 'net'
     'net/demo/service', # the service module
     '127.0.0.1', # local addr to bind
     3721, # local port to bind
-    init=__peer_init__, # per-connection peer module initialization
+    init=method _ () { # per-connection peer module initialization
+
+      # implant some more service method (e.g. `calc()`) to the service module
+
+      # note contextual this/that are both the service module object for the
+      # per-connection peer module initialization method, and we have access
+      # to lexical outer scopes from here
+
+      # you can do it the plain way
+      that.calc = a'dose'to'inject.calc
+
+      # or do it the fancy way
+      import * a'dose'to'inject into that
+
+    },
   ) do {
     console.info<| 'Tracking demo client - ' ++ peer
 
