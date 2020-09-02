@@ -2,7 +2,11 @@
 import * 'net'
 
 {
-  server = Server( 'net/demo/service' )
+  server = Server(
+    'net/demo/service', # the service module
+    '127.0.0.1', # local addr to bind
+    3721, # local port to bind
+  )
 
   # this waits the server to start listening and returns actual addresses
   case server.addrs() of { addr => extraAddrs }
