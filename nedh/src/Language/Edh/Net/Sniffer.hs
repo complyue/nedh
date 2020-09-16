@@ -13,13 +13,10 @@ import           Data.Maybe
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import           Data.Text.Encoding
-import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
 import           Network.Socket
 import           Network.Socket.ByteString     as Sock
-
-import qualified Data.Lossless.Decimal         as D
 
 import           Language.Edh.EHI
 
@@ -64,99 +61,63 @@ data EdhSniffer = EdhSniffer {
 
 createSnifferClass :: Object -> Scope -> STM Object
 createSnifferClass !addrClass !clsOuterScope =
-  mkHostClass' clsOuterScope "Sniffer" snifferAllocator [] $ \ !clsScope -> do
-    !mths <- sequence
-      [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp args
-      | (nm, vc, hp, args) <-
-        [ ("addrs"   , EdhMethod, addrsMth, PackReceiver [])
-        , ("eol"     , EdhMethod, eolMth  , PackReceiver [])
-        , ("join"    , EdhMethod, joinMth , PackReceiver [])
-        , ("stop"    , EdhMethod, stopMth , PackReceiver [])
-        , ("__repr__", EdhMethod, reprProc, PackReceiver [])
-        ]
-      ]
-    iopdUpdate mths $ edh'scope'entity clsScope
+  mkHostClass clsOuterScope "Sniffer" (allocEdhObj snifferAllocator) []
+    $ \ !clsScope -> do
+        !mths <- sequence
+          [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp
+          | (nm, vc, hp) <-
+            [ ("addrs"   , EdhMethod, wrapHostProc addrsMth)
+            , ("eol"     , EdhMethod, wrapHostProc eolMth)
+            , ("join"    , EdhMethod, wrapHostProc joinMth)
+            , ("stop"    , EdhMethod, wrapHostProc stopMth)
+            , ("__repr__", EdhMethod, wrapHostProc reprProc)
+            ]
+          ]
+        iopdUpdate mths $ edh'scope'entity clsScope
 
  where
 
   -- | host constructor Sniffer()
-  snifferAllocator :: EdhObjectAllocator
-  snifferAllocator !etsCtor !apk !ctorExit = if edh'in'tx etsCtor
-    then throwEdh etsCtor
-                  UsageError
-                  "you don't create network objects within a transaction"
-    else
-      case
-        parseArgsPack
-          (Nothing, "127.0.0.1" :: SniffAddr, 3721 :: SniffPort, nil)
-          parseCtorArgs
-          apk
-      of
-        Left err -> throwEdh etsCtor UsageError err
-        Right (Nothing, _, _, _) ->
-          throwEdh etsCtor UsageError "missing sniffer module"
-        Right (Just modu, addr, port, __modu_init__) -> do
-          snifAddrs <- newEmptyTMVar
-          snifEoL   <- newEmptyTMVar
-          let !sniffer = EdhSniffer { edh'sniffer'modu   = modu
-                                    , edh'sniffer'addr   = addr
-                                    , edh'sniffer'port   = port
-                                    , edh'sniffing'addrs = snifAddrs
-                                    , edh'sniffing'eol   = snifEoL
-                                    , edh'sniffing'init  = __modu_init__
-                                    }
-          runEdhTx etsCtor $ edhContIO $ do
-            void $ forkFinally
-              (sniffThread sniffer)
-              ( atomically
-              -- fill empty addrs if the sniffing has ever failed
-              . ((void $ tryPutTMVar snifAddrs []) <*)
-              -- mark end-of-life anyway finally
-              . tryPutTMVar snifEoL
-              )
-            atomically $ ctorExit =<< HostStore <$> newTVar (toDyn sniffer)
+  snifferAllocator
+    :: "modu" !: Text
+    -> "addr" ?: Text
+    -> "port" ?: Int
+    -> "init" ?: EdhValue
+    -> EdhObjectAllocator
+  snifferAllocator (mandatoryArg -> !modu) (defaultArg "127.0.0.1" -> !ctorAddr) (defaultArg 3721 -> !ctorPort) (defaultArg nil -> !init_) !ctorExit !etsCtor
+    = if edh'in'tx etsCtor
+      then throwEdh etsCtor
+                    UsageError
+                    "you don't create network objects within a transaction"
+      else case init_ of
+        EdhNil                               -> withInit nil
+        mth@(EdhProcedure EdhMethod{} _    ) -> withInit mth
+        mth@(EdhProcedure EdhIntrpr{} _    ) -> withInit mth
+        mth@(EdhBoundProc EdhMethod{} _ _ _) -> withInit mth
+        mth@(EdhBoundProc EdhIntrpr{} _ _ _) -> withInit mth
+        !badInit -> edhValueDesc etsCtor badInit $ \ !badDesc ->
+          throwEdh etsCtor UsageError $ "invalid init: " <> badDesc
    where
-    parseCtorArgs =
-      ArgsPackParser
-          [ \arg (_, addr', port', init') -> case edhUltimate arg of
-            EdhString !modu -> Right (Just modu, addr', port', init')
-            _               -> Left "invalid sniffer module"
-          , \arg (modu', _, port', init') -> case edhUltimate arg of
-            EdhString addr -> Right (modu', addr, port', init')
-            _              -> Left "invalid addr"
-          , \arg (modu', addr', _, init') -> case edhUltimate arg of
-            EdhDecimal d -> case D.decimalToInteger d of
-              Just port -> Right (modu', addr', fromIntegral port, init')
-              Nothing   -> Left "port must be integer"
-            _ -> Left "invalid port"
-          ]
-        $ Map.fromList
-            [ ( "addr"
-              , \arg (modu', _, port', init') -> case edhUltimate arg of
-                EdhString addr -> Right (modu', addr, port', init')
-                _              -> Left "invalid addr"
-              )
-            , ( "port"
-              , \arg (modu', addr', _, init') -> case edhUltimate arg of
-                EdhDecimal d -> case D.decimalToInteger d of
-                  Just port -> Right (modu', addr', fromIntegral port, init')
-                  Nothing   -> Left "port must be integer"
-                _ -> Left "invalid port"
-              )
-            , ( "init"
-              , \arg (modu', addr', port', _) -> case edhUltimate arg of
-                EdhNil -> Right (modu', addr', port', nil)
-                mth@(EdhProcedure EdhMethod{} _) ->
-                  Right (modu', addr', port', mth)
-                mth@(EdhProcedure EdhIntrpr{} _) ->
-                  Right (modu', addr', port', mth)
-                mth@(EdhBoundProc EdhMethod{} _ _ _) ->
-                  Right (modu', addr', port', mth)
-                mth@(EdhBoundProc EdhIntrpr{} _ _ _) ->
-                  Right (modu', addr', port', mth)
-                _ -> Left "invalid init"
-              )
-            ]
+    withInit !__modu_init__ = do
+      snifAddrs <- newEmptyTMVar
+      snifEoL   <- newEmptyTMVar
+      let !sniffer = EdhSniffer { edh'sniffer'modu   = modu
+                                , edh'sniffer'addr   = ctorAddr
+                                , edh'sniffer'port   = ctorPort
+                                , edh'sniffing'addrs = snifAddrs
+                                , edh'sniffing'eol   = snifEoL
+                                , edh'sniffing'init  = __modu_init__
+                                }
+      runEdhTx etsCtor $ edhContIO $ do
+        void $ forkFinally
+          (sniffThread sniffer)
+          ( atomically
+          -- fill empty addrs if the sniffing has ever failed
+          . ((void $ tryPutTMVar snifAddrs []) <*)
+          -- mark end-of-life anyway finally
+          . tryPutTMVar snifEoL
+          )
+        atomically $ ctorExit =<< HostStore <$> newTVar (toDyn sniffer)
 
     sniffThread :: EdhSniffer -> IO ()
     sniffThread (EdhSniffer !snifModu !snifAddr !snifPort !snifAddrs !snifEoL !__modu_init__)
@@ -211,13 +172,13 @@ createSnifferClass !addrClass !clsOuterScope =
         pktSink <- newEmptyTMVarIO
         let
           eolProc :: EdhHostProc
-          eolProc _ !exit !ets = tryReadTMVar snifEoL >>= \case
+          eolProc !exit !ets = tryReadTMVar snifEoL >>= \case
             Nothing        -> exitEdh ets exit $ EdhBool False
             Just (Left !e) -> edh'exception'wrapper world e
               >>= \ !exo -> exitEdh ets exit $ EdhObject exo
             Just (Right ()) -> exitEdh ets exit $ EdhBool True
           sniffProc :: EdhHostProc
-          sniffProc _ !exit !ets =
+          sniffProc !exit !ets =
             takeTMVar pktSink >>= \(!fromAddr, !payload) ->
               edhCreateHostObj addrClass
                                (toDyn onAddr { addrAddress = fromAddr })
@@ -236,10 +197,10 @@ createSnifferClass !addrClass !clsOuterScope =
 
             -- define and implant procedures to the module being prepared
             !moduMths <- sequence
-              [ (AttrByName nm, ) <$> mkHostProc moduScope vc nm hp args
-              | (nm, vc, hp, args) <-
-                [ ("eol"  , EdhMethod, eolProc  , PackReceiver [])
-                , ("sniff", EdhMethod, sniffProc, PackReceiver [])
+              [ (AttrByName nm, ) <$> mkHostProc moduScope vc nm hp
+              | (nm, vc, hp) <-
+                [ ("eol"  , EdhMethod, wrapHostProc eolProc)
+                , ("sniff", EdhMethod, wrapHostProc sniffProc)
                 ]
               ]
             iopdUpdate moduMths $ edh'scope'entity moduScope
@@ -275,7 +236,7 @@ createSnifferClass !addrClass !clsOuterScope =
 
 
   reprProc :: EdhHostProc
-  reprProc _ !exit !ets =
+  reprProc !exit !ets =
     withThisHostObj ets $ \_hsv (EdhSniffer !modu !addr !port _ _ _) ->
       exitEdh ets exit
         $  EdhString
@@ -288,7 +249,7 @@ createSnifferClass !addrClass !clsOuterScope =
         <> ")"
 
   addrsMth :: EdhHostProc
-  addrsMth _ !exit !ets = withThisHostObj ets
+  addrsMth !exit !ets = withThisHostObj ets
     $ \_hsv !sniffer -> readTMVar (edh'sniffing'addrs sniffer) >>= wrapAddrs []
    where
     wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
@@ -298,7 +259,7 @@ createSnifferClass !addrClass !clsOuterScope =
       >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
   eolMth :: EdhHostProc
-  eolMth _ !exit !ets = withThisHostObj ets $ \_hsv !sniffer ->
+  eolMth !exit !ets = withThisHostObj ets $ \_hsv !sniffer ->
     tryReadTMVar (edh'sniffing'eol sniffer) >>= \case
       Nothing        -> exitEdh ets exit $ EdhBool False
       Just (Left !e) -> edh'exception'wrapper world e
@@ -307,7 +268,7 @@ createSnifferClass !addrClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   joinMth :: EdhHostProc
-  joinMth _ !exit !ets = withThisHostObj ets $ \_hsv !sniffer ->
+  joinMth !exit !ets = withThisHostObj ets $ \_hsv !sniffer ->
     readTMVar (edh'sniffing'eol sniffer) >>= \case
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
@@ -315,7 +276,7 @@ createSnifferClass !addrClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   stopMth :: EdhHostProc
-  stopMth _ !exit !ets = withThisHostObj ets $ \_hsv !sniffer -> do
+  stopMth !exit !ets = withThisHostObj ets $ \_hsv !sniffer -> do
     !stopped <- tryPutTMVar (edh'sniffing'eol sniffer) $ Right ()
     exitEdh ets exit $ EdhBool stopped
 

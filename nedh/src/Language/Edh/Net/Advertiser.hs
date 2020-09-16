@@ -13,13 +13,10 @@ import           Data.Maybe
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import           Data.Text.Encoding
-import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
 import           Network.Socket
 import           Network.Socket.ByteString
-
-import qualified Data.Lossless.Decimal         as D
 
 import           Language.Edh.EHI
 
@@ -56,17 +53,17 @@ data EdhAdvertiser = EdhAdvertiser {
 
 createAdvertiserClass :: Object -> Scope -> STM Object
 createAdvertiserClass !addrClass !clsOuterScope =
-  mkHostClass' clsOuterScope "Advertiser" advertiserAllocator []
+  mkHostClass clsOuterScope "Advertiser" (allocEdhObj advertiserAllocator) []
     $ \ !clsScope -> do
         !mths <- sequence
-          [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp args
-          | (nm, vc, hp, args) <-
-            [ ("addrs"   , EdhMethod, addrsMth, PackReceiver [])
-            , ("post"    , EdhMethod, postMth , PackReceiver [])
-            , ("eol"     , EdhMethod, eolMth  , PackReceiver [])
-            , ("join"    , EdhMethod, joinMth , PackReceiver [])
-            , ("stop"    , EdhMethod, stopMth , PackReceiver [])
-            , ("__repr__", EdhMethod, reprProc, PackReceiver [])
+          [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp
+          | (nm, vc, hp) <-
+            [ ("addrs"   , EdhMethod, wrapHostProc addrsMth)
+            , ("post"    , EdhMethod, wrapHostProc postMth)
+            , ("eol"     , EdhMethod, wrapHostProc eolMth)
+            , ("join"    , EdhMethod, wrapHostProc joinMth)
+            , ("stop"    , EdhMethod, wrapHostProc stopMth)
+            , ("__repr__", EdhMethod, wrapHostProc reprProc)
             ]
           ]
         iopdUpdate mths $ edh'scope'entity clsScope
@@ -74,25 +71,22 @@ createAdvertiserClass !addrClass !clsOuterScope =
  where
 
   -- | host constructor Advertiser()
-  advertiserAllocator :: EdhObjectAllocator
-  advertiserAllocator !etsCtor !apk !ctorExit = if edh'in'tx etsCtor
-    then throwEdh etsCtor
-                  UsageError
-                  "you don't create network objects within a transaction"
-    else
-      case
-        parseArgsPack
-          ("255.255.255.255" :: TargetAddr, 3721 :: TargetPort, nil)
-          parseCtorArgs
-          apk
-      of
-        Left  !err                         -> throwEdh etsCtor UsageError err
-        Right (!addr, !port, !fromAddrVal) -> case edhUltimate fromAddrVal of
-          EdhObject !fromAddrObj -> withHostObject etsCtor fromAddrObj
-            $ \_hsv (fromAddr :: AddrInfo) -> go addr port (Just fromAddr)
-          EdhNil -> go addr port Nothing
-          _      -> edhValueDesc etsCtor fromAddrVal $ \ !badValDesc ->
-            throwEdh etsCtor UsageError $ "invalid fromAddr: " <> badValDesc
+  -- TODO accept sink in ctor args as ad'src
+  advertiserAllocator
+    :: "addr" ?: Text
+    -> "port" ?: Int
+    -> "fromAddr" ?: Object
+    -> EdhObjectAllocator
+  advertiserAllocator (defaultArg "255.255.255.255" -> !ctorAddr) (defaultArg 3721 -> !ctorPort) (optionalArg -> !maybeFromAddr) !ctorExit !etsCtor
+    = if edh'in'tx etsCtor
+      then throwEdh etsCtor
+                    UsageError
+                    "you don't create network objects within a transaction"
+      else case maybeFromAddr of
+        Just !fromAddrObj ->
+          withHostObject etsCtor fromAddrObj $ \_hsv (fromAddr :: AddrInfo) ->
+            go ctorAddr ctorPort (Just fromAddr)
+        _ -> go ctorAddr ctorPort Nothing
    where
     go addr port fromAddr = do
       adSrc     <- newEmptyTMVar
@@ -113,35 +107,6 @@ createAdvertiserClass !addrClass !clsOuterScope =
                            (atomically . void . tryPutTMVar advtEoL)
 
         atomically $ ctorExit =<< HostStore <$> newTVar (toDyn advertiser)
-    -- TODO accept sink in ctor args as ad'src
-    parseCtorArgs =
-      ArgsPackParser
-          [ \arg (_, port', fromAddr') -> case edhUltimate arg of
-            EdhString addr -> Right (addr, port', fromAddr')
-            _              -> Left "invalid addr"
-          , \arg (addr', _, fromAddr') -> case edhUltimate arg of
-            EdhDecimal d -> case D.decimalToInteger d of
-              Just port -> Right (addr', fromIntegral port, fromAddr')
-              Nothing   -> Left "port must be integer"
-            _ -> Left "invalid port"
-          ]
-        $ Map.fromList
-            [ ( "addr"
-              , \arg (_, port', fromAddr') -> case edhUltimate arg of
-                EdhString addr -> Right (addr, port', fromAddr')
-                _              -> Left "invalid addr"
-              )
-            , ( "port"
-              , \arg (addr', _, fromAddr') -> case edhUltimate arg of
-                EdhDecimal d -> case D.decimalToInteger d of
-                  Just port -> Right (addr', fromIntegral port, fromAddr')
-                  Nothing   -> Left "port must be integer"
-                _ -> Left "invalid port"
-              )
-            , ( "fromAddr"
-              , \arg (addr', port', _) -> Right (addr', port', edhUltimate arg)
-              )
-            ]
 
     advtThread :: EdhAdvertiser -> IO ()
     advtThread (EdhAdvertiser !adSrc !advtAddr !advtPort !advtAddrs !fromAddr !advtEoL)
@@ -202,7 +167,7 @@ createAdvertiserClass !addrClass !clsOuterScope =
 
 
   reprProc :: EdhHostProc
-  reprProc _ !exit !ets =
+  reprProc !exit !ets =
     withThisHostObj ets $ \_hsv (EdhAdvertiser _ !addr !port _ !adAddr _) ->
       exitEdh ets exit
         $  EdhString
@@ -217,7 +182,7 @@ createAdvertiserClass !addrClass !clsOuterScope =
         <> ")"
 
   addrsMth :: EdhHostProc
-  addrsMth _ !exit !ets = withThisHostObj ets $ \_hsv !advertiser ->
+  addrsMth !exit !ets = withThisHostObj ets $ \_hsv !advertiser ->
     readTMVar (edh'ad'target'addrs advertiser) >>= wrapAddrs []
    where
     wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
@@ -226,20 +191,19 @@ createAdvertiserClass !addrClass !clsOuterScope =
     wrapAddrs !addrs (addr : rest) = edhCreateHostObj addrClass (toDyn addr) []
       >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
-  postMth :: EdhHostProc
-  postMth (ArgsPack !args _) !exit !ets =
-    withThisHostObj ets $ \_hsv !advertiser -> do
-      let advt :: [Text] -> TMVar Text -> STM ()
-          advt []           _ = exitEdh ets exit nil
-          advt (cmd : rest) q = do
-            putTMVar q cmd
-            -- post each cmd to ad queue with separate tx
-            runEdhTx ets $ edhContSTM $ advt rest q
-      seqcontSTM (edhValueRepr ets <$> args)
-        $ \ !reprs -> advt reprs $ edh'ad'source advertiser
+  postMth :: [EdhValue] -> EdhHostProc
+  postMth !args !exit !ets = withThisHostObj ets $ \_hsv !advertiser -> do
+    let advt :: [Text] -> TMVar Text -> STM ()
+        advt []           _ = exitEdh ets exit nil
+        advt (cmd : rest) q = do
+          putTMVar q cmd
+          -- post each cmd to ad queue with separate tx
+          runEdhTx ets $ edhContSTM $ advt rest q
+    seqcontSTM (edhValueRepr ets <$> args)
+      $ \ !reprs -> advt reprs $ edh'ad'source advertiser
 
   eolMth :: EdhHostProc
-  eolMth _ !exit !ets = withThisHostObj ets $ \_hsv !advertiser ->
+  eolMth !exit !ets = withThisHostObj ets $ \_hsv !advertiser ->
     tryReadTMVar (edh'advertising'eol advertiser) >>= \case
       Nothing        -> exitEdh ets exit $ EdhBool False
       Just (Left !e) -> edh'exception'wrapper world e
@@ -248,7 +212,7 @@ createAdvertiserClass !addrClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   joinMth :: EdhHostProc
-  joinMth _ !exit !ets = withThisHostObj ets $ \_hsv !advertiser ->
+  joinMth !exit !ets = withThisHostObj ets $ \_hsv !advertiser ->
     readTMVar (edh'advertising'eol advertiser) >>= \case
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
@@ -256,7 +220,7 @@ createAdvertiserClass !addrClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   stopMth :: EdhHostProc
-  stopMth _ !exit !ets = withThisHostObj ets $ \_hsv !advertiser -> do
+  stopMth !exit !ets = withThisHostObj ets $ \_hsv !advertiser -> do
     !stopped <- tryPutTMVar (edh'advertising'eol advertiser) $ Right ()
     exitEdh ets exit $ EdhBool stopped
 

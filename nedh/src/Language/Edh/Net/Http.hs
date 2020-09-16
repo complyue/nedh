@@ -23,7 +23,6 @@ import qualified Data.Text.Encoding            as TE
 import           Data.ByteString                ( ByteString )
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Char8         as C
-import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
 import           Network.Socket
@@ -31,8 +30,6 @@ import           Network.Socket
 import qualified Snap.Core                     as Snap
 import qualified Snap.Http.Server              as Snap
 import qualified Snap.Util.FileServe           as Snap
-
-import qualified Data.Lossless.Decimal         as D
 
 import           Language.Edh.EHI
 
@@ -94,135 +91,90 @@ data EdhHttpServer = EdhHttpServer {
 
 createHttpServerClass :: Object -> Scope -> STM Object
 createHttpServerClass !addrClass !clsOuterScope =
-  mkHostClass' clsOuterScope "HttpServer" serverAllocator [] $ \ !clsScope -> do
-    !mths <- sequence
-      [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp args
-      | (nm, vc, hp, args) <-
-        [ ("addrs"   , EdhMethod, addrsProc, PackReceiver [])
-        , ("eol"     , EdhMethod, eolProc  , PackReceiver [])
-        , ("join"    , EdhMethod, joinProc , PackReceiver [])
-        , ("stop"    , EdhMethod, stopProc , PackReceiver [])
-        , ("__repr__", EdhMethod, reprProc , PackReceiver [])
-        ]
-      ]
-    iopdUpdate mths $ edh'scope'entity clsScope
+  mkHostClass clsOuterScope "HttpServer" (allocEdhObj serverAllocator) []
+    $ \ !clsScope -> do
+        !mths <- sequence
+          [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp
+          | (nm, vc, hp) <-
+            [ ("addrs"   , EdhMethod, wrapHostProc addrsProc)
+            , ("eol"     , EdhMethod, wrapHostProc eolProc)
+            , ("join"    , EdhMethod, wrapHostProc joinProc)
+            , ("stop"    , EdhMethod, wrapHostProc stopProc)
+            , ("__repr__", EdhMethod, wrapHostProc reprProc)
+            ]
+          ]
+        iopdUpdate mths $ edh'scope'entity clsScope
 
  where
 
   -- | host constructor HttpServer()
-  serverAllocator :: EdhObjectAllocator
-  serverAllocator !etsCtor !apk !ctorExit = if edh'in'tx etsCtor
-    then throwEdh etsCtor
-                  UsageError
-                  "you don't create network objects within a transaction"
-    else
-      case
-        parseArgsPack
-          ( Nothing -- modus
-          , "127.0.0.1" :: HttpServerAddr -- addr
-          , 3780 :: HttpServerPort -- port
-          , Nothing -- port'max
-          , nil -- custom routes
-          )
-          parseCtorArgs
-          apk
-      of
-        Left err -> throwEdh etsCtor UsageError err
-        Right (Nothing, _, _, _, _) ->
-          throwEdh etsCtor UsageError "missing resource modules"
-        Right (Just !modus, !addr, !port, !port'max, !custRoutes) ->
-          parseRoutes etsCtor custRoutes $ \routes -> do
-            servAddrs <- newEmptyTMVar
-            servEoL   <- newEmptyTMVar
-            let !server = EdhHttpServer
-                  { edh'http'server'modus    = modus
-                  , edh'http'custom'routes   = routes
-                  , edh'http'server'addr     = addr
-                  , edh'http'server'port     = port
-                  , edh'http'server'port'max = fromMaybe port port'max
-                  , edh'http'serving'addrs   = servAddrs
-                  , edh'http'server'eol      = servEoL
-                  }
-            runEdhTx etsCtor $ edhContIO $ do
-              void $ forkFinally
-                (serverThread server)
-                ( atomically
-                . void
-                . (
-                    -- fill empty addrs if the connection has ever failed
-                   tryPutTMVar servAddrs [] <*)
-                  -- mark server end-of-life anyway finally
-                . tryPutTMVar servEoL
-                )
-              atomically $ ctorExit =<< HostStore <$> newTVar (toDyn server)
+  serverAllocator
+    :: "resModules" !: EdhValue
+    -> "addr" ?: Text
+    -> "port" ?: Int
+    -> "port'max" ?: Int
+    -> "routes" ?: EdhValue
+    -> EdhObjectAllocator
+  serverAllocator (mandatoryArg -> !resModules) (defaultArg "127.0.0.1" -> !ctorAddr) (defaultArg 3780 -> !ctorPort) (optionalArg -> port'max) (defaultArg nil -> !routes) !ctorExit !etsCtor
+    = if edh'in'tx etsCtor
+      then throwEdh etsCtor
+                    UsageError
+                    "you don't create network objects within a transaction"
+      else case edhUltimate resModules of
+        EdhString !modu -> withModules [modu]
+        EdhArgsPack (ArgsPack !args _kwargs) ->
+          seqcontSTM
+              (flip fmap args $ \ !moduVal !exit' -> case moduVal of
+                EdhString !modu -> exit' modu
+                !v ->
+                  throwEdh etsCtor UsageError
+                    $  "invalid type for modu: "
+                    <> T.pack (edhTypeNameOf v)
+              )
+            $ withModules
+        _ ->
+          throwEdh etsCtor UsageError $ "invalid type for modus: " <> T.pack
+            (edhTypeNameOf resModules)
+
    where
-    parseCtorArgs =
-      ArgsPackParser
-          [ \arg (_, addr', port', port'max, routes) -> case edhUltimate arg of
-            EdhString !modu ->
-              Right (Just [modu], addr', port', port'max, routes)
-            EdhArgsPack (ArgsPack !args _kwargs) ->
-              (, addr', port', port'max, routes) <$> (Just <$>)
-                (sequence $ flip fmap args $ \case
-                  EdhString !modu -> Right modu
-                  !v ->
-                    Left $ "invalid type for modu: " <> T.pack (edhTypeNameOf v)
-                )
-            _ ->
-              Left $ "invalid type for modus: " <> T.pack (edhTypeNameOf arg)
-          , \arg (modu', _, port', port'max, routes) -> case edhUltimate arg of
-            EdhString !addr -> Right (modu', addr, port', port'max, routes)
-            _               -> Left "invalid addr"
-          , \arg (modu', addr', _, port'max, routes) -> case edhUltimate arg of
-            EdhDecimal !d -> case D.decimalToInteger d of
-              Just !port ->
-                Right (modu', addr', fromIntegral port, port'max, routes)
-              Nothing -> Left "port must be integer"
-            _ -> Left "invalid port"
-          ]
-        $ Map.fromList
-            [ ( "addr"
-              , \arg (modu', _, port', port'max, routes) ->
-                case edhUltimate arg of
-                  EdhString !addr ->
-                    Right (modu', addr, port', port'max, routes)
-                  _ -> Left "invalid addr"
-              )
-            , ( "port"
-              , \arg (modu', addr', _, port'max, routes) ->
-                case edhUltimate arg of
-                  EdhDecimal !d -> case D.decimalToInteger d of
-                    Just !port ->
-                      Right (modu', addr', fromIntegral port, port'max, routes)
-                    Nothing -> Left "port must be integer"
-                  _ -> Left "invalid port"
-              )
-            , ( "port'max"
-              , \arg (modu', addr', port', _, routes) -> case edhUltimate arg of
-                EdhDecimal d -> case D.decimalToInteger d of
-                  Just !port'max -> Right
-                    (modu', addr', port', Just $ fromInteger port'max, routes)
-                  Nothing -> Left "port'max must be integer"
-                _ -> Left "invalid port'max"
-              )
-            , ( "routes"
-              , \arg (modu', addr', port', port'max, _) ->
-                case edhUltimate arg of
-                  !routes -> Right (modu', addr', port', port'max, routes)
-              )
-            ]
+    withModules !modus = parseRoutes etsCtor routes $ \ !custRoutes -> do
+      servAddrs <- newEmptyTMVar
+      servEoL   <- newEmptyTMVar
+      let
+        !server = EdhHttpServer
+          { edh'http'server'modus    = modus
+          , edh'http'custom'routes   = custRoutes
+          , edh'http'server'addr     = ctorAddr
+          , edh'http'server'port     = fromIntegral ctorPort
+          , edh'http'server'port'max = fromIntegral
+                                         $ fromMaybe ctorPort port'max
+          , edh'http'serving'addrs   = servAddrs
+          , edh'http'server'eol      = servEoL
+          }
+      runEdhTx etsCtor $ edhContIO $ do
+        void $ forkFinally
+          (serverThread server)
+          ( atomically
+          . void
+          . (
+              -- fill empty addrs if the connection has ever failed
+             tryPutTMVar servAddrs [] <*)
+            -- mark server end-of-life anyway finally
+          . tryPutTMVar servEoL
+          )
+        atomically $ ctorExit =<< HostStore <$> newTVar (toDyn server)
 
     serverThread :: EdhHttpServer -> IO ()
     serverThread (EdhHttpServer !resModus !custRoutes !servAddr !servPort !portMax !servAddrs !servEoL)
       = do
-        servThId <- myThreadId
+        !servThId <- myThreadId
         void $ forkIO $ do -- async terminate the snap thread on stop signal
           _ <- atomically $ readTMVar servEoL
           killThread servThId
-        wd   <- D.canonicalizePath "."
-        addr <- resolveServAddr
+        !wd   <- D.canonicalizePath "."
+        !addr <- resolveServAddr
         let
-          httpCfg :: Snap.Config Snap.Snap a
+          httpCfg :: Snap.Config Snap.Snap ()
           httpCfg =
             Snap.setBind (TE.encodeUtf8 servAddr)
               $ Snap.setStartupHook httpListening
@@ -269,7 +221,7 @@ createHttpServerClass !addrClass !clsOuterScope =
 
 
   reprProc :: EdhHostProc
-  reprProc _ !exit !ets =
+  reprProc !exit !ets =
     withThisHostObj ets
       $ \_hsv (EdhHttpServer !modus _ !addr !port !port'max _ _) ->
           exitEdh ets exit
@@ -285,7 +237,7 @@ createHttpServerClass !addrClass !clsOuterScope =
             <> ")"
 
   addrsProc :: EdhHostProc
-  addrsProc _ !exit !ets = withThisHostObj ets $ \_hsv !server ->
+  addrsProc !exit !ets = withThisHostObj ets $ \_hsv !server ->
     readTMVar (edh'http'serving'addrs server) >>= wrapAddrs []
    where
     wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
@@ -295,7 +247,7 @@ createHttpServerClass !addrClass !clsOuterScope =
       >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
   eolProc :: EdhHostProc
-  eolProc _ !exit !ets = withThisHostObj ets $ \_hsv !server ->
+  eolProc !exit !ets = withThisHostObj ets $ \_hsv !server ->
     tryReadTMVar (edh'http'server'eol server) >>= \case
       Nothing        -> exitEdh ets exit $ EdhBool False
       Just (Left !e) -> edh'exception'wrapper world e
@@ -304,7 +256,7 @@ createHttpServerClass !addrClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   joinProc :: EdhHostProc
-  joinProc _ !exit !ets = withThisHostObj ets $ \_hsv !server ->
+  joinProc !exit !ets = withThisHostObj ets $ \_hsv !server ->
     readTMVar (edh'http'server'eol server) >>= \case
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
@@ -312,7 +264,7 @@ createHttpServerClass !addrClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   stopProc :: EdhHostProc
-  stopProc _ !exit !ets = withThisHostObj ets $ \_hsv !server -> do
+  stopProc !exit !ets = withThisHostObj ets $ \_hsv !server -> do
     stopped <- tryPutTMVar (edh'http'server'eol server) $ Right ()
     exitEdh ets exit $ EdhBool stopped
 

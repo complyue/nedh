@@ -12,15 +12,12 @@ import           Control.Concurrent.STM
 import           Data.Maybe
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
-import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
 import           Network.Socket
 import           Network.Socket.ByteString      ( recv
                                                 , sendAll
                                                 )
-
-import qualified Data.Lossless.Decimal         as D
 
 import           Language.Edh.EHI
 
@@ -76,120 +73,71 @@ data EdhClient = EdhClient {
 
 createClientClass :: Object -> Object -> Scope -> STM Object
 createClientClass !addrClass !peerClass !clsOuterScope =
-  mkHostClass' clsOuterScope "Client" clientAllocator [] $ \ !clsScope -> do
-    !mths <- sequence
-      [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp args
-      | (nm, vc, hp, args) <-
-        [ ("addrs"   , EdhMethod, addrsProc, PackReceiver [])
-        , ("eol"     , EdhMethod, eolProc  , PackReceiver [])
-        , ("join"    , EdhMethod, joinProc , PackReceiver [])
-        , ("stop"    , EdhMethod, stopProc , PackReceiver [])
-        , ("__repr__", EdhMethod, reprProc , PackReceiver [])
-        ]
-      ]
-    iopdUpdate mths $ edh'scope'entity clsScope
+  mkHostClass clsOuterScope "Client" (allocEdhObj clientAllocator) []
+    $ \ !clsScope -> do
+        !mths <- sequence
+          [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp
+          | (nm, vc, hp) <-
+            [ ("addrs"   , EdhMethod, wrapHostProc addrsProc)
+            , ("eol"     , EdhMethod, wrapHostProc eolProc)
+            , ("join"    , EdhMethod, wrapHostProc joinProc)
+            , ("stop"    , EdhMethod, wrapHostProc stopProc)
+            , ("__repr__", EdhMethod, wrapHostProc reprProc)
+            ]
+          ]
+        iopdUpdate mths $ edh'scope'entity clsScope
 
  where
 
   -- | host constructor Client()
-  clientAllocator :: EdhObjectAllocator
-  clientAllocator !etsCtor !apk !ctorExit = if edh'in'tx etsCtor
-    then throwEdh etsCtor
-                  UsageError
-                  "you don't create network objects within a transaction"
-    else
-      case
-        parseArgsPack
-          (Nothing, Left ("127.0.0.1" :: ServiceAddr, 3721 :: ServicePort), nil)
-          parseCtorArgs
-          apk
-      of
-        Left err -> throwEdh etsCtor UsageError err
-        Right (Nothing, _, _) ->
-          throwEdh etsCtor UsageError "missing consumer module"
-        Right (Just consumer, Right addrObj, __peer_init__) ->
-          serviceAddressFrom etsCtor addrObj
-            $ \(addr, port) -> go consumer addr port __peer_init__
-        Right (Just consumer, Left (addr, port), __peer_init__) ->
-          go consumer addr port __peer_init__
+  clientAllocator
+    :: "consumer" !: Text
+    -> "addrSpec" ?: EdhValue
+    -> "port" ?: Int
+    -> "init" ?: EdhValue
+    -> EdhObjectAllocator
+  clientAllocator (mandatoryArg -> !consumer) (defaultArg (EdhString "127.0.0.1") -> !addrSpec) (defaultArg 3721 -> !ctorPort) (defaultArg nil -> !init_) !ctorExit !etsCtor
+    = if edh'in'tx etsCtor
+      then throwEdh etsCtor
+                    UsageError
+                    "you don't create network objects within a transaction"
+      else case init_ of
+        EdhNil                               -> withInit nil
+        mth@(EdhProcedure EdhMethod{} _    ) -> withInit mth
+        mth@(EdhProcedure EdhIntrpr{} _    ) -> withInit mth
+        mth@(EdhBoundProc EdhMethod{} _ _ _) -> withInit mth
+        mth@(EdhBoundProc EdhIntrpr{} _ _ _) -> withInit mth
+        !badInit -> edhValueDesc etsCtor badInit $ \ !badDesc ->
+          throwEdh etsCtor UsageError $ "invalid init: " <> badDesc
    where
-    go consumer addr port __peer_init__ = do
-      serviceAddrs <- newEmptyTMVar
-      cnsmrEoL     <- newEmptyTMVar
-      let !client = EdhClient { edh'consumer'modu = consumer
-                              , edh'service'addr  = addr
-                              , edh'service'port  = port
-                              , edh'service'addrs = serviceAddrs
-                              , edh'consumer'eol  = cnsmrEoL
-                              , edh'consumer'init = __peer_init__
-                              }
-      runEdhTx etsCtor $ edhContIO $ do
-        void $ forkFinally
-          (consumerThread client)
-          ( void
-          . atomically
-            -- fill empty addrs if the connection has ever failed
-          . (tryPutTMVar serviceAddrs [] <*)
-            -- mark consumer end-of-life anyway finally
-          . tryPutTMVar cnsmrEoL
-          )
-        atomically $ ctorExit =<< HostStore <$> newTVar (toDyn client)
-    parseCtorArgs =
-      ArgsPackParser
-          [ \arg (_, addr', init') -> case edhUltimate arg of
-            EdhString !consumer -> Right (Just consumer, addr', init')
-            _                   -> Left "invalid consumer"
-          , \arg (consumer', addr', init') -> case edhUltimate arg of
-            EdhString host -> case addr' of
-              Left  (_, port') -> Right (consumer', Left (host, port'), init')
-              Right _addrObj   -> Right (consumer', Left (host, 3721), init')
-            EdhObject addrObj -> Right (consumer', Right addrObj, init')
-            _                 -> Left "invalid addr"
-          , \arg (consumer', addr', init') -> case edhUltimate arg of
-            EdhDecimal d -> case D.decimalToInteger d of
-              Just port -> case addr' of
-                Left (host', _) ->
-                  Right (consumer', Left (host', fromIntegral port), init')
-                Right _addrObj ->
-                  Left "can not specify both addr object and port"
-              Nothing -> Left "port must be integer"
-            _ -> Left "invalid port"
-          ]
-        $ Map.fromList
-            [ ( "addr"
-              , \arg (consumer', addr', init') -> case edhUltimate arg of
-                EdhString host -> case addr' of
-                  Left (_, port') ->
-                    Right (consumer', Left (host, port'), init')
-                  Right _addrObj -> Right (consumer', Left (host, 3721), init')
-                EdhObject addrObj -> Right (consumer', Right addrObj, init')
-                _                 -> Left "invalid addr"
-              )
-            , ( "port"
-              , \arg (consumer', addr', init') -> case edhUltimate arg of
-                EdhDecimal d -> case D.decimalToInteger d of
-                  Just port -> case addr' of
-                    Left (host', _) ->
-                      Right (consumer', Left (host', fromIntegral port), init')
-                    Right _addrObj ->
-                      Left "can not specify both addr object and port"
-                  Nothing -> Left "port must be integer"
-                _ -> Left "invalid port"
-              )
-            , ( "init"
-              , \arg (consumer', addr', _) -> case edhUltimate arg of
-                EdhNil -> Right (consumer', addr', nil)
-                mth@(EdhProcedure EdhMethod{} _) ->
-                  Right (consumer', addr', mth)
-                mth@(EdhProcedure EdhIntrpr{} _) ->
-                  Right (consumer', addr', mth)
-                mth@(EdhBoundProc EdhMethod{} _ _ _) ->
-                  Right (consumer', addr', mth)
-                mth@(EdhBoundProc EdhIntrpr{} _ _ _) ->
-                  Right (consumer', addr', mth)
-                _ -> Left "invalid init"
-              )
-            ]
+    withInit !__peer_init__ = case addrSpec of
+      EdhObject !addrObj ->
+        serviceAddressFrom etsCtor addrObj $ \(addr, port) -> go addr port
+      EdhString !addr -> go addr ctorPort
+      !badSpec        -> edhValueDesc etsCtor badSpec $ \ !badDesc ->
+        throwEdh etsCtor UsageError $ "bad address: " <> badDesc
+     where
+      go !addr !port = do
+        serviceAddrs <- newEmptyTMVar
+        cnsmrEoL     <- newEmptyTMVar
+        let !client = EdhClient { edh'consumer'modu = consumer
+                                , edh'service'addr  = addr
+                                , edh'service'port  = fromIntegral port
+                                , edh'service'addrs = serviceAddrs
+                                , edh'consumer'eol  = cnsmrEoL
+                                , edh'consumer'init = __peer_init__
+                                }
+        runEdhTx etsCtor $ edhContIO $ do
+          void $ forkFinally
+            (consumerThread client)
+            ( void
+            . atomically
+              -- fill empty addrs if the connection has ever failed
+            . (tryPutTMVar serviceAddrs [] <*)
+              -- mark consumer end-of-life anyway finally
+            . tryPutTMVar cnsmrEoL
+            )
+          atomically $ ctorExit =<< HostStore <$> newTVar (toDyn client)
 
     consumerThread :: EdhClient -> IO ()
     consumerThread (EdhClient !cnsmrModu !servAddr !servPort !serviceAddrs !cnsmrEoL !__peer_init__)
@@ -293,7 +241,7 @@ createClientClass !addrClass !peerClass !clsOuterScope =
 
 
   reprProc :: EdhHostProc
-  reprProc _ !exit !ets =
+  reprProc !exit !ets =
     withThisHostObj ets $ \_hsv (EdhClient !consumer !addr !port _ _ _) ->
       exitEdh ets exit
         $  EdhString
@@ -306,7 +254,7 @@ createClientClass !addrClass !peerClass !clsOuterScope =
         <> ")"
 
   addrsProc :: EdhHostProc
-  addrsProc _ !exit !ets = withThisHostObj ets
+  addrsProc !exit !ets = withThisHostObj ets
     $ \_hsv !client -> readTMVar (edh'service'addrs client) >>= wrapAddrs []
    where
     wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
@@ -316,7 +264,7 @@ createClientClass !addrClass !peerClass !clsOuterScope =
       >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
   eolProc :: EdhHostProc
-  eolProc _ !exit !ets = withThisHostObj ets $ \_hsv !client ->
+  eolProc !exit !ets = withThisHostObj ets $ \_hsv !client ->
     tryReadTMVar (edh'consumer'eol client) >>= \case
       Nothing        -> exitEdh ets exit $ EdhBool False
       Just (Left !e) -> edh'exception'wrapper world e
@@ -325,7 +273,7 @@ createClientClass !addrClass !peerClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   joinProc :: EdhHostProc
-  joinProc _ !exit !ets = withThisHostObj ets $ \_hsv !client ->
+  joinProc !exit !ets = withThisHostObj ets $ \_hsv !client ->
     readTMVar (edh'consumer'eol client) >>= \case
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
@@ -333,7 +281,7 @@ createClientClass !addrClass !peerClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   stopProc :: EdhHostProc
-  stopProc _ !exit !ets = withThisHostObj ets $ \_hsv !client -> do
+  stopProc !exit !ets = withThisHostObj ets $ \_hsv !client -> do
     stopped <- tryPutTMVar (edh'consumer'eol client) $ Right ()
     exitEdh ets exit $ EdhBool stopped
 

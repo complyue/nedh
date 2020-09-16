@@ -12,15 +12,12 @@ import           Control.Concurrent.STM
 import           Data.Maybe
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
-import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
 import           Network.Socket
 import           Network.Socket.ByteString      ( recv
                                                 , sendAll
                                                 )
-
-import qualified Data.Lossless.Decimal         as D
 
 import           Language.Edh.EHI
 
@@ -55,159 +52,76 @@ data EdhServer = EdhServer {
 
 createServerClass :: Object -> Object -> Scope -> STM Object
 createServerClass !addrClass !peerClass !clsOuterScope =
-  mkHostClass' clsOuterScope "Server" serverAllocator [] $ \ !clsScope -> do
-    !mths <-
-      sequence
-      $  [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp args
-         | (nm, vc, hp, args) <-
-           [ ("addrs"   , EdhMethod, addrsProc, PackReceiver [])
-           , ("eol"     , EdhMethod, eolProc  , PackReceiver [])
-           , ("join"    , EdhMethod, joinProc , PackReceiver [])
-           , ("stop"    , EdhMethod, stopProc , PackReceiver [])
-           , ("__repr__", EdhMethod, reprProc , PackReceiver [])
-           ]
-         ]
-      ++ [ (AttrByName nm, ) <$> mkHostProperty clsScope nm getter setter
-         | (nm, getter, setter) <- [("clients", clientsProc, Nothing)]
-         ]
-    iopdUpdate mths $ edh'scope'entity clsScope
+  mkHostClass clsOuterScope "Server" (allocEdhObj serverAllocator) []
+    $ \ !clsScope -> do
+        !mths <-
+          sequence
+          $  [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp
+             | (nm, vc, hp) <-
+               [ ("addrs"   , EdhMethod, wrapHostProc addrsProc)
+               , ("eol"     , EdhMethod, wrapHostProc eolProc)
+               , ("join"    , EdhMethod, wrapHostProc joinProc)
+               , ("stop"    , EdhMethod, wrapHostProc stopProc)
+               , ("__repr__", EdhMethod, wrapHostProc reprProc)
+               ]
+             ]
+          ++ [ (AttrByName nm, ) <$> mkHostProperty clsScope nm getter setter
+             | (nm, getter, setter) <- [("clients", clientsProc, Nothing)]
+             ]
+        iopdUpdate mths $ edh'scope'entity clsScope
 
  where
 
   -- | host constructor Server()
-  serverAllocator :: EdhObjectAllocator
-  serverAllocator !etsCtor !apk !ctorExit = if edh'in'tx etsCtor
-    then throwEdh etsCtor
-                  UsageError
-                  "you don't create network objects within a transaction"
-    else
-      case
-        parseArgsPack
-          ( Nothing -- modu
-          , "127.0.0.1" :: ServerAddr -- addr
-          , 3721 :: ServerPort -- port
-          , Nothing -- port'max
-          , nil -- __peer_init__
-          , Nothing -- maybeClients
-          )
-          parseCtorArgs
-          apk
-      of
-        Left err -> throwEdh etsCtor UsageError err
-        Right (Nothing, _, _, _, _, _) ->
-          throwEdh etsCtor UsageError "missing server module"
-        Right (Just !modu, !addr, !port, !port'max, !__peer_init__, !maybeClients)
-          -> do
-            servAddrs <- newEmptyTMVar
-            servEoL   <- newEmptyTMVar
-            clients   <- maybe newEventSink return maybeClients
-            let !server = EdhServer
-                  { edh'server'modu     = modu
-                  , edh'server'addr     = addr
-                  , edh'server'port     = port
-                  , edh'server'port'max = fromMaybe port port'max
-                  , edh'serving'addrs   = servAddrs
-                  , edh'server'eol      = servEoL
-                  , edh'server'init     = __peer_init__
-                  , edh'serving'clients = clients
-                  }
-            runEdhTx etsCtor $ edhContIO $ do
-              void $ forkFinally
-                (serverThread server)
-                ( atomically
-                . ((
-                    -- fill empty addrs if the connection has ever failed
-                    tryPutTMVar servAddrs [] >>
-                    -- mark eos for clients sink anyway finally
-                                                publishEvent clients nil) <*)
-                    -- mark server end-of-life anyway finally
-                . tryPutTMVar servEoL
-                )
-              atomically $ ctorExit =<< HostStore <$> newTVar (toDyn server)
+  serverAllocator
+    :: "modu" !: Text
+    -> "addr" ?: Text
+    -> "port" ?: Int
+    -> "port'max" ?: Int
+    -> "init" ?: EdhValue
+    -> "clients" ?: EventSink
+    -> EdhObjectAllocator
+  serverAllocator (mandatoryArg -> !modu) (defaultArg "127.0.0.1" -> !ctorAddr) (defaultArg 3721 -> !ctorPort) (optionalArg -> port'max) (defaultArg nil -> !init_) (optionalArg -> maybeClients) !ctorExit !etsCtor
+    = if edh'in'tx etsCtor
+      then throwEdh etsCtor
+                    UsageError
+                    "you don't create network objects within a transaction"
+      else case init_ of
+        EdhNil                               -> withInit nil
+        mth@(EdhProcedure EdhMethod{} _    ) -> withInit mth
+        mth@(EdhProcedure EdhIntrpr{} _    ) -> withInit mth
+        mth@(EdhBoundProc EdhMethod{} _ _ _) -> withInit mth
+        mth@(EdhBoundProc EdhIntrpr{} _ _ _) -> withInit mth
+        !badInit -> edhValueDesc etsCtor badInit $ \ !badDesc ->
+          throwEdh etsCtor UsageError $ "invalid init: " <> badDesc
    where
-    parseCtorArgs =
-      ArgsPackParser
-          [ \arg (_, addr', port', port'max, init', clients') ->
-            case edhUltimate arg of
-              EdhString !modu ->
-                Right (Just modu, addr', port', port'max, init', clients')
-              _ -> Left "invalid modu"
-          , \arg (modu', _, port', port'max, init', clients') ->
-            case edhUltimate arg of
-              EdhString !addr ->
-                Right (modu', addr, port', port'max, init', clients')
-              _ -> Left "invalid addr"
-          , \arg (modu', addr', _, port'max, init', clients') ->
-            case edhUltimate arg of
-              EdhDecimal !d -> case D.decimalToInteger d of
-                Just !port -> Right
-                  (modu', addr', fromIntegral port, port'max, init', clients')
-                Nothing -> Left "port must be integer"
-              _ -> Left "invalid port"
-          ]
-        $ Map.fromList
-            [ ( "addr"
-              , \arg (modu', _, port', port'max, init', clients') ->
-                case edhUltimate arg of
-                  EdhString !addr ->
-                    Right (modu', addr, port', port'max, init', clients')
-                  _ -> Left "invalid addr"
-              )
-            , ( "port"
-              , \arg (modu', addr', _, port'max, init', clients') ->
-                case edhUltimate arg of
-                  EdhDecimal !d -> case D.decimalToInteger d of
-                    Just !port ->
-                      Right
-                        ( modu'
-                        , addr'
-                        , fromIntegral port
-                        , port'max
-                        , init'
-                        , clients'
-                        )
-                    Nothing -> Left "port must be integer"
-                  _ -> Left "invalid port"
-              )
-            , ( "port'max"
-              , \arg (modu', addr', port', _, init', clients') ->
-                case edhUltimate arg of
-                  EdhDecimal d -> case D.decimalToInteger d of
-                    Just !port'max ->
-                      Right
-                        ( modu'
-                        , addr'
-                        , port'
-                        , Just $ fromInteger port'max
-                        , init'
-                        , clients'
-                        )
-                    Nothing -> Left "port'max must be integer"
-                  _ -> Left "invalid port'max"
-              )
-            , ( "init"
-              , \arg (modu', addr', port', port'max, _, clients') ->
-                case edhUltimate arg of
-                  EdhNil ->
-                    Right (modu', addr', port', port'max, nil, clients')
-                  mth@(EdhProcedure EdhMethod{} _) ->
-                    Right (modu', addr', port', port'max, mth, clients')
-                  mth@(EdhProcedure EdhIntrpr{} _) ->
-                    Right (modu', addr', port', port'max, mth, clients')
-                  mth@(EdhBoundProc EdhMethod{} _ _ _) ->
-                    Right (modu', addr', port', port'max, mth, clients')
-                  mth@(EdhBoundProc EdhIntrpr{} _ _ _) ->
-                    Right (modu', addr', port', port'max, mth, clients')
-                  _ -> Left "invalid init"
-              )
-            , ( "clients"
-              , \arg (modu', addr', port', port'max, init', _) ->
-                case edhUltimate arg of
-                  EdhSink !sink ->
-                    Right (modu', addr', port', port'max, init', Just sink)
-                  _ -> Left "invalid clients"
-              )
-            ]
+    withInit !__peer_init__ = do
+      !servAddrs <- newEmptyTMVar
+      !servEoL   <- newEmptyTMVar
+      !clients   <- maybe newEventSink return maybeClients
+      let !server = EdhServer
+            { edh'server'modu     = modu
+            , edh'server'addr     = ctorAddr
+            , edh'server'port     = fromIntegral ctorPort
+            , edh'server'port'max = fromIntegral $ fromMaybe ctorPort port'max
+            , edh'serving'addrs   = servAddrs
+            , edh'server'eol      = servEoL
+            , edh'server'init     = __peer_init__
+            , edh'serving'clients = clients
+            }
+      runEdhTx etsCtor $ edhContIO $ do
+        void $ forkFinally
+          (serverThread server)
+          ( atomically
+          . ((
+              -- fill empty addrs if the connection has ever failed
+              tryPutTMVar servAddrs [] >>
+              -- mark eos for clients sink anyway finally
+                                          publishEvent clients nil) <*)
+              -- mark server end-of-life anyway finally
+          . tryPutTMVar servEoL
+          )
+        atomically $ ctorExit =<< HostStore <$> newTVar (toDyn server)
 
     serverThread :: EdhServer -> IO ()
     serverThread (EdhServer !servModu !servAddr !servPort !portMax !servAddrs !servEoL !__peer_init__ !clients)
@@ -342,11 +256,11 @@ createServerClass !addrClass !peerClass !clsOuterScope =
 
 
   clientsProc :: EdhHostProc
-  clientsProc _ !exit !ets = withThisHostObj ets
+  clientsProc !exit !ets = withThisHostObj ets
     $ \_hsv !server -> exitEdh ets exit $ EdhSink $ edh'serving'clients server
 
   reprProc :: EdhHostProc
-  reprProc _ !exit !ets =
+  reprProc !exit !ets =
     withThisHostObj ets
       $ \_hsv (EdhServer !modu !addr !port !port'max _ _ _ _) ->
           exitEdh ets exit
@@ -362,7 +276,7 @@ createServerClass !addrClass !peerClass !clsOuterScope =
             <> ")"
 
   addrsProc :: EdhHostProc
-  addrsProc _ !exit !ets = withThisHostObj ets
+  addrsProc !exit !ets = withThisHostObj ets
     $ \_hsv !server -> readTMVar (edh'serving'addrs server) >>= wrapAddrs []
    where
     wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
@@ -372,7 +286,7 @@ createServerClass !addrClass !peerClass !clsOuterScope =
       >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
   eolProc :: EdhHostProc
-  eolProc _ !exit !ets = withThisHostObj ets $ \_hsv !server ->
+  eolProc !exit !ets = withThisHostObj ets $ \_hsv !server ->
     tryReadTMVar (edh'server'eol server) >>= \case
       Nothing        -> exitEdh ets exit $ EdhBool False
       Just (Left !e) -> edh'exception'wrapper world e
@@ -381,7 +295,7 @@ createServerClass !addrClass !peerClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   joinProc :: EdhHostProc
-  joinProc _ !exit !ets = withThisHostObj ets $ \_hsv !server ->
+  joinProc !exit !ets = withThisHostObj ets $ \_hsv !server ->
     readTMVar (edh'server'eol server) >>= \case
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
@@ -389,7 +303,7 @@ createServerClass !addrClass !peerClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   stopProc :: EdhHostProc
-  stopProc _ !exit !ets = withThisHostObj ets $ \_hsv !server -> do
+  stopProc !exit !ets = withThisHostObj ets $ \_hsv !server -> do
     stopped <- tryPutTMVar (edh'server'eol server) $ Right ()
     exitEdh ets exit $ EdhBool stopped
 

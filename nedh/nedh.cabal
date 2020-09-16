@@ -27,10 +27,18 @@ library
   default-extensions:
     NoImplicitPrelude
     BangPatterns
+    ConstraintKinds
+    DataKinds
+    FlexibleContexts
+    FlexibleInstances
+    GADTs
+    KindSignatures
     LambdaCase
     OverloadedStrings
     ScopedTypeVariables
     TupleSections
+    TypeOperators
+    ViewPatterns
 
   ghc-options:        -Wall
   build-depends:
@@ -61,10 +69,18 @@ executable nedh
   default-extensions:
     NoImplicitPrelude
     BangPatterns
+    ConstraintKinds
+    DataKinds
+    FlexibleContexts
+    FlexibleInstances
+    GADTs
+    KindSignatures
     LambdaCase
     OverloadedStrings
     ScopedTypeVariables
     TupleSections
+    TypeOperators
+    ViewPatterns
 
   ghc-options:        -Wall -threaded -rtsopts "-with-rtsopts=-maxN31 -qg"
   build-depends:
@@ -85,10 +101,18 @@ executable runnedh
   default-extensions:
     NoImplicitPrelude
     BangPatterns
+    ConstraintKinds
+    DataKinds
+    FlexibleContexts
+    FlexibleInstances
+    GADTs
+    KindSignatures
     LambdaCase
     OverloadedStrings
     ScopedTypeVariables
     TupleSections
+    TypeOperators
+    ViewPatterns
 
   ghc-options:        -Wall -threaded -rtsopts "-with-rtsopts=-maxN31 -qg"
   build-depends:
@@ -119,10 +143,18 @@ library nedh-internal
   default-extensions:
     NoImplicitPrelude
     BangPatterns
+    ConstraintKinds
+    DataKinds
+    FlexibleContexts
+    FlexibleInstances
+    GADTs
+    KindSignatures
     LambdaCase
     OverloadedStrings
     ScopedTypeVariables
     TupleSections
+    TypeOperators
+    ViewPatterns
 
   ghc-options:        -Wall
   build-depends:
