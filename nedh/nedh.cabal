@@ -37,6 +37,7 @@ library
     OverloadedStrings
     ScopedTypeVariables
     TupleSections
+    TypeApplications
     TypeOperators
     ViewPatterns
 
@@ -79,6 +80,7 @@ executable nedh
     OverloadedStrings
     ScopedTypeVariables
     TupleSections
+    TypeApplications
     TypeOperators
     ViewPatterns
 
@@ -111,6 +113,7 @@ executable runnedh
     OverloadedStrings
     ScopedTypeVariables
     TupleSections
+    TypeApplications
     TypeOperators
     ViewPatterns
 
@@ -153,6 +156,7 @@ library nedh-internal
     OverloadedStrings
     ScopedTypeVariables
     TupleSections
+    TypeApplications
     TypeOperators
     ViewPatterns
 
