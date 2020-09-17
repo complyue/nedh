@@ -39,7 +39,7 @@ parseRoutes !ets !routes !exit = case edhUltimate routes of
   EdhArgsPack (ArgsPack !args !kwargs) ->
     mimeArg "text/plain" kwargs $ \defMime -> if null args
       then exit Snap.pass
-      else foldl'contSTM Snap.pass (<|>) (parseRoute defMime <$> args) exit
+      else foldcontSTM Snap.pass (<|>) (parseRoute defMime <$> args) exit
   _ -> throwEdh ets UsageError "invalid routes"
  where
   mimeArg :: Text -> OrderedDict AttrKey EdhValue -> (Text -> STM ()) -> STM ()
