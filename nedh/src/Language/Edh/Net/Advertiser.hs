@@ -83,8 +83,11 @@ createAdvertiserClass !addrClass !clsOuterScope =
                     UsageError
                     "you don't create network objects within a transaction"
       else case maybeFromAddr of
-        Just !fromAddrObj ->
-          withHostObject etsCtor fromAddrObj $ \_hsv (fromAddr :: AddrInfo) ->
+        Just !fromAddrObj -> castObjectStore fromAddrObj >>= \case
+          Nothing ->
+            edhValueDesc etsCtor (EdhObject fromAddrObj) $ \ !badDesc ->
+              throwEdh etsCtor UsageError $ "bad addr object: " <> badDesc
+          Just (_, fromAddr :: AddrInfo) ->
             go ctorAddr ctorPort (Just fromAddr)
         _ -> go ctorAddr ctorPort Nothing
    where

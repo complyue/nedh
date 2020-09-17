@@ -33,8 +33,9 @@ serviceAddressFrom
   -> Object
   -> ((ServiceAddr, ServicePort) -> STM ())
   -> STM ()
-serviceAddressFrom !ets !addrObj !exit =
-  withHostObject ets addrObj $ \_hsv !addr -> case addr of
+serviceAddressFrom !ets !addrObj !exit = castObjectStore addrObj >>= \case
+  Nothing         -> throwEdh ets UsageError "unsupported addr object"
+  Just (_, !addr) -> case addr of
     (AddrInfo _ _ _ _ (SockAddrInet !port !host) _) ->
       case hostAddressToTuple host of
         (n1, n2, n3, n4) -> exit
