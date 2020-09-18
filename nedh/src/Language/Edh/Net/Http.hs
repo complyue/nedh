@@ -42,7 +42,7 @@ parseRoutes !ets !routes !exit = case edhUltimate routes of
       else foldcontSTM Snap.pass (<|>) (parseRoute defMime <$> args) exit
   _ -> throwEdh ets UsageError "invalid routes"
  where
-  mimeArg :: Text -> OrderedDict AttrKey EdhValue -> (Text -> STM ()) -> STM ()
+  mimeArg :: Text -> KwArgs -> (Text -> STM ()) -> STM ()
   mimeArg !defMime !kwargs !exit' = case odLookup (AttrByName "mime") kwargs of
     Nothing                -> exit' defMime
     Just (EdhString !mime) -> exit' mime
