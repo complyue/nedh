@@ -38,7 +38,7 @@ createAddrClass !clsOuterScope =
   addrAllocator :: "host" ?: Text -> "port" ?: Int -> EdhObjectAllocator
   addrAllocator (optionalArg -> !maybeHost) (optionalArg -> !maybePort) !ctorExit !etsCtor
     = case (maybeHost, maybePort) of
-      (Nothing, Nothing) -> ctorExit =<< HostStore <$> newTVar (toDyn nil)
+      (Nothing, Nothing) -> ctorExit $ HostStore (toDyn nil)
       (!host, !port) ->
         unsafeIOToSTM
             (getAddrInfo
@@ -50,18 +50,18 @@ createAddrClass !clsOuterScope =
               (show <$> port)
             )
           >>= \case
-                addr : _ -> ctorExit =<< HostStore <$> newTVar (toDyn addr)
+                addr : _ -> ctorExit $ HostStore (toDyn addr)
                 _ -> throwEdh etsCtor UsageError "bad network address spec"
 
   addrReprProc :: EdhHostProc
   addrReprProc !exit !ets =
     withThisHostObj' ets (exitEdh ets exit $ EdhString "Addr()")
-      $ \_hsv (addr :: AddrInfo) -> exitEdh ets exit $ EdhString $ addrRepr addr
+      $ \(addr :: AddrInfo) -> exitEdh ets exit $ EdhString $ addrRepr addr
 
   addrHostProc :: EdhHostProc
   addrHostProc !exit !ets =
     withThisHostObj' ets (exitEdh ets exit $ EdhString "")
-      $ \_hsv (addr :: AddrInfo) -> case addrAddress addr of
+      $ \(addr :: AddrInfo) -> case addrAddress addr of
           SockAddrInet _ !host -> case hostAddressToTuple host of
             (n1, n2, n3, n4) ->
               exitEdh ets exit
@@ -90,7 +90,7 @@ createAddrClass !clsOuterScope =
   addrPortProc :: EdhHostProc
   addrPortProc !exit !ets =
     withThisHostObj' ets (exitEdh ets exit $ EdhDecimal 0)
-      $ \_hsv (addr :: AddrInfo) -> case addrAddress addr of
+      $ \(addr :: AddrInfo) -> case addrAddress addr of
           SockAddrInet !port _ ->
             exitEdh ets exit $ EdhDecimal $ fromIntegral port
           SockAddrInet6 !port _ _ _ ->
@@ -100,8 +100,7 @@ createAddrClass !clsOuterScope =
   addrInfoProc :: EdhHostProc
   addrInfoProc !exit !ets =
     withThisHostObj' ets (exitEdh ets exit $ EdhString "<bogus-addr>")
-      $ \_hsv (addr :: AddrInfo) ->
-          exitEdh ets exit $ EdhString $ T.pack $ show addr
+      $ \(addr :: AddrInfo) -> exitEdh ets exit $ EdhString $ T.pack $ show addr
 
 
 addrWithPort :: SockAddr -> PortNumber -> SockAddr

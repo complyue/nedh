@@ -117,7 +117,7 @@ createSnifferClass !addrClass !clsOuterScope =
           -- mark end-of-life anyway finally
           . tryPutTMVar snifEoL
           )
-        atomically $ ctorExit =<< HostStore <$> newTVar (toDyn sniffer)
+        atomically $ ctorExit $ HostStore (toDyn sniffer)
 
     sniffThread :: EdhSniffer -> IO ()
     sniffThread (EdhSniffer !snifModu !snifAddr !snifPort !snifAddrs !snifEoL !__modu_init__)
@@ -237,7 +237,7 @@ createSnifferClass !addrClass !clsOuterScope =
 
   reprProc :: EdhHostProc
   reprProc !exit !ets =
-    withThisHostObj ets $ \_hsv (EdhSniffer !modu !addr !port _ _ _) ->
+    withThisHostObj ets $ \(EdhSniffer !modu !addr !port _ _ _) ->
       exitEdh ets exit
         $  EdhString
         $  "Sniffer("
@@ -250,7 +250,7 @@ createSnifferClass !addrClass !clsOuterScope =
 
   addrsMth :: EdhHostProc
   addrsMth !exit !ets = withThisHostObj ets
-    $ \_hsv !sniffer -> readTMVar (edh'sniffing'addrs sniffer) >>= wrapAddrs []
+    $ \ !sniffer -> readTMVar (edh'sniffing'addrs sniffer) >>= wrapAddrs []
    where
     wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
     wrapAddrs addrs [] =
@@ -259,7 +259,7 @@ createSnifferClass !addrClass !clsOuterScope =
       >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
   eolMth :: EdhHostProc
-  eolMth !exit !ets = withThisHostObj ets $ \_hsv !sniffer ->
+  eolMth !exit !ets = withThisHostObj ets $ \ !sniffer ->
     tryReadTMVar (edh'sniffing'eol sniffer) >>= \case
       Nothing        -> exitEdh ets exit $ EdhBool False
       Just (Left !e) -> edh'exception'wrapper world e
@@ -268,7 +268,7 @@ createSnifferClass !addrClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   joinMth :: EdhHostProc
-  joinMth !exit !ets = withThisHostObj ets $ \_hsv !sniffer ->
+  joinMth !exit !ets = withThisHostObj ets $ \ !sniffer ->
     readTMVar (edh'sniffing'eol sniffer) >>= \case
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
@@ -276,7 +276,7 @@ createSnifferClass !addrClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   stopMth :: EdhHostProc
-  stopMth !exit !ets = withThisHostObj ets $ \_hsv !sniffer -> do
+  stopMth !exit !ets = withThisHostObj ets $ \ !sniffer -> do
     !stopped <- tryPutTMVar (edh'sniffing'eol sniffer) $ Right ()
     exitEdh ets exit $ EdhBool stopped
 

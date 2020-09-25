@@ -124,7 +124,7 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
             -- mark server end-of-life anyway finally
           . tryPutTMVar servEoL
           )
-        atomically $ ctorExit =<< HostStore <$> newTVar (toDyn server)
+        atomically $ ctorExit $ HostStore (toDyn server)
 
     serverThread :: EdhWsServer -> IO ()
     serverThread (EdhWsServer !servModu !servAddr !servPort !portMax !servAddrs !servEoL !__peer_init__ !clients)
@@ -340,29 +340,28 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
 
 
   clientsProc :: EdhHostProc
-  clientsProc !exit !ets = withThisHostObj ets $ \_hsv !server ->
-    exitEdh ets exit $ EdhSink $ edh'ws'serving'clients server
+  clientsProc !exit !ets = withThisHostObj ets
+    $ \ !server -> exitEdh ets exit $ EdhSink $ edh'ws'serving'clients server
 
   reprProc :: EdhHostProc
   reprProc !exit !ets =
-    withThisHostObj ets
-      $ \_hsv (EdhWsServer !modu !addr !port !port'max _ _ _ _) ->
-          exitEdh ets exit
-            $  EdhString
-            $  "WsServer("
-            <> T.pack (show modu)
-            <> ", "
-            <> T.pack (show addr)
-            <> ", "
-            <> T.pack (show port)
-            <> T.pack (show port)
-            <> ", port'max="
-            <> T.pack (show port'max)
-            <> ")"
+    withThisHostObj ets $ \(EdhWsServer !modu !addr !port !port'max _ _ _ _) ->
+      exitEdh ets exit
+        $  EdhString
+        $  "WsServer("
+        <> T.pack (show modu)
+        <> ", "
+        <> T.pack (show addr)
+        <> ", "
+        <> T.pack (show port)
+        <> T.pack (show port)
+        <> ", port'max="
+        <> T.pack (show port'max)
+        <> ")"
 
   addrsProc :: EdhHostProc
   addrsProc !exit !ets = withThisHostObj ets
-    $ \_hsv !server -> readTMVar (edh'ws'serving'addrs server) >>= wrapAddrs []
+    $ \ !server -> readTMVar (edh'ws'serving'addrs server) >>= wrapAddrs []
    where
     wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
     wrapAddrs addrs [] =
@@ -371,7 +370,7 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
       >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
   eolProc :: EdhHostProc
-  eolProc !exit !ets = withThisHostObj ets $ \_hsv !server ->
+  eolProc !exit !ets = withThisHostObj ets $ \ !server ->
     tryReadTMVar (edh'ws'server'eol server) >>= \case
       Nothing        -> exitEdh ets exit $ EdhBool False
       Just (Left !e) -> edh'exception'wrapper world e
@@ -380,7 +379,7 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   joinProc :: EdhHostProc
-  joinProc !exit !ets = withThisHostObj ets $ \_hsv !server ->
+  joinProc !exit !ets = withThisHostObj ets $ \ !server ->
     readTMVar (edh'ws'server'eol server) >>= \case
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
@@ -388,7 +387,7 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   stopProc :: EdhHostProc
-  stopProc !exit !ets = withThisHostObj ets $ \_hsv !server -> do
+  stopProc !exit !ets = withThisHostObj ets $ \ !server -> do
     stopped <- tryPutTMVar (edh'ws'server'eol server) $ Right ()
     exitEdh ets exit $ EdhBool stopped
 

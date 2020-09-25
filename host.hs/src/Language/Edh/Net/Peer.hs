@@ -118,10 +118,10 @@ createPeerClass !clsOuterScope =
   -- | host constructor Peer()
   peerAllocator :: ArgsPack -> EdhObjectAllocator
   -- not really constructable from Edh code, this only creates bogus peer obj
-  peerAllocator _ !ctorExit _ = ctorExit =<< HostStore <$> newTVar (toDyn nil)
+  peerAllocator _ !ctorExit _ = ctorExit $ HostStore (toDyn nil)
 
   eolProc :: EdhHostProc
-  eolProc !exit !ets = withThisHostObj ets $ \_hsv !peer ->
+  eolProc !exit !ets = withThisHostObj ets $ \ !peer ->
     tryReadTMVar (edh'peer'eol peer) >>= \case
       Nothing        -> exitEdh ets exit $ EdhBool False
       Just (Left !e) -> edh'exception'wrapper world e
@@ -130,7 +130,7 @@ createPeerClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   joinProc :: EdhHostProc
-  joinProc !exit !ets = withThisHostObj ets $ \_hsv !peer ->
+  joinProc !exit !ets = withThisHostObj ets $ \ !peer ->
     readTMVar (edh'peer'eol peer) >>= \case
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
@@ -138,20 +138,20 @@ createPeerClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   stopProc :: EdhHostProc
-  stopProc !exit !ets = withThisHostObj ets $ \_hsv !peer -> do
+  stopProc !exit !ets = withThisHostObj ets $ \ !peer -> do
     !stopped <- tryPutTMVar (edh'peer'eol peer) $ Right ()
     exitEdh ets exit $ EdhBool stopped
 
   armedChannelProc :: "chLctr" !: EdhValue -> EdhHostProc
   armedChannelProc (mandatoryArg -> !chLctr) !exit !ets =
-    withThisHostObj ets $ \_hsv !peer -> do
+    withThisHostObj ets $ \ !peer -> do
       Map.lookup chLctr <$> readTVar (edh'peer'channels peer) >>= \case
         Nothing      -> exitEdh ets exit nil
         Just !chSink -> exitEdh ets exit $ EdhSink chSink
 
   armChannelProc :: "chLctr" !: EdhValue -> "chSink" ?: EventSink -> EdhHostProc
   armChannelProc (mandatoryArg -> !chLctr) (optionalArg -> !maybeSink) !exit !ets
-    = withThisHostObj ets $ \_hsv !peer -> do
+    = withThisHostObj ets $ \ !peer -> do
       let armSink :: EventSink -> STM ()
           armSink !chSink = do
             modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
@@ -162,11 +162,11 @@ createPeerClass !clsOuterScope =
 
   readPeerSrcProc :: EdhHostProc
   readPeerSrcProc !exit !ets =
-    withThisHostObj ets $ \_hsv !peer -> readPeerSource ets peer exit
+    withThisHostObj ets $ \ !peer -> readPeerSource ets peer exit
 
   readPeerCmdProc :: "inScopeOf" ?: Object -> EdhHostProc
   readPeerCmdProc (optionalArg -> !inScopeOf) !exit !ets =
-    withThisHostObj ets $ \_hsv !peer ->
+    withThisHostObj ets $ \ !peer ->
       let
         doReadCmd :: Scope -> STM ()
         doReadCmd !cmdScope = readPeerCommand etsCmd peer exit
@@ -197,7 +197,7 @@ createPeerClass !clsOuterScope =
             -- eval cmd source in scope of the specified object
             Just !inScope -> doReadCmd inScope
             Nothing       -> case edh'obj'store so of
-              HostStore !hsv -> fromDynamic <$> readTVar hsv >>= \case
+              HostStore !hsd -> case fromDynamic hsd of
                 -- the specified objec is a scope object, eval cmd source in
                 -- the wrapped scope
                 Just (inScope :: Scope) -> doReadCmd inScope
@@ -214,7 +214,7 @@ createPeerClass !clsOuterScope =
     !callerScope = contextFrame ctx 1
 
   postCmd :: EdhValue -> EdhValue -> EdhTxExit -> EdhTx
-  postCmd !dirVal !cmdVal !exit !ets = withThisHostObj ets $ \_hsv !peer -> do
+  postCmd !dirVal !cmdVal !exit !ets = withThisHostObj ets $ \ !peer -> do
     let withDir :: (PacketDirective -> STM ()) -> STM ()
         withDir !exit' = case edhUltimate dirVal of
           EdhNil  -> exit' ""
@@ -241,11 +241,11 @@ createPeerClass !clsOuterScope =
   identProc :: EdhHostProc
   identProc !exit !ets =
     withThisHostObj' ets (exitEdh ets exit $ EdhString "<bogus-peer>")
-      $ \_hsv !peer -> exitEdh ets exit $ EdhString $ edh'peer'ident peer
+      $ \ !peer -> exitEdh ets exit $ EdhString $ edh'peer'ident peer
 
   reprProc :: EdhHostProc
   reprProc !exit !ets =
     withThisHostObj' ets (exitEdh ets exit $ EdhString "peer:<bogus>")
-      $ \_hsv !peer ->
+      $ \ !peer ->
           exitEdh ets exit $ EdhString $ "peer:<" <> edh'peer'ident peer <> ">"
 

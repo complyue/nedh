@@ -162,7 +162,7 @@ createHttpServerClass !addrClass !clsOuterScope =
             -- mark server end-of-life anyway finally
           . tryPutTMVar servEoL
           )
-        atomically $ ctorExit =<< HostStore <$> newTVar (toDyn server)
+        atomically $ ctorExit $ HostStore (toDyn server)
 
     serverThread :: EdhHttpServer -> IO ()
     serverThread (EdhHttpServer !resModus !custRoutes !servAddr !servPort !portMax !servAddrs !servEoL)
@@ -223,7 +223,7 @@ createHttpServerClass !addrClass !clsOuterScope =
   reprProc :: EdhHostProc
   reprProc !exit !ets =
     withThisHostObj ets
-      $ \_hsv (EdhHttpServer !modus _ !addr !port !port'max _ _) ->
+      $ \(EdhHttpServer !modus _ !addr !port !port'max _ _) ->
           exitEdh ets exit
             $  EdhString
             $  "HttpServer("
@@ -237,8 +237,8 @@ createHttpServerClass !addrClass !clsOuterScope =
             <> ")"
 
   addrsProc :: EdhHostProc
-  addrsProc !exit !ets = withThisHostObj ets $ \_hsv !server ->
-    readTMVar (edh'http'serving'addrs server) >>= wrapAddrs []
+  addrsProc !exit !ets = withThisHostObj ets
+    $ \ !server -> readTMVar (edh'http'serving'addrs server) >>= wrapAddrs []
    where
     wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
     wrapAddrs addrs [] =
@@ -247,7 +247,7 @@ createHttpServerClass !addrClass !clsOuterScope =
       >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
   eolProc :: EdhHostProc
-  eolProc !exit !ets = withThisHostObj ets $ \_hsv !server ->
+  eolProc !exit !ets = withThisHostObj ets $ \ !server ->
     tryReadTMVar (edh'http'server'eol server) >>= \case
       Nothing        -> exitEdh ets exit $ EdhBool False
       Just (Left !e) -> edh'exception'wrapper world e
@@ -256,7 +256,7 @@ createHttpServerClass !addrClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   joinProc :: EdhHostProc
-  joinProc !exit !ets = withThisHostObj ets $ \_hsv !server ->
+  joinProc !exit !ets = withThisHostObj ets $ \ !server ->
     readTMVar (edh'http'server'eol server) >>= \case
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
@@ -264,7 +264,7 @@ createHttpServerClass !addrClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   stopProc :: EdhHostProc
-  stopProc !exit !ets = withThisHostObj ets $ \_hsv !server -> do
+  stopProc !exit !ets = withThisHostObj ets $ \ !server -> do
     stopped <- tryPutTMVar (edh'http'server'eol server) $ Right ()
     exitEdh ets exit $ EdhBool stopped
 

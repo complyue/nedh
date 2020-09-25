@@ -138,7 +138,7 @@ createClientClass !addrClass !peerClass !clsOuterScope =
               -- mark consumer end-of-life anyway finally
             . tryPutTMVar cnsmrEoL
             )
-          atomically $ ctorExit =<< HostStore <$> newTVar (toDyn client)
+          atomically $ ctorExit $ HostStore (toDyn client)
 
     consumerThread :: EdhClient -> IO ()
     consumerThread (EdhClient !cnsmrModu !servAddr !servPort !serviceAddrs !cnsmrEoL !__peer_init__)
@@ -243,7 +243,7 @@ createClientClass !addrClass !peerClass !clsOuterScope =
 
   reprProc :: EdhHostProc
   reprProc !exit !ets =
-    withThisHostObj ets $ \_hsv (EdhClient !consumer !addr !port _ _ _) ->
+    withThisHostObj ets $ \(EdhClient !consumer !addr !port _ _ _) ->
       exitEdh ets exit
         $  EdhString
         $  "Client("
@@ -256,7 +256,7 @@ createClientClass !addrClass !peerClass !clsOuterScope =
 
   addrsProc :: EdhHostProc
   addrsProc !exit !ets = withThisHostObj ets
-    $ \_hsv !client -> readTMVar (edh'service'addrs client) >>= wrapAddrs []
+    $ \ !client -> readTMVar (edh'service'addrs client) >>= wrapAddrs []
    where
     wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
     wrapAddrs addrs [] =
@@ -265,7 +265,7 @@ createClientClass !addrClass !peerClass !clsOuterScope =
       >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
   eolProc :: EdhHostProc
-  eolProc !exit !ets = withThisHostObj ets $ \_hsv !client ->
+  eolProc !exit !ets = withThisHostObj ets $ \ !client ->
     tryReadTMVar (edh'consumer'eol client) >>= \case
       Nothing        -> exitEdh ets exit $ EdhBool False
       Just (Left !e) -> edh'exception'wrapper world e
@@ -274,7 +274,7 @@ createClientClass !addrClass !peerClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   joinProc :: EdhHostProc
-  joinProc !exit !ets = withThisHostObj ets $ \_hsv !client ->
+  joinProc !exit !ets = withThisHostObj ets $ \ !client ->
     readTMVar (edh'consumer'eol client) >>= \case
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
@@ -282,7 +282,7 @@ createClientClass !addrClass !peerClass !clsOuterScope =
     where world = edh'ctx'world $ edh'context ets
 
   stopProc :: EdhHostProc
-  stopProc !exit !ets = withThisHostObj ets $ \_hsv !client -> do
+  stopProc !exit !ets = withThisHostObj ets $ \ !client -> do
     stopped <- tryPutTMVar (edh'consumer'eol client) $ Right ()
     exitEdh ets exit $ EdhBool stopped
 
