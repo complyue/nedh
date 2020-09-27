@@ -40,7 +40,7 @@ conOutSignal := sink
 
 # by default, show peer's identity as part of the console prompt
 cinArgs = (
-  ps1 = '<' ++peer.ident() ++ '> Đ: ',
+  ps1 = '<' ++peer.ident ++ '> Đ: ',
 )
 
 # land commands from the service asynchronously, without any

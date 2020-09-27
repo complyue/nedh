@@ -95,22 +95,25 @@ landPeerCmd (Peer !ident _ _ _ !chdVar) (Packet !dir !payload) !ets !exit =
 createPeerClass :: Scope -> STM Object
 createPeerClass !clsOuterScope =
   mkHostClass clsOuterScope "Peer" peerAllocator [] $ \ !clsScope -> do
-    !mths <- sequence
-      [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp
-      | (nm, vc, hp) <-
-        [ ("eol"         , EdhMethod, wrapHostProc eolProc)
-        , ("join"        , EdhMethod, wrapHostProc joinProc)
-        , ("stop"        , EdhMethod, wrapHostProc stopProc)
-        , ("armedChannel", EdhMethod, wrapHostProc armedChannelProc)
-        , ("armChannel"  , EdhMethod, wrapHostProc armChannelProc)
-        , ("readSource"  , EdhMethod, wrapHostProc readPeerSrcProc)
-        , ("readCommand" , EdhMethod, wrapHostProc readPeerCmdProc)
-        , ("p2c"         , EdhMethod, wrapHostProc p2cProc)
-        , ("postCommand" , EdhMethod, wrapHostProc postPeerCmdProc)
-        , ("ident"       , EdhMethod, wrapHostProc identProc)
-        , ("__repr__"    , EdhMethod, wrapHostProc reprProc)
-        ]
-      ]
+    !mths <-
+      sequence
+      $  [ (AttrByName nm, ) <$> mkHostProc clsScope vc nm hp
+         | (nm, vc, hp) <-
+           [ ("eol"         , EdhMethod, wrapHostProc eolProc)
+           , ("join"        , EdhMethod, wrapHostProc joinProc)
+           , ("stop"        , EdhMethod, wrapHostProc stopProc)
+           , ("armedChannel", EdhMethod, wrapHostProc armedChannelProc)
+           , ("armChannel"  , EdhMethod, wrapHostProc armChannelProc)
+           , ("readSource"  , EdhMethod, wrapHostProc readPeerSrcProc)
+           , ("readCommand" , EdhMethod, wrapHostProc readPeerCmdProc)
+           , ("p2c"         , EdhMethod, wrapHostProc p2cProc)
+           , ("postCommand" , EdhMethod, wrapHostProc postPeerCmdProc)
+           , ("__repr__"    , EdhMethod, wrapHostProc reprProc)
+           ]
+         ]
+      ++ [ (AttrByName nm, ) <$> mkHostProperty clsScope nm getter setter
+         | (nm, getter, setter) <- [("ident", identProc, Nothing)]
+         ]
     iopdUpdate mths $ edh'scope'entity clsScope
 
  where
