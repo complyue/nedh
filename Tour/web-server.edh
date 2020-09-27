@@ -1,38 +1,50 @@
 
-import * 'net'
+# use a namespece to contain artifacts prepared from the following scoped block
+namespace webServer () pass
 
-{
+# %{ use a scoped block so nedh artifacts are not imported into top-level
+{@
 
-  wsServer = WsServer(
-    'net/demo/web/ws', '127.0.0.1', 3790,
-    port'max=3799,
+  # %%
+  import * 'net'
+
+  # %%
+  webServer.ws = WsServer(
+    'net/demo/web/ws', # facade module
+    '127.0.0.1', 3790, # network address to listen
+    port'max=3799, # try listen up to this port
   )
-  case wsServer.addrs() of {
+  case webServer.ws.addrs() of {
     { wsAddr => _extraWsAddrs } -> {
-      console.info<| 'WebSocket service listening: ws://'
+      console.info<| 'Nedh WebSocket service listening: ws://'
       ++ wsAddr.host() ++ ':' ++ wsAddr.port()
     }
-    error( 'WebSocket service failed start serving.' )
+    error( 'Nedh WebSocket service failed start serving.' )
   }
 
 
-  httpServer = HttpServer(
-    'net/demo/web', '127.0.0.1', 3780, routes= (
+  # %%
+  webServer.http = HttpServer(
+    # multiple modules providing static web resources can stack up
+    ( 'net/demo/web', ),
+    '127.0.0.1', 3780, # network address to listen
+    port'max=3789, # try listen up to this port
+    routes= ( # routes by URI
       # tell web browser our port of WebSocket at uri `/:`
       ( ":", '' ++ wsAddr.port(), mime= 'text/plain' ),
-    ), port'max=3789,
+    ),
   )
-  case httpServer.addrs() of {
+  case webServer.http.addrs() of {
     { httpAddr => _extraHttpAddrs } -> {
-      console.info<| 'Http service listening: http://'
+      console.info<| 'Nedh http service listening: http://'
       ++ httpAddr.host() ++ ':' ++ httpAddr.port()
     }
-    error( 'Http service failed start serving.' )
+    error( 'Nedh http service failed start serving.' )
   }
 
-}
+  # %}
+@}
 
-# following line helps to keep the server live if this
-# file is redirected as stdin.
-# be aware it's no good to be pasted into an repl
-httpServer.join()
+# %%
+# this line helps to keep the server live when run not interactively
+webServer.http.join()
