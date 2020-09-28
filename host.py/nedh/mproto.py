@@ -8,9 +8,9 @@ import asyncio
 from typing import *
 
 from edh import *
-from .log import *
+from . import log
 
-logger = get_logger(__name__)
+logger = log.get_logger(__name__)
 
 
 MAX_HEADER_LENGTH = 60

@@ -8,9 +8,6 @@ __all__ = [
     # exports from .client
     'EdhClient',
 
-    # exports from .log
-    'root_logger', 'get_logger',
-
     # exports from .mproto
     'Packet', 'textPacket', 'sendPacket', 'receivePacketStream',
 
@@ -27,7 +24,6 @@ __all__ = [
 ]
 
 from .client import *
-from .log import *
 from .mproto import *
 from .peer import *
 from .server import *

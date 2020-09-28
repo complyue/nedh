@@ -12,12 +12,12 @@ import inspect
 import runpy
 
 from edh import *
-from .log import *
+from . import log
 
 from .mproto import *
 from .peer import *
 
-logger = get_logger(__name__)
+logger = log.get_logger(__name__)
 
 
 class EdhServer:

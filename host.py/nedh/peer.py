@@ -11,11 +11,11 @@ import inspect
 import ast
 
 from edh import *
-from .log import *
+from . import log
 
 from .mproto import *
 
-logger = get_logger(__name__)
+logger = log.get_logger(__name__)
 
 
 class Peer:
