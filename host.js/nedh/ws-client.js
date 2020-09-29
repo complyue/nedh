@@ -105,4 +105,42 @@ export class WsPeer {
       ch.publish(cmdVal);
     };
   }
+
+  stop() {
+    this.ws.close();
+  }
+
+  armedChannel(chLctr) {
+    return this.channels[chLctr];
+  }
+
+  ensureChannel(chLctr) {
+    if (undefined === this.channels[chLctr]) {
+      this.channels[chLctr] = new EventSink();
+    }
+  }
+
+  armChannel(chLctr, chSink) {
+    if (undefined === chSink) {
+      chSink = new EventSink();
+    }
+    this.channels[chLctr] = chSink;
+  }
+
+  postCommand(src, dir) {
+    if (undefined !== dir) {
+      let dirRepr;
+      if ("string" === typeof dir) {
+        dirRepr = JSON.stringify(dir);
+      } else {
+        dirRepr = "" + dir;
+      }
+      this.ws.send("[#" + dirRepr + "]");
+    }
+    this.ws.send("" + src);
+  }
+
+  p2c(dir, src) {
+    this.postCommand(dir, src);
+  }
 }
