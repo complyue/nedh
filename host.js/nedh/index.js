@@ -1,1 +1,1 @@
-export * from "./peer";
+export * from "./ws-client";
