@@ -13,9 +13,9 @@ method trackPeer( peer ) peer.join() $=> { nccExc } -> {
 
 export method consoleOn (
   conModu, # the console service module
-  servAddr = '127.0.0.1', # local addr to bind
-  servPort =3720, # local port to bind
-  init =None, # peer module initialization
+  servAddr= '127.0.0.1', # local addr to bind
+  servPort= 3720, # local port to bind
+  init= None, # peer module initialization
 ) {
   ncon = Server (
     conModu, servAddr, servPort, init=init,

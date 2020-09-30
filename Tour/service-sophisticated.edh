@@ -86,19 +86,15 @@ import * 'net'
     'net/demo/service', # the service module
     '127.0.0.1', # local addr to bind
     3721, # local port to bind
-    init=method _ () { # per-connection peer module initialization
+    init= modu => { # per-connection peer module initialization
 
       # implant some more service method (e.g. `calc()`) to the service module
 
-      # note contextual this/that are both the service module object for the
-      # per-connection peer module initialization method, and we have access
-      # to lexical outer scopes from here
-
       # you can do it the plain way
-      that.calc = a'dose'to'inject.calc
+      modu.calc = a'dose'to'inject.calc
 
       # or do it the fancy way
-      import * a'dose'to'inject into that
+      import * a'dose'to'inject into modu
 
     },
   ) do {

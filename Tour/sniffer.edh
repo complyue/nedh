@@ -11,7 +11,7 @@ import * 'net'
     '0.0.0.0', 3721,
 
     # sniffer module initializer
-    init = method _ () that.purpose = 'demo',
+    init= modu => modu.purpose = 'demo',
 
   )
 }

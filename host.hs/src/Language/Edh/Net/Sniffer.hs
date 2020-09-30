@@ -210,9 +210,12 @@ createSnifferClass !addrClass !clsOuterScope =
             if __modu_init__ == nil
               then exit
               else
-                edhPrepareCall' etsModu __modu_init__ (ArgsPack [] odEmpty)
-                  $ \ !mkCall ->
-                      runEdhTx etsModu $ mkCall $ \_result _ets -> exit
+                edhPrepareCall'
+                    etsModu
+                    __modu_init__
+                    (ArgsPack [EdhObject $ edh'scope'this moduScope] odEmpty)
+                  $ \ !mkCall -> runEdhTx etsModu $ mkCall $ \_result _ets ->
+                      exit
             where !moduScope = contextScope $ edh'context etsModu
 
         void
