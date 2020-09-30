@@ -13,9 +13,9 @@ effect import * 'net/effects'
 import * '.'
 
 # a Peer object should have been implanted atomically, the following
-# line should have no practical effect but to hint an IDE for code
+# line should have no technical effect but to hint an IDE for code
 # completion etc.
-peer ?:= Peer()
+peer ?= Peer()
 
 # define various effectful artifacts used for communication with this
 # connected consumer client session, with `@netPeer` and `@dataSink` the
