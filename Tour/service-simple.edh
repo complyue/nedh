@@ -9,7 +9,7 @@ import * 'net'
   )
 
   # this waits the server to start listening and returns actual addresses
-  case server.addrs() of { addr => extraAddrs }
+  case server.addrs() of { addr :> extraAddrs }
   -> console.info<| 'Demo service listening: ' ++ addr
 
   # this waits the server to be stopped, or rethrows any failure

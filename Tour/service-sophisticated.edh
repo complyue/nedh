@@ -63,7 +63,7 @@ import * 'net'
     # @.addrs()@ will only be populated after successful listening at os level,
     # this call waits a result before return
     case server.addrs() of {
-      { addr => extraAddrs }
+      { addr :> extraAddrs }
       -> console.info<| 'Demo service listening: ' ++ addr
 
       # empty @.addrs()@ means the network has failed, propagate the error

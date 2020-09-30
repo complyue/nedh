@@ -15,7 +15,7 @@ namespace webServer () pass
     port'max=3799, # try listen up to this port
   )
   case webServer.ws.addrs() of {
-    { wsAddr => _extraWsAddrs } -> {
+    { wsAddr :> _extraWsAddrs } -> {
       console.info<| 'Nedh WebSocket service listening: ws://'
       ++ wsAddr.host() ++ ':' ++ wsAddr.port()
     }
@@ -35,7 +35,7 @@ namespace webServer () pass
     ),
   )
   case webServer.http.addrs() of {
-    { httpAddr => _extraHttpAddrs } -> {
+    { httpAddr :> _extraHttpAddrs } -> {
       console.info<| 'Nedh http service listening: http://'
       ++ httpAddr.host() ++ ':' ++ httpAddr.port()
     }

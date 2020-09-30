@@ -27,7 +27,7 @@ export method cmdLineTo(
 
   client = Client( consumer, addr, port=port, init=init, )
 
-  case client.addrs() of { addr => extraAddrs } -> {
+  case client.addrs() of { addr :> extraAddrs } -> {
     console.info<| 'Connected to service at: ' ++ addr
   }
 

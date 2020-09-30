@@ -22,7 +22,7 @@ export method consoleOn (
   )
 
   case ncon.addrs() of {
-    { addr =>_ } -> console.info<| 'Serving networked console at: ' ++ addr
+    { addr :>_ } -> console.info<| 'Serving networked console at: ' ++ addr
     # or the network has failed, propagate the error
     ncon.join() # this usually throws
     # in case join() didn't throw, report this error
