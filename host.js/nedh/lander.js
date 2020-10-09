@@ -45,9 +45,11 @@ export class Lander {
   }
 
   async landingThread() {
-    // XXX a subclass may want to override this method, with even verbatim
-    //     copy of this method code, it's already very useful, in that the
-    //     subclass' lexical context becomes the landing environment.
+    // XXX a subclass of Lander normally overrides this method, with even
+    //     verbatim copy of the method code here, it's already very useful,
+    //     in that the subclass' lexical context becomes the landing
+    //     environment.
+    //
     //     And as this function's scope is the local scope within which the
     //     source of incoming packets are eval'ed, other forms of (maybe ugly
     //     and nasty) hacks can be put right here, but god forbid it.

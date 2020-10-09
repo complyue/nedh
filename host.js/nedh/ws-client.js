@@ -2,7 +2,7 @@
   Nedh Peer Interface over WebSocket
  */
 
-import { EventSink } from "edh";
+import { EventSink } from "/edh/index.js";
 
 export class WsPeer {
   constructor(wsUrl, lander) {
@@ -16,12 +16,7 @@ export class WsPeer {
       this._closeNotifs.push([resolve, reject]);
     });
     this.channels = {};
-    this.eol.finally(() => {
-      // mark all channels end-of-stream on peer end-of-life
-      for (const ch of this.channels.values()) {
-        ch.publish(null);
-      }
-    });
+    this.eol.finally(() => this.cleanup());
 
     this._dir = null;
     const ws = new WebSocket(wsUrl);
@@ -38,6 +33,8 @@ export class WsPeer {
       // see: https://stackoverflow.com/a/18804298/6394508
     };
     ws.onclose = (ce) => {
+      this.lander.terminate(); // terminate the lander anyway when ws closed
+
       console.debug("WS closed.", ce);
       if (1000 == ce.code || 1006 == ce.code) {
         for (const [resolve, _reject] of this._closeNotifs) {
@@ -121,6 +118,17 @@ export class WsPeer {
     };
   }
 
+  cleanup() {
+    // mark all channels end-of-stream on peer end-of-life
+    for (const ch of Object.values(this.channels)) {
+      ch.publish(null);
+    }
+  }
+
+  async handleError(err, errDetails) {
+    console.error(err, errDetails);
+  }
+
   stop() {
     this.ws.close();
   }
@@ -130,14 +138,18 @@ export class WsPeer {
   }
 
   ensureChannel(chLctr) {
-    if (undefined === this.channels[chLctr]) {
-      this.channels[chLctr] = new EventSink();
+    let ch = this.channels[chLctr];
+    if (undefined === ch) {
+      ch = this.channels[chLctr] = new EventSink();
     }
+    return ch;
   }
 
   armChannel(chLctr, chSink) {
     if (undefined === chSink) {
       chSink = new EventSink();
+    } else if (!(chSink instanceof EventSink)) {
+      throw Error("not an event sink: " + chSink);
     }
     this.channels[chLctr] = chSink;
   }
@@ -156,6 +168,6 @@ export class WsPeer {
   }
 
   p2c(dir, src) {
-    this.postCommand(dir, src);
+    this.postCommand(src, dir);
   }
 }
