@@ -59,11 +59,11 @@ export class WsPeer {
         }
       }
     };
-    ws.onmessage = (me) => {
+    ws.onmessage = async (me) => {
       const pktData = me.data;
       const dir = this._dir;
-      // a channel directive is effective only for the immediated following
-      // packet, reset it anyway here
+      // a packet directive a.k.a. channel locator, is effective only for the
+      // immediated following packet, reset it anyway here
       this._dir = null;
 
       // case of a blob packet
@@ -72,37 +72,52 @@ export class WsPeer {
           throw Error("Nedh usage error: blob posted to default channel");
         }
         const ch = this.channels[dir];
-        if (!(ch instanceof EventSink)) {
-          throw Error("Nedh usage error: bad channel locator - " + dir);
+        if (ch instanceof EventSink) {
+          ch.publish(pktData);
+        } else {
+          console.error(
+            "Nedh usage error: bad channel locator for a blob packet",
+            dir
+          );
         }
-        ch.publish(pktData);
         return;
       }
+
+      // otherwise it must in source form
       if ("string" !== typeof pktData) {
         debugger;
-        throw "WS msg of type " + typeof pktData + " ?!";
+        throw Error("bug: WS msg of type " + typeof pktData);
       }
 
-      // case of a channel directive packet
+      // case of a packet directive / channel locator packet
       const dirMatch = /^\[\#(.+)\]$/.exec(pktData);
       if (null !== dirMatch) {
         const [_, dirSrc] = dirMatch;
-        dir = lander(dirSrc, undefined);
+        this._dir = await lander.land(dirSrc, undefined);
         return;
       }
 
       // case of a command packet
-      const cmdVal = lander(pktData, dir);
+      const cmdVal = await lander.land(pktData, dir);
       if (null === dir) {
-        // to the default channel, no more to do
+        // to the default channel, only side-effects desirable
+        if (undefined !== cmdVal) {
+          console.warn(
+            "Some value resulted in the default channel: ",
+            cmdVal,
+            pktData
+          );
+        }
         return;
       }
+
       // publish to sink of specified channel
       const ch = this.channels[dir];
-      if (!(ch instanceof EventSink)) {
-        throw Error("Nedh usage error: bad channel locator - " + dir);
+      if (ch instanceof EventSink) {
+        ch.publish(cmdVal);
+      } else {
+        console.error("Nedh usage error: bad channel locator", dir);
       }
-      ch.publish(cmdVal);
     };
   }
 
