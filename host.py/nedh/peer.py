@@ -77,17 +77,19 @@ class Peer:
         self.channels[ch_lctr] = ch_sink
         return ch_sink
 
-    async def post_command(self, src: str, dir_: object = ""):
+    async def post_command(
+        self, cmd: Union[str, bytes, bytearray, memoryview], dir_: object = ""
+    ):
         if self.eol.done():
             await self.eol  # reraise the exception caused eol if any
             raise RuntimeError("peer end-of-life")
-        await self.posting(textPacket(repr(dir_), str(src)))
+        if isinstance(cmd, (bytes, bytearray, memoryview)):
+            await self.posting(Packet(repr(dir_), cmd))
+        else:
+            await self.posting(textPacket(repr(dir_), repr(cmd)))
 
-    async def p2c(self, dir_: object, src: str):
-        if self.eol.done():
-            await self.eol  # reraise the exception caused eol if any
-            raise RuntimeError("peer end-of-life")
-        await self.posting(textPacket(repr(dir_), str(src)))
+    async def p2c(self, dir_: object, cmd: Union[str, bytes, bytearray, memoryview]):
+        await self.post_command(cmd, dir_)
 
     async def read_command(
         self, cmd_globals: Optional[dict] = None, cmd_locals: Optional[dict] = None,

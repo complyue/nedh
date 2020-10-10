@@ -1,5 +1,5 @@
 /**
-  Nedh Peer Interface over WebSocket
+  Nedh Peer Interface on client site over WebSocket
  */
 
 import { EventSink } from "edh";
@@ -154,7 +154,7 @@ export class WsPeer {
     this.channels[chLctr] = chSink;
   }
 
-  postCommand(src, dir) {
+  postCommand(cmd, dir) {
     if (undefined !== dir) {
       let dirRepr;
       if ("string" === typeof dir) {
@@ -164,10 +164,10 @@ export class WsPeer {
       }
       this.ws.send("[#" + dirRepr + "]");
     }
-    this.ws.send("" + src);
+    this.ws.send(cmd);
   }
 
-  p2c(dir, src) {
-    this.postCommand(src, dir);
+  p2c(dir, cmd) {
+    this.postCommand(cmd, dir);
   }
 }
