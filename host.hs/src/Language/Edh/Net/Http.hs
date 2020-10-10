@@ -23,6 +23,7 @@ import qualified Data.Text.Encoding            as TE
 import           Data.ByteString                ( ByteString )
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Char8         as C
+import qualified Data.HashMap.Strict           as Map
 import           Data.Dynamic
 
 import           Network.Socket
@@ -32,6 +33,12 @@ import qualified Snap.Http.Server              as Snap
 import qualified Snap.Util.FileServe           as Snap
 
 import           Language.Edh.EHI
+
+
+-- todo make this tunable
+mimeTypes :: Snap.MimeMap
+mimeTypes = flip Map.union Snap.defaultMimeTypes
+  $ Map.fromList [(".mjs", "text/javascript")]
 
 
 parseRoutes :: EdhThreadState -> EdhValue -> (Snap.Snap () -> STM ()) -> STM ()
@@ -191,7 +198,7 @@ createHttpServerClass !addrClass !clsOuterScope =
               . (((\sockName -> addr { addrAddress = sockName }) <$> listenAddrs
                  ) ++
                 )
-          staticRoutes = serveStaticArtifacts Snap.defaultMimeTypes wd resModus
+          staticRoutes = serveStaticArtifacts mimeTypes wd resModus
           frontRoute   = Snap.getSafePath >>= \case
             "" -> do
               Snap.modifyRequest $ \r -> r { Snap.rqPathInfo = "front.html" }

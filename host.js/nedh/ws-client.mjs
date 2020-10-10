@@ -2,7 +2,7 @@
   Nedh Peer Interface over WebSocket
  */
 
-import { EventSink } from "/edh/index.js";
+import { EventSink } from "edh";
 
 export class WsPeer {
   constructor(wsUrl, lander) {
