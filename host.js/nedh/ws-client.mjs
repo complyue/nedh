@@ -1,5 +1,5 @@
 /**
-  Nedh Peer Interface on client site over WebSocket
+ * Nedh Peer Interface on client site over WebSocket
  */
 
 import { EventSink } from "edh";
@@ -18,7 +18,7 @@ export class WsPeer {
     this.channels = {};
     this.eol.finally(() => this.cleanup());
 
-    this._dir = null;
+    this._chLctr = null;
     const ws = new WebSocket(wsUrl);
     this.ws = ws;
     ws.binaryType = "arraybuffer";
@@ -58,23 +58,23 @@ export class WsPeer {
     };
     ws.onmessage = async (me) => {
       const pktData = me.data;
-      const dir = this._dir;
+      const chLctr = this._chLctr;
       // a packet directive a.k.a. channel locator, is effective only for the
       // immediated following packet, reset it anyway here
-      this._dir = null;
+      this._chLctr = null;
 
       // case of a blob packet
       if (pktData instanceof ArrayBuffer) {
-        if (null === dir) {
+        if (null === chLctr) {
           throw Error("Nedh usage error: blob posted to default channel");
         }
-        const ch = this.channels[dir];
+        const ch = this.channels[chLctr];
         if (ch instanceof EventSink) {
           ch.publish(pktData);
         } else {
           console.error(
             "Nedh usage error: bad channel locator for a blob packet",
-            dir
+            chLctr
           );
         }
         return;
@@ -90,13 +90,13 @@ export class WsPeer {
       const dirMatch = /^\[\#(.+)\]$/.exec(pktData);
       if (null !== dirMatch) {
         const [_, dirSrc] = dirMatch;
-        this._dir = await lander.land(dirSrc, undefined);
+        this._chLctr = await lander.land(dirSrc, undefined);
         return;
       }
 
       // case of a command packet
-      const cmdVal = await lander.land(pktData, dir);
-      if (null === dir) {
+      const cmdVal = await lander.land(pktData, chLctr);
+      if (null === chLctr) {
         // to the default channel, only side-effects desirable
         if (undefined !== cmdVal) {
           console.warn(
@@ -109,11 +109,11 @@ export class WsPeer {
       }
 
       // publish to sink of specified channel
-      const ch = this.channels[dir];
+      const ch = this.channels[chLctr];
       if (ch instanceof EventSink) {
         ch.publish(cmdVal);
       } else {
-        console.error("Nedh usage error: bad channel locator", dir);
+        console.error("Nedh usage error: bad channel locator", chLctr);
       }
     };
   }
