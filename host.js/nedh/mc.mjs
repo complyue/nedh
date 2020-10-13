@@ -23,7 +23,7 @@ export class McPeer {
 
     this.in.onmessage = async (me) => {
       // cmd to default channel
-      if ("string" === me.data) {
+      if ("string" === typeof me.data) {
         const cmdVal = await lander.land(me.data, null);
         // to the default channel, only side-effects desirable
         if (undefined !== cmdVal) {
@@ -161,27 +161,29 @@ export class McPeer {
  */
 export class McServer {
   constructor(listenOn, landerFactory, clientInit) {
-    listenOn.addEventListener("message", function (me) {
-      if ("object" !== typeof me.data) {
-        // not of interest
-        return;
-      }
-      const { nedhInit } = me.data;
-      if (undefined === nedhInit) {
-        // not of interest
-        return;
-      }
+    listenOn.addEventListener(
+      "message",
+      function (me) {
+        if ("object" !== typeof me.data) {
+          return; // not of interest
+        }
+        const { nedhInit } = me.data;
+        if (undefined === nedhInit) {
+          return; // not of interest
+        }
 
-      me.preventDefault();
-      me.stopImmediatePropagation();
+        me.preventDefault();
+        me.stopImmediatePropagation();
 
-      const [portIn, portOut] = me.ports;
-      const lander = landerFactory(nedhInit);
-      const peer = new McPeer(portIn, portOut, lander);
-      if (undefined !== clientInit) {
-        clientInit(nedhInit, peer);
-      }
-    });
+        const [portIn, portOut] = me.ports;
+        const lander = landerFactory(nedhInit);
+        const peer = new McPeer(portIn, portOut, lander);
+        if (undefined !== clientInit) {
+          clientInit(nedhInit, peer);
+        }
+      },
+      true
+    );
   }
 }
 
@@ -195,11 +197,14 @@ export class McClient {
     const uplink = new MessageChannel();
     const dnlink = new MessageChannel();
     this.peer = new McPeer(dnlink.port1, uplink.port2, lander);
+    const svrPorts = [uplink.port1, dnlink.port2];
     connTarget.postMessage(
       {
         nedhInit: nedhInit,
+        // ports: svrPorts,
       },
-      [uplink.port1, dnlink.port2]
+      "*",
+      svrPorts
     );
   }
 }
