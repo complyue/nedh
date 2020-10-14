@@ -113,7 +113,7 @@ export class McPeer {
     } else if (!(chSink instanceof EventSink)) {
       throw Error("not an event sink: " + chSink);
     }
-    this.channels[chLctr] = chSink;
+    return (this.channels[chLctr] = chSink);
   }
 
   postCommand(cmd, dir) {
@@ -160,26 +160,27 @@ export class McPeer {
  * connections.
  */
 export class McServer {
-  constructor(listenOn, landerFactory, clientInit) {
+  constructor(listenOn, serviceName, landerFactory, clientInit) {
     listenOn.addEventListener(
       "message",
       function (me) {
         if ("object" !== typeof me.data) {
           return; // not of interest
         }
-        const { nedhInit } = me.data;
-        if (undefined === nedhInit) {
+        const { nedhService } = me.data;
+        if (nedhService !== serviceName) {
           return; // not of interest
         }
+        const connRequest = me.data;
 
         me.preventDefault();
         me.stopImmediatePropagation();
 
         const [portIn, portOut] = me.ports;
-        const lander = landerFactory(nedhInit);
+        const lander = landerFactory(connRequest);
         const peer = new McPeer(portIn, portOut, lander);
         if (undefined !== clientInit) {
-          clientInit(nedhInit, peer);
+          clientInit(connRequest, peer);
         }
       },
       true
@@ -193,16 +194,18 @@ export class McServer {
  * establishes the connection.
  */
 export class McClient {
-  constructor(connTarget, nedhInit, lander) {
+  constructor(connTarget, serviceName, lander, extraInfo = {}) {
     const uplink = new MessageChannel();
     const dnlink = new MessageChannel();
     this.peer = new McPeer(dnlink.port1, uplink.port2, lander);
     const svrPorts = [uplink.port1, dnlink.port2];
     connTarget.postMessage(
-      {
-        nedhInit: nedhInit,
-        // ports: svrPorts,
-      },
+      Object.assign(
+        {
+          nedhService: serviceName,
+        },
+        extraInfo
+      ),
       "*",
       svrPorts
     );

@@ -151,7 +151,7 @@ export class WsPeer {
     } else if (!(chSink instanceof EventSink)) {
       throw Error("not an event sink: " + chSink);
     }
-    this.channels[chLctr] = chSink;
+    return (this.channels[chLctr] = chSink);
   }
 
   postCommand(cmd, dir) {
