@@ -130,7 +130,7 @@ while peer.eol() is false {
     ":quit" -> { break }
 
     { cmdSrc } -> {
-      cntrBefore = mre( conOutSignal )
+      cntrBefore = conOutSignal.mrv
       peer.postCommand( cmdSrc )
       for cntrAfter from conOutSignal do if cntrAfter != cntrBefore
       # got new conout (supposed to be the eval result) from server,

@@ -135,7 +135,7 @@ while peer.eol() is false {
     batteries.quit -> { break }
 
     { cmdVal } -> {
-      cntrBefore = mre( conOutSignal )
+      cntrBefore = conOutSignal.mrv
       peer.postCommand( cmdVal )
       for cntrAfter from conOutSignal do if cntrAfter != cntrBefore
       # got new conout (supposed to be the eval result) from server,
