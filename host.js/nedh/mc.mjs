@@ -41,7 +41,9 @@ export class McPeer {
       if (undefined === dir) {
         throw Error("bug: obj pkt without dir");
       }
-      const chLctr = dir; // todo eval dir to chLctr here?
+      // todo implement the same level of indirections as Nedh for dir?
+      //      i.e. eval dir to get chLctr
+      const chLctr = dir;
       const ch = this.channels[chLctr];
 
       // case of a blob packet
