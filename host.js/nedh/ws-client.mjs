@@ -87,7 +87,7 @@ export class WsPeer {
       }
 
       // case of a packet directive / channel locator packet
-      const dirMatch = /^\[\#(.+)\]$/.exec(pktData);
+      const dirMatch = /^\[dir\#(.+)\]$/.exec(pktData);
       if (null !== dirMatch) {
         const [_, dirSrc] = dirMatch;
         this._chLctr = await lander.land(dirSrc, undefined);
@@ -165,7 +165,7 @@ export class WsPeer {
       } else {
         dirRepr = "" + dir;
       }
-      this.ws.send("[#" + dirRepr + "]");
+      this.ws.send("[dir#" + dirRepr + "]");
     }
     this.ws.send(cmd);
   }
