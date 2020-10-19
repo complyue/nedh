@@ -19,7 +19,11 @@ import * '.'
 # line should have no technical effect but to hint an IDE for code
 # completion etc.
 peer ?= Peer()
+
 console.info<| 'Serving demo client - ' ++ peer
+defer {
+  console.info<| 'Disconnecting demo client ' ++ peer
+}
 
 
 # define various effectful artifacts used for communication with this
@@ -65,10 +69,7 @@ service := this
     }
   }
 
-} @=> {
-  { exc } -> {
-    console.error<| 'Disconnecting demo client ' ++ peer
-    ++ ' for error: ' ++ desc( exc )
-  }
-  console.info<| 'Disconnecting demo client ' ++ peer
+} $=> { exc } -> {
+  console.error<| 'Exception by demo client ' ++ peer
+  ++ ' error: ' ++ desc( exc )
 }

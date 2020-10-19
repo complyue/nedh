@@ -17,7 +17,9 @@ effect import * 'net/effects'
 peer ?= Peer()
 
 console.info<| 'WebSocket client connected - ' ++ peer
-
+defer {
+  console.info<| 'Disconnecting ws client ' ++ peer
+}
 
 # define various effectful artifacts used for communication with this
 # connected consumer client session, with `@netPeer` and `@dataSink` the
@@ -49,10 +51,7 @@ effect {
 
   }
 
-} @=> {
-  { exc } -> {
-    console.error<| 'Disconnecting ws client ' ++ peer
-    ++ ' for error: ' ++ desc( exc )
-  }
-  console.info<| 'Disconnecting ws client ' ++ peer
+} $=> { exc } -> {
+  console.error<| 'Exception by ws client ' ++ peer
+  ++ ' error: ' ++ desc( exc )
 }
