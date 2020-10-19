@@ -100,10 +100,13 @@ export class WsPeer {
         // to the default channel, only side-effects desirable
         if (undefined !== cmdVal) {
           console.warn(
-            "Some value resulted in the default channel: ",
+            "Some " +
+              typeof cmdVal +
+              " value resulted in the default channel: ",
             cmdVal,
             pktData
           );
+          debugger;
         }
         return;
       }
