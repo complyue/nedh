@@ -84,9 +84,9 @@ class Peer:
             await self.eol  # reraise the exception caused eol if any
             raise RuntimeError("peer end-of-life")
         if isinstance(cmd, (bytes, bytearray, memoryview)):
-            await self.posting(Packet(repr(dir_), cmd))
+            await self.posting(Packet(dir_ and repr(dir_) or "", cmd))
         else:
-            await self.posting(textPacket(repr(dir_), repr(cmd)))
+            await self.posting(textPacket(dir_ and repr(dir_) or "", str(cmd)))
 
     async def p2c(self, dir_: object, cmd: Union[str, bytes, bytearray, memoryview]):
         await self.post_command(cmd, dir_)
