@@ -170,38 +170,34 @@ createPeerClass !clsOuterScope =
   readPeerCmdProc :: "inScopeOf" ?: Object -> EdhHostProc
   readPeerCmdProc (optionalArg -> !inScopeOf) !exit !ets =
     withThisHostObj ets $ \ !peer ->
-      let doReadCmd :: Scope -> STM ()
-          doReadCmd !cmdScope = readPeerCommand etsCmd peer exit
-             where
-              !etsCmd = ets
-                { edh'context = ctx
-                  { edh'ctx'stack =
-                    cmdScope
-                        {
-                          -- mind to inherit caller's exception handler anyway
-                          edh'excpt'hndlr  = edh'excpt'hndlr callerScope
-                          -- use a meaningful caller stmt
-                        , edh'scope'caller = StmtSrc
-                                               ( SourcePos
-                                                 { sourceName   = "<peer-cmd>"
-                                                 , sourceLine   = mkPos 1
-                                                 , sourceColumn = mkPos 1
-                                                 }
-                                               , VoidStmt
-                                               )
-                        }
-                      NE.:| NE.tail (edh'ctx'stack ctx)
-                  }
-                }
-      in  case inScopeOf of
-            Just !so -> castObjSelfStore so >>= \case
-              -- the specified objec is a scope object, eval cmd source in
-              -- the wrapped scope
-              Just (inScope :: Scope) -> doReadCmd inScope
-              -- eval cmd source in scope of the specified object
-              Nothing -> objectScope so >>= \ !inScope -> doReadCmd inScope
-            -- eval cmd source with caller's scope
-            _ -> doReadCmd callerScope
+      let
+        doReadCmd :: Scope -> STM ()
+        doReadCmd !cmdScope = readPeerCommand etsCmd peer exit
+         where
+          !etsCmd = ets
+            { edh'context = ctx
+              { edh'ctx'stack =
+                cmdScope
+                    {
+                      -- mind to inherit caller's exception handler anyway
+                      edh'excpt'hndlr  = edh'excpt'hndlr callerScope
+                      -- use a meaningful caller stmt
+                    , edh'scope'caller = StmtSrc
+                      (startPosOfFile "<peer-cmd>", VoidStmt)
+                    }
+                  NE.:| NE.tail (edh'ctx'stack ctx)
+              }
+            }
+      in
+        case inScopeOf of
+          Just !so -> castObjSelfStore so >>= \case
+            -- the specified objec is a scope object, eval cmd source in
+            -- the wrapped scope
+            Just (inScope :: Scope) -> doReadCmd inScope
+            -- eval cmd source in scope of the specified object
+            Nothing -> objectScope so >>= \ !inScope -> doReadCmd inScope
+          -- eval cmd source with caller's scope
+          _ -> doReadCmd callerScope
    where
     !ctx         = edh'context ets
     !callerScope = contextFrame ctx 1
