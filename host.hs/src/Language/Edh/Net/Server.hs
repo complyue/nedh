@@ -180,82 +180,77 @@ createServerClass !addrClass !peerClass !clsOuterScope =
         chdVar  <- newTVarIO mempty
 
         let
-          !peer = Peer { edh'peer'ident    = clientId
-                       , edh'peer'eol      = clientEoL
-                       , edh'peer'posting  = putTMVar poq
-                       , edh'peer'hosting  = takeTMVar pktSink
-                       , edh'peer'channels = chdVar
-                       }
-          prepPeer :: STM Object
-          prepPeer = do
-            !peerObj <- edhCreateHostObj peerClass (toDyn peer) []
-            -- announce this new peer to the event sink
-            publishEvent clients $ EdhObject peerObj
-            return peerObj
-          prepService :: Object -> EdhModulePreparation
-          prepService !peerObj !etsModu !exit = do
-              -- implant to the module being prepared
-            iopdInsert (AttrByName "peer")
-                       (EdhObject peerObj)
-                       (edh'scope'entity moduScope)
-            -- call the per-connection peer module initialization method in the
-            -- module context (where both contextual this/that are the module
-            -- object)
-            if __peer_init__ == nil
-              then exit
-              else
-                edhPrepareCall'
-                    etsModu
-                    __peer_init__
-                    (ArgsPack [EdhObject $ edh'scope'this moduScope] odEmpty)
-                  $ \ !mkCall -> runEdhTx etsModu $ mkCall $ \_result _ets ->
-                      exit
-            where !moduScope = contextScope $ edh'context etsModu
+          prepService :: EdhModulePreparation
+          prepService !etsModu !exit =
+            mkSandbox etsModu moduObj $ \ !sandboxScope ->
+              let !peer = Peer { edh'peer'ident    = clientId
+                               , edh'peer'sandbox  = sandboxScope
+                               , edh'peer'eol      = clientEoL
+                               , edh'peer'posting  = putTMVar poq
+                               , edh'peer'hosting  = takeTMVar pktSink
+                               , edh'peer'channels = chdVar
+                               }
+              in
+                do
+                  !peerObj <- edhCreateHostObj peerClass (toDyn peer) []
+                  -- announce this new peer to the event sink
+                  publishEvent clients $ EdhObject peerObj
 
-        try (atomically prepPeer) >>= \case
-          Left err -> atomically $ do
-            -- mark the client eol with this error
-            void $ tryPutTMVar clientEoL (Left err)
-            -- failure in preparation for a peer object is considered so fatal
-            -- that the server should terminate as well
-            void $ tryPutTMVar servEoL (Left err)
-          Right !peerObj -> do
+                  -- implant to the module being prepared
+                  iopdInsert (AttrByName "peer")
+                             (EdhObject peerObj)
+                             (edh'scope'entity moduScope)
+                  -- call the per-connection peer module initialization method in the
+                  -- module context (where both contextual this/that are the module
+                  -- object)
+                  if __peer_init__ == nil
+                    then exit
+                    else
+                      edhPrepareCall'
+                          etsModu
+                          __peer_init__
+                          (ArgsPack [EdhObject $ edh'scope'this moduScope]
+                                    odEmpty
+                          )
+                        $ \ !mkCall ->
+                            runEdhTx etsModu $ mkCall $ \_result _ets -> exit
+           where
+            !moduScope = contextScope $ edh'context etsModu
+            !moduObj   = edh'scope'this moduScope
 
-            void
-              -- run the server module on a separate thread as another program
-              $ forkFinally
-                  (runEdhModule' world (T.unpack servModu) (prepService peerObj)
-                  )
-              -- mark client end-of-life with the result anyway
-              $ void
-              . atomically
-              . tryPutTMVar clientEoL
-              . void
+        -- run the server module on a separate thread as another program
+        void
+          $ forkFinally (runEdhModule' world (T.unpack servModu) prepService)
+            -- mark client end-of-life with the result anyway
+          $ void
+          . atomically
+          . tryPutTMVar clientEoL
+          . void
 
-            -- pump commands in, 
-            -- make this thread the only one reading the handle
-            -- note this won't return, will be asynchronously killed on eol
-            void $ forkIO $ receivePacketStream clientId
-                                                (recv sock)
-                                                pktSink
-                                                clientEoL
+        -- pump commands in, 
+        -- make this thread the only one reading the handle
+        -- note this won't return, will be asynchronously killed on eol
+        void $ forkIO $ receivePacketStream clientId
+                                            (recv sock)
+                                            pktSink
+                                            clientEoL
 
-            let
-              serializeCmdsOut :: IO ()
-              serializeCmdsOut =
-                atomically
-                    (        (Right <$> takeTMVar poq)
-                    `orElse` (Left <$> readTMVar clientEoL)
-                    )
-                  >>= \case
-                        Left  _    -> return () -- stop on eol any way
-                        Right !pkt -> do
-                          sendPacket clientId (sendAll sock) pkt
-                          serializeCmdsOut
-            -- pump commands out,
-            -- make this thread the only one writing the handle
-            serializeCmdsOut `catch` \(e :: SomeException) -> -- mark eol on error
-              atomically $ void $ tryPutTMVar clientEoL $ Left e
+        let
+          serializeCmdsOut :: IO ()
+          serializeCmdsOut =
+            atomically
+                (        (Right <$> takeTMVar poq)
+                `orElse` (Left <$> readTMVar clientEoL)
+                )
+              >>= \case
+                    Left  _    -> return () -- stop on eol any way
+                    Right !pkt -> do
+                      sendPacket clientId (sendAll sock) pkt
+                      serializeCmdsOut
+        -- pump commands out,
+        -- make this thread the only one writing the handle
+        serializeCmdsOut `catch` \(e :: SomeException) -> -- mark eol on error
+          atomically $ void $ tryPutTMVar clientEoL $ Left e
 
 
   clientsProc :: EdhHostProc

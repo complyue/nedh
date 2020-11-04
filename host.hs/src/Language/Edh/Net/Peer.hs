@@ -21,6 +21,7 @@ import           Language.Edh.Net.MicroProto
 
 data Peer = Peer {
       edh'peer'ident :: !Text
+    , edh'peer'sandbox :: !Scope
     , edh'peer'eol :: !(TMVar (Either SomeException ()))
       -- todo this ever needs to be in CPS?
     , edh'peer'posting :: !(Packet -> STM ())
@@ -37,7 +38,7 @@ postPeerCommand !ets !peer !pkt !exit =
       exitEdh ets exit nil
 
 readPeerSource :: EdhThreadState -> Peer -> EdhTxExit -> STM ()
-readPeerSource !ets peer@(Peer _ !eol _ !ho _) !exit =
+readPeerSource !ets peer@(Peer _ _ !eol _ !ho _) !exit =
   ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) >>= \case
     -- reached normal end-of-stream
     Left (Right _) -> exitEdh ets exit nil
@@ -55,7 +56,7 @@ readPeerSource !ets peer@(Peer _ !eol _ !ho _) !exit =
 -- Note a command may target a specific channel, thus get posted to that 
 --      channel's sink, and nil will be returned from here for it.
 readPeerCommand :: EdhThreadState -> Peer -> EdhTxExit -> STM ()
-readPeerCommand !ets peer@(Peer _ !eol _ !ho _) !exit =
+readPeerCommand !ets peer@(Peer _ _ !eol _ !ho _) !exit =
   ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) >>= \case
     -- reached normal end-of-stream
     Left (Right _) -> exitEdh ets exit nil
@@ -67,13 +68,21 @@ readPeerCommand !ets peer@(Peer _ !eol _ !ho _) !exit =
     Right !pkt -> landPeerCmd peer pkt ets exit
 
 landPeerCmd :: Peer -> Packet -> EdhThreadState -> EdhTxExit -> STM ()
-landPeerCmd (Peer !ident _ _ _ !chdVar) (Packet !dir !payload) !ets !exit =
-  case T.stripPrefix "blob:" dir of
-    Just !chLctr -> runEdhTx ets $ landValue chLctr $ EdhBlob payload
+landPeerCmd (Peer !ident !sbScope _ _ _ !chdVar) (Packet !dir !payload) !ets !exit
+  = case T.stripPrefix "blob:" dir of
+    Just !chLctr -> runEdhTx etsSandbox $ landValue chLctr $ EdhBlob payload
     Nothing ->
-      runEdhTx ets $ evalEdh srcName (TE.decodeUtf8 payload) $ \ !cmdVal ->
-        landValue dir cmdVal
+      runEdhTx etsSandbox
+        $ evalEdh srcName (TE.decodeUtf8 payload)
+        $ \ !cmdVal -> landValue dir cmdVal
  where
+  !ctxOrig    = edh'context ets
+  !etsSandbox = ets
+    { edh'context = ctxOrig
+                      { edh'ctx'stack = NE.cons sbScope (edh'ctx'stack ctxOrig)
+                      }
+    }
+
   !srcName = T.unpack ident
   landValue !chLctr !val = if T.null chLctr
     -- to the default channel, which yields as direct result of 

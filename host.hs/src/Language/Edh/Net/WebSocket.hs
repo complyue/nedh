@@ -186,160 +186,152 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
         chdVar  <- newTVarIO mempty
 
         let
-          !peer = Peer { edh'peer'ident    = clientId
-                       , edh'peer'eol      = clientEoL
-                       , edh'peer'posting  = putTMVar poq
-                       , edh'peer'hosting  = takeTMVar pktSink
-                       , edh'peer'channels = chdVar
-                       }
-          prepPeer :: STM Object
-          prepPeer = do
-            !peerObj <- edhCreateHostObj peerClass (toDyn peer) []
-            -- announce this new peer to the event sink
-            publishEvent clients $ EdhObject peerObj
-            return peerObj
-          prepService :: Object -> EdhModulePreparation
-          prepService !peerObj !etsModu !exit = do
-              -- implant to the module being prepared
-            iopdInsert (AttrByName "peer")
-                       (EdhObject peerObj)
-                       (edh'scope'entity moduScope)
-            -- call the per-connection peer module initialization method in the
-            -- module context (where both contextual this/that are the module
-            -- object)
-            if __peer_init__ == nil
-              then exit
-              else
-                edhPrepareCall'
-                    etsModu
-                    __peer_init__
-                    (ArgsPack [EdhObject $ edh'scope'this moduScope] odEmpty)
-                  $ \ !mkCall -> runEdhTx etsModu $ mkCall $ \_result _ets ->
-                      exit
-            where !moduScope = contextScope $ edh'context etsModu
+          prepService :: EdhModulePreparation
+          prepService !etsModu !exit =
+            mkSandbox etsModu moduObj $ \ !sandboxScope ->
+              let !peer = Peer { edh'peer'ident    = clientId
+                               , edh'peer'sandbox  = sandboxScope
+                               , edh'peer'eol      = clientEoL
+                               , edh'peer'posting  = putTMVar poq
+                               , edh'peer'hosting  = takeTMVar pktSink
+                               , edh'peer'channels = chdVar
+                               }
+              in
+                do
+                  !peerObj <- edhCreateHostObj peerClass (toDyn peer) []
+                  -- announce this new peer to the event sink
+                  publishEvent clients $ EdhObject peerObj
 
-        try (atomically prepPeer) >>= \case
-          Left err -> atomically $ do
-            -- mark the client eol with this error
-            void $ tryPutTMVar clientEoL (Left err)
-            -- failure in preparation for a peer object is considered so fatal
-            -- that the server should terminate as well
-            void $ tryPutTMVar servEoL (Left err)
-          Right !peerVal -> do
+                  -- implant to the module being prepared
+                  iopdInsert (AttrByName "peer")
+                             (EdhObject peerObj)
+                             (edh'scope'entity moduScope)
+                  -- call the per-connection peer module initialization method in the
+                  -- module context (where both contextual this/that are the module
+                  -- object)
+                  if __peer_init__ == nil
+                    then exit
+                    else
+                      edhPrepareCall'
+                          etsModu
+                          __peer_init__
+                          (ArgsPack [EdhObject $ edh'scope'this moduScope]
+                                    odEmpty
+                          )
+                        $ \ !mkCall ->
+                            runEdhTx etsModu $ mkCall $ \_result _ets -> exit
+           where
+            !moduScope = contextScope $ edh'context etsModu
+            !moduObj   = edh'scope'this moduScope
 
-            void
-              -- run the server module on a separate thread as another program
-              $ forkFinally
-                  (runEdhModule' world (T.unpack servModu) (prepService peerVal)
-                  )
-              -- mark client end-of-life with the result anyway
+        void
+          -- run the server module on a separate thread as another program
+          $ forkFinally (runEdhModule' world (T.unpack servModu) prepService)
+          -- mark client end-of-life with the result anyway
+          $ void
+          . atomically
+          . tryPutTMVar clientEoL
+          . void
+
+        -- pump commands in, 
+        -- make this thread the only one reading the handle
+        -- note this won't return, will be asynchronously killed on eol
+        incomingDir <- newIORef ("" :: Text)
+        let
+          settlePkt !payload = do
+            dir <- readIORef incomingDir
+            -- channel directive is effective only for the immediately
+            -- following packet
+            writeIORef incomingDir ""
+            atomically
+                (        (Right <$> putTMVar pktSink (Packet dir payload))
+                `orElse` (Left <$> readTMVar clientEoL)
+                )
+              >>= \case
+                    Left (Left  e ) -> throwIO e
+                    Left (Right ()) -> return ()
+                    Right _ ->
+            -- anyway we should continue receiving, even after close request
+            -- sent,  we are expected to process a CloseRequest ctrl message
+            -- from peer.
+                      pumpPkts
+          pumpPkts = do
+            pkt <- WS.receiveDataMessage wsc
+            case pkt of
+              (WS.Text !bytes _) -> case BL.stripPrefix "[dir#" bytes of
+                Just !dirRest -> case BL.stripSuffix "]" dirRest of
+                  Just !dir -> do
+                    writeIORef incomingDir $ TL.toStrict $ TLE.decodeUtf8 dir
+                    pumpPkts
+                  Nothing -> settlePkt $ BL.toStrict bytes
+                Nothing -> settlePkt $ BL.toStrict bytes
+              (WS.Binary !payload) -> settlePkt $ BL.toStrict payload
+        void $ forkIOWithUnmask $ \unmask -> catch (unmask pumpPkts) $ \case
+          WS.CloseRequest closeCode closeReason
+            | closeCode == 1000 || closeCode == 1001
+            -> atomically $ void $ tryPutTMVar clientEoL $ Right ()
+            | otherwise
+            -> do
+              atomically
+                $  void
+                $  tryPutTMVar clientEoL
+                $  Left
+                $  toException
+                $  EdhPeerError clientId
+                $  T.pack
+                $  "Client closing WebSocket with code "
+                <> show closeCode
+                <> " and reason ["
+                <> show closeReason
+                <> "]"
+              -- yet still try to receive ctrl msg back from peer
+              unmask pumpPkts
+          WS.ConnectionClosed ->
+            atomically $ void $ tryPutTMVar clientEoL $ Right ()
+          _ ->
+            atomically
               $ void
-              . atomically
-              . tryPutTMVar clientEoL
-              . void
+              $ tryPutTMVar clientEoL
+              $ Left
+              $ toException
+              $ EdhPeerError clientId "unexpected WebSocket packet."
 
-            -- pump commands in, 
-            -- make this thread the only one reading the handle
-            -- note this won't return, will be asynchronously killed on eol
-            incomingDir <- newIORef ("" :: Text)
-            let
-              settlePkt !payload = do
-                dir <- readIORef incomingDir
-                -- channel directive is effective only for the immediately
-                -- following packet
-                writeIORef incomingDir ""
-                atomically
-                    (        (Right <$> putTMVar pktSink (Packet dir payload))
-                    `orElse` (Left <$> readTMVar clientEoL)
-                    )
-                  >>= \case
-                        Left (Left  e ) -> throwIO e
-                        Left (Right ()) -> return ()
-                        Right _ ->
-                -- anyway we should continue receiving, even after close request
-                -- sent,  we are expected to process a CloseRequest ctrl message
-                -- from peer.
-                          pumpPkts
-              pumpPkts = do
-                pkt <- WS.receiveDataMessage wsc
-                case pkt of
-                  (WS.Text !bytes _) -> case BL.stripPrefix "[dir#" bytes of
-                    Just !dirRest -> case BL.stripSuffix "]" dirRest of
-                      Just !dir -> do
-                        writeIORef incomingDir $ TL.toStrict $ TLE.decodeUtf8
-                          dir
-                        pumpPkts
-                      Nothing -> settlePkt $ BL.toStrict bytes
-                    Nothing -> settlePkt $ BL.toStrict bytes
-                  (WS.Binary !payload) -> settlePkt $ BL.toStrict payload
-            void $ forkIOWithUnmask $ \unmask -> catch (unmask pumpPkts) $ \case
-              WS.CloseRequest closeCode closeReason
-                | closeCode == 1000 || closeCode == 1001
-                -> atomically $ void $ tryPutTMVar clientEoL $ Right ()
-                | otherwise
-                -> do
-                  atomically
-                    $  void
-                    $  tryPutTMVar clientEoL
-                    $  Left
-                    $  toException
-                    $  EdhPeerError clientId
-                    $  T.pack
-                    $  "Client closing WebSocket with code "
-                    <> show closeCode
-                    <> " and reason ["
-                    <> show closeReason
-                    <> "]"
-                  -- yet still try to receive ctrl msg back from peer
-                  unmask pumpPkts
-              WS.ConnectionClosed ->
-                atomically $ void $ tryPutTMVar clientEoL $ Right ()
-              _ ->
-                atomically
-                  $ void
-                  $ tryPutTMVar clientEoL
-                  $ Left
-                  $ toException
-                  $ EdhPeerError clientId "unexpected WebSocket packet."
+        let
+          sendWsPacket :: Packet -> IO ()
+          sendWsPacket (Packet !dir !payload) = if "blob:" `T.isPrefixOf` dir
+            then do
+              WS.sendDataMessage wsc
+                $  flip WS.Text Nothing
+                $  TLE.encodeUtf8
+                $  ("[dir#" :: TL.Text)
+                <> TL.fromStrict dir
+                <> "]"
+              WS.sendDataMessage wsc $ WS.Binary $ BL.fromStrict payload
+            else do
+              unless (T.null dir)
+                $  WS.sendDataMessage wsc
+                $  flip WS.Text Nothing
+                $  TLE.encodeUtf8
+                $  ("[dir#" :: TL.Text)
+                <> TL.fromStrict dir
+                <> "]"
+              WS.sendDataMessage wsc $ WS.Text (BL.fromStrict payload) Nothing
 
-            let
-              sendWsPacket :: Packet -> IO ()
-              sendWsPacket (Packet !dir !payload) =
-                if "blob:" `T.isPrefixOf` dir
-                  then do
-                    WS.sendDataMessage wsc
-                      $  flip WS.Text Nothing
-                      $  TLE.encodeUtf8
-                      $  ("[dir#" :: TL.Text)
-                      <> TL.fromStrict dir
-                      <> "]"
-                    WS.sendDataMessage wsc $ WS.Binary $ BL.fromStrict payload
-                  else do
-                    unless (T.null dir)
-                      $  WS.sendDataMessage wsc
-                      $  flip WS.Text Nothing
-                      $  TLE.encodeUtf8
-                      $  ("[dir#" :: TL.Text)
-                      <> TL.fromStrict dir
-                      <> "]"
-                    WS.sendDataMessage wsc
-                      $ WS.Text (BL.fromStrict payload) Nothing
-
-              serializeCmdsOut :: IO ()
-              serializeCmdsOut =
-                atomically
-                    (        (Right <$> takeTMVar poq)
-                    `orElse` (Left <$> readTMVar clientEoL)
-                    )
-                  >>= \case
-                        Left  _    -> return () -- stop on eol any way
-                        Right !pkt -> do
-                          sendWsPacket pkt
-                          serializeCmdsOut
-            -- pump commands out,
-            -- make this thread the only one writing the handle
-            serializeCmdsOut `catch` \(e :: SomeException) -> -- mark eol on error
-              atomically $ void $ tryPutTMVar clientEoL $ Left e
+          serializeCmdsOut :: IO ()
+          serializeCmdsOut =
+            atomically
+                (        (Right <$> takeTMVar poq)
+                `orElse` (Left <$> readTMVar clientEoL)
+                )
+              >>= \case
+                    Left  _    -> return () -- stop on eol any way
+                    Right !pkt -> do
+                      sendWsPacket pkt
+                      serializeCmdsOut
+        -- pump commands out,
+        -- make this thread the only one writing the handle
+        serializeCmdsOut `catch` \(e :: SomeException) -> -- mark eol on error
+          atomically $ void $ tryPutTMVar clientEoL $ Left e
 
 
   clientsProc :: EdhHostProc
