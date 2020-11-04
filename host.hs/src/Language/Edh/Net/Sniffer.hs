@@ -10,6 +10,7 @@ import           Control.Concurrent
 import           Control.Concurrent.STM
 
 import           Data.Maybe
+import qualified Data.List.NonEmpty            as NE
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import           Data.Text.Encoding
@@ -177,8 +178,8 @@ createSnifferClass !addrClass !clsOuterScope =
             Just (Left !e) -> edh'exception'wrapper world e
               >>= \ !exo -> exitEdh ets exit $ EdhObject exo
             Just (Right ()) -> exitEdh ets exit $ EdhBool True
-          sniffProc :: EdhHostProc
-          sniffProc !exit !ets =
+          sniffProc :: Scope -> EdhHostProc
+          sniffProc !sbScope !exit !ets =
             takeTMVar pktSink >>= \(!fromAddr, !payload) ->
               edhCreateHostObj addrClass
                                (toDyn onAddr { addrAddress = fromAddr })
@@ -191,32 +192,45 @@ createSnifferClass !addrClass !clsOuterScope =
                         (EdhObject addrObj)
                       -- interpret the payload as command, return as is
                       let !src = decodeUtf8 payload
-                      runEdhTx ets $ evalEdh (show fromAddr) src exit
+                      runEdhTx etsSandbox $ evalEdh (show fromAddr) src exit
+           where
+            !ctxOrig    = edh'context ets
+            !etsSandbox = ets
+              { edh'context = ctxOrig
+                                { edh'ctx'stack = NE.cons
+                                                    sbScope
+                                                    (edh'ctx'stack ctxOrig)
+                                }
+              }
+
           prepSniffer :: EdhModulePreparation
-          prepSniffer !etsModu !exit = do
+          prepSniffer !etsModu !exit =
+            mkSandbox etsModu moduObj $ \ !sandboxScope -> do
 
             -- define and implant procedures to the module being prepared
-            !moduMths <- sequence
-              [ (AttrByName nm, ) <$> mkHostProc moduScope vc nm hp
-              | (nm, vc, hp) <-
-                [ ("eol"  , EdhMethod, wrapHostProc eolProc)
-                , ("sniff", EdhMethod, wrapHostProc sniffProc)
+              !moduMths <- sequence
+                [ (AttrByName nm, ) <$> mkHostProc moduScope vc nm hp
+                | (nm, vc, hp) <-
+                  [ ("eol"  , EdhMethod, wrapHostProc eolProc)
+                  , ("sniff", EdhMethod, wrapHostProc $ sniffProc sandboxScope)
+                  ]
                 ]
-              ]
-            iopdUpdate moduMths $ edh'scope'entity moduScope
+              iopdUpdate moduMths $ edh'scope'entity moduScope
 
-            -- call the sniffer module initialization method in the module
-            -- context (where both contextual this/that are the module object)
-            if __modu_init__ == nil
-              then exit
-              else
-                edhPrepareCall'
-                    etsModu
-                    __modu_init__
-                    (ArgsPack [EdhObject $ edh'scope'this moduScope] odEmpty)
-                  $ \ !mkCall -> runEdhTx etsModu $ mkCall $ \_result _ets ->
-                      exit
-            where !moduScope = contextScope $ edh'context etsModu
+              -- call the sniffer module initialization method in the module
+              -- context (where both contextual this/that are the module object)
+              if __modu_init__ == nil
+                then exit
+                else
+                  edhPrepareCall'
+                      etsModu
+                      __modu_init__
+                      (ArgsPack [EdhObject $ edh'scope'this moduScope] odEmpty)
+                    $ \ !mkCall -> runEdhTx etsModu $ mkCall $ \_result _ets ->
+                        exit
+           where
+            !moduScope = contextScope $ edh'context etsModu
+            !moduObj   = edh'scope'this moduScope
 
         void
           -- run the sniffer module as another program

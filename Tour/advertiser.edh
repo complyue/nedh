@@ -1,39 +1,51 @@
 
 import * 'net'
 
-{
-  ad = Advertiser(
+# %%
+ad = Advertiser(
 
-    # near-field broadcast
-    '255.255.255.255', 3721,
+  # near-field broadcast
+  '255.255.255.255', 3721,
 
-    # subnet targeting broadcast
-    #'127.255.255.255', 3721,
+  # subnet targeting broadcast
+  #'127.255.255.255', 3721,
 
-    # unicast
-    #'127.0.0.1', 3721,
+  # unicast
+  #'127.0.0.1', 3721,
 
-  )
-}
+)
 
 console.info<| 'Advertising to ' ++ ad.addrs()
 
+# %%
 ad.post( expr 'Ad from ' ++ perform sourceAddr )
 
-{
-  ad.post(
-    3, 2, 1,
-    expr 3*7,
-    expr console.warn<| "You've got it",
-  )
+# %%
+ad.post(
+  3, 2, 1,
+  expr 3*7,
+  expr console.warn<| "You've got it",
+)
 
-  for _ from console.everyMillis( 300 ) do break
+for _ from console.everyMillis( 300 ) do break
 
-  ad.post(
-    expr console.print( " *** That's all *** " ),
-  )
-}
+ad.post(
+  expr console.print( " *** That's all *** " ),
+)
 
+# %%
+# remote commands are hosted with a sandboxed environment,
+# e.g. `console.now()` is not available from remote commands.
+
+# this is destined to fail
+ad.post( expr
+  console.info<| "your system's clock is at: "
+  ++ console.now() # this is censored, should have no access
+)
+
+
+# %%
 ad.stop()
 
+# %%
 quit
