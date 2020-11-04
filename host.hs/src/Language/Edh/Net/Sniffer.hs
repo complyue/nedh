@@ -90,12 +90,10 @@ createSnifferClass !addrClass !clsOuterScope =
       then throwEdh etsCtor
                     UsageError
                     "you don't create network objects within a transaction"
-      else case init_ of
+      else case edhUltimate init_ of
         EdhNil                               -> withInit nil
         mth@(EdhProcedure EdhMethod{} _    ) -> withInit mth
-        mth@(EdhProcedure EdhIntrpr{} _    ) -> withInit mth
         mth@(EdhBoundProc EdhMethod{} _ _ _) -> withInit mth
-        mth@(EdhBoundProc EdhIntrpr{} _ _ _) -> withInit mth
         !badInit -> edhValueDesc etsCtor badInit $ \ !badDesc ->
           throwEdh etsCtor UsageError $ "invalid init: " <> badDesc
    where

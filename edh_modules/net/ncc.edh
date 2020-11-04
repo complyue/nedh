@@ -30,7 +30,7 @@ export method consoleTo(
   }
 
   clnt.join() $=> { exc } -> {
-    console.error<| 'Some trouble with the console server:\n' ++ exc
+    console.error<| 'Some trouble with the console server:\n' ++ desc( exc )
   }
 
   console.info<| 'Disconnected from console server.'

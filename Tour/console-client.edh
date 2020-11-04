@@ -2,26 +2,30 @@
 import * 'net'
 import * 'net/ncc'
 
-
+# %%
 # `consoleTo()` is defined in 'net/ncc', and should have
 # been imported by 'net/__main__.edh', so directly usable
 consoleTo( '127.0.0.1', 3720, )
 
 
+# %%
 # a console server should at least support this command
 dir
 
 
+# %%
 # a console server should echo eval result (if not nil)
 # for any command posted to its default channel, thus
 # function as an expression evaluator
 3*7
 
 
+# %%
 # stop the console client loop, i.e. to actively disconnect
 # from remote console
 quit
 
 
+# %%
 # here back to the top level Edh repl, quit gracefully
 quit

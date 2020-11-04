@@ -1,5 +1,5 @@
 
-{#
+{##
  # this is the client-facing entry module for a networked console.
  #
  # this module is instantiated and run per client connection, the
@@ -9,6 +9,11 @@
 import ( Peer, **_ ) 'net/RT'
 import * 'net/symbols'
 effect import * 'net/effects'
+
+# artifacts from debug module is not exposed to sandboxed scope,
+# expose them for demo purpose here, it is a security risk if done
+# with a production environment.
+import * 'batteries/root/debug'
 
 
 # a Peer object should have been implanted atomically, the following

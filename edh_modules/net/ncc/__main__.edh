@@ -33,7 +33,7 @@ effect {
 # we won't see the response before submitted next command, as the
 # read will block `console.print()`
 conOutCnt = 0
-conOutSignal := sink
+conOutSignal = sink
 
 # by default, show peer's identity as part of the console prompt
 cinArgs = (
