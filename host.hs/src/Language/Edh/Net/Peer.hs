@@ -68,28 +68,20 @@ readPeerCommand !ets peer@(Peer _ _ !eol _ !ho _) !exit =
     Right !pkt -> landPeerCmd peer pkt ets exit
 
 landPeerCmd :: Peer -> Packet -> EdhThreadState -> EdhTxExit -> STM ()
-landPeerCmd (Peer !ident !sbScope _ _ _ !chdVar) (Packet !dir !payload) !ets !exit
+landPeerCmd (Peer !ident !sandbox _ _ _ !chdVar) (Packet !dir !payload) !ets !exit
   = case T.stripPrefix "blob:" dir of
-    Just !chLctr -> runEdhTx etsSandbox $ landValue chLctr $ EdhBlob payload
+    Just !chLctr -> runEdhTx ets $ landValue chLctr $ EdhBlob payload
     Nothing ->
-      runEdhTx etsSandbox
-        $ evalEdh srcName (TE.decodeUtf8 payload)
+      runEdhInSandbox ets sandbox (evalEdh srcName (TE.decodeUtf8 payload))
         $ \ !cmdVal -> landValue dir cmdVal
  where
-  !ctxOrig    = edh'context ets
-  !etsSandbox = ets
-    { edh'context = ctxOrig
-                      { edh'ctx'stack = NE.cons sbScope (edh'ctx'stack ctxOrig)
-                      }
-    }
-
   !srcName = T.unpack ident
   landValue !chLctr !val = if T.null chLctr
     -- to the default channel, which yields as direct result of 
     -- `peer.readCommand()`
     then exitEdhTx exit val
     -- to a specific channel, which should be located by the directive
-    else evalEdh srcName chLctr $ \ !lctr _ets -> do
+    else runEdhTxInSandbox sandbox (evalEdh srcName chLctr) $ \ !lctr _ets -> do
       !chd <- readTVar chdVar
       case Map.lookup lctr chd of
         Nothing ->

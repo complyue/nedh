@@ -10,7 +10,6 @@ import           Control.Concurrent
 import           Control.Concurrent.STM
 
 import           Data.Maybe
-import qualified Data.List.NonEmpty            as NE
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import           Data.Text.Encoding
@@ -177,7 +176,7 @@ createSnifferClass !addrClass !clsOuterScope =
               >>= \ !exo -> exitEdh ets exit $ EdhObject exo
             Just (Right ()) -> exitEdh ets exit $ EdhBool True
           sniffProc :: Scope -> EdhHostProc
-          sniffProc !sbScope !exit !ets =
+          sniffProc !sandbox !exit !ets =
             takeTMVar pktSink >>= \(!fromAddr, !payload) ->
               edhCreateHostObj addrClass
                                (toDyn onAddr { addrAddress = fromAddr })
@@ -190,22 +189,16 @@ createSnifferClass !addrClass !clsOuterScope =
                         (EdhObject addrObj)
                       -- interpret the payload as command, return as is
                       let !src = decodeUtf8 payload
-                      runEdhTx etsSandbox $ evalEdh (show fromAddr) src exit
-           where
-            !ctxOrig    = edh'context ets
-            !etsSandbox = ets
-              { edh'context = ctxOrig
-                                { edh'ctx'stack = NE.cons
-                                                    sbScope
-                                                    (edh'ctx'stack ctxOrig)
-                                }
-              }
+                      runEdhInSandbox ets
+                                      sandbox
+                                      (evalEdh (show fromAddr) src)
+                                      exit
 
           prepSniffer :: EdhModulePreparation
           prepSniffer !etsModu !exit =
             mkSandbox etsModu moduObj $ \ !sandboxScope -> do
 
-            -- define and implant procedures to the module being prepared
+              -- define and implant procedures to the module being prepared
               !moduMths <- sequence
                 [ (AttrByName nm, ) <$> mkHostProc moduScope vc nm hp
                 | (nm, vc, hp) <-
