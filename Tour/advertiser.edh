@@ -39,8 +39,22 @@ ad.post(
 
 # this is destined to fail
 ad.post( expr
-  console.info<| "your system's clock is at: "
+  console.info<| "your system's clock reads: "
   ++ console.now() # this is censored, should have no access
+)
+
+# %%
+# this is destined to fail too
+ad.post( expr
+  console.exit() # try halt the server, but this is censored
+)
+
+# %%
+# exception classes are not accessible from within a sandbox
+# this is destined to fail too
+ad.post( expr
+  # try halt the server, but ProgramHalt is not available
+  { throw ProgramHalt( 'hate you!' ) }
 )
 
 

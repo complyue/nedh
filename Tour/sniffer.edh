@@ -17,6 +17,8 @@ sniffer = Sniffer(
 
 )
 
+console.info<| 'Sniffing ...'
+
 # %%
 
 # following line keeps the sniffer running when this file
