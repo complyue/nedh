@@ -39,15 +39,20 @@ effect {
     # Read+Eval (peer.readCommand) -> Print (peer.print) -> Loop
 
     # simply echo back whatever posted to default channel
-    case peer.readSource() of {
+    case peer.readSource() of {@
+      # note this is a scoped block, so attributes assigned within this block
+      # will be discarded on leaving this block scope, not affecting the outer,
+      # module scope at all.
+
       { srcIn } -> {
         # echo back
         peer.postCommand( srcIn )
-        srcIn = nil # clear it
       }
-      # note nil can be returned from `peer.readSource()` in case a command
-      # is posted to another channel than the default one
-    }
+
+      # note a nil result is ignored here, nil can be returned from
+      # `peer.readSource()` in case a command is posted to another channel
+      # than the default one
+    @}
 
   }
 

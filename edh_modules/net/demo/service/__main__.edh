@@ -31,7 +31,7 @@ defer {
 # minimum by convention
 #
 # note in assignments to symbolic attributes, semicolon before `@` is likely
-# needed or the `@` may be parsed as an operator
+# needed or the `@` may be parsed as an infix operator
 effect {
   ; @netPeer = peer
   ; @dataSink = peer.armChannel( dataChan ?:= 'data' )
@@ -55,8 +55,11 @@ service := this
     expr "Good day, " + {$ repr( peer ) $},
   )
 
-  while peer.eol() is false case peer.readCommand() of {
-    # note a command resulting in nil is ignored here
+  while peer.eol() is false case peer.readCommand() of {@
+    # note this is a scoped block, so attributes assigned within this block
+    # will be discarded on leaving this block scope, not affecting the outer,
+    # module scope at all.
+
     { cmdVal } -> {
       # serving as a simple expression evaluator, post the result
       # back as client's console output, i.e. `conout := 1`
@@ -65,9 +68,10 @@ service := this
         1, # direct to channel conout := 1
         repr( cmdVal ),
       )
-      cmdVal = nil # clear it
     }
-  }
+
+    # note a command resulting in nil is ignored here
+  @}
 
 } $=> { exc } -> {
   console.error<| 'Exception by demo client ' ++ peer

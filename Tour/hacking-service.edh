@@ -19,7 +19,7 @@ expr 3*7
 
 # and the expression can be as any complex as the remote environment
 # supports
-expr service?calc &> calc( 5, 11 ) |> 'no `calc()` service'
+expr service?calc and calc( 5, 11 ) or 'no `calc()` service'
 
 
 {
