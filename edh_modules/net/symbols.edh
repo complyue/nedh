@@ -29,4 +29,7 @@ export {
   # effectful identifier of the method procedure for normal data sending
   sendData = Symbol( '@sendData' )
 
+  # effectful identifier of the method procedure to disconnect the connection
+  disconnectPeer = Symbol( '@disconnectPeer' )
+
 }

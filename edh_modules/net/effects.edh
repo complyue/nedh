@@ -29,3 +29,8 @@ export method @sendData ( d, *ds ) {
   peer.p2c( dataChan, d )
   for d from ds do peer.p2c( dataChan, d )
 }
+
+export method @disconnectPeer() {
+  peer = behave @netPeer
+  peer.stop()
+}
