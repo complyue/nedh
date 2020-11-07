@@ -27,23 +27,20 @@ import           Language.Edh.Net.Peer
 import           Language.Edh.Net.Addr
 
 
-type ServerAddr = Text
-type ServerPort = PortNumber
-
 data EdhServer = EdhServer {
-    -- the import spec of the module to run as the server
+    -- the import spec of the service module
       edh'server'modu :: !Text
     -- local network interface to bind
-    , edh'server'addr :: !ServerAddr
+    , edh'server'addr :: !Text
     -- local network port to bind
-    , edh'server'port :: !ServerPort
+    , edh'server'port :: !PortNumber
     -- max port number to try bind
-    , edh'server'port'max :: !ServerPort
+    , edh'server'port'max :: !PortNumber
     -- actually listened network addresses
     , edh'serving'addrs :: !(TMVar [AddrInfo])
     -- end-of-life status
     , edh'server'eol :: !(TMVar (Either SomeException ()))
-    -- server module initializer, must callable if not nil
+    -- service module initializer, must callable if not nil
     , edh'server'init :: !EdhValue
     -- each connected peer is sunk into this
     , edh'serving'clients :: !EventSink
@@ -93,7 +90,7 @@ createServerClass !addrClass !peerClass !clsOuterScope =
         !badInit -> edhValueDesc etsCtor badInit $ \ !badDesc ->
           throwEdh etsCtor UsageError $ "invalid init: " <> badDesc
    where
-    withInit !__peer_init__ = do
+    withInit !__modu_init__ = do
       !servAddrs <- newEmptyTMVar
       !servEoL   <- newEmptyTMVar
       !clients   <- maybe newEventSink return maybeClients
@@ -104,7 +101,7 @@ createServerClass !addrClass !peerClass !clsOuterScope =
             , edh'server'port'max = fromIntegral $ fromMaybe ctorPort port'max
             , edh'serving'addrs   = servAddrs
             , edh'server'eol      = servEoL
-            , edh'server'init     = __peer_init__
+            , edh'server'init     = __modu_init__
             , edh'serving'clients = clients
             }
       runEdhTx etsCtor $ edhContIO $ do
@@ -122,7 +119,7 @@ createServerClass !addrClass !peerClass !clsOuterScope =
         atomically $ ctorExit $ HostStore (toDyn server)
 
     serverThread :: EdhServer -> IO ()
-    serverThread (EdhServer !servModu !servAddr !servPort !portMax !servAddrs !servEoL !__peer_init__ !clients)
+    serverThread (EdhServer !servModu !servAddr !servPort !portMax !servAddrs !servEoL !__modu_init__ !clients)
       = do
         servThId <- myThreadId
         void $ forkIO $ do -- async terminate the accepter thread on stop signal
@@ -201,12 +198,12 @@ createServerClass !addrClass !peerClass !clsOuterScope =
                   -- call the per-connection peer module initialization method in the
                   -- module context (where both contextual this/that are the module
                   -- object)
-                  if __peer_init__ == nil
+                  if __modu_init__ == nil
                     then exit
                     else
                       edhPrepareCall'
                           etsModu
-                          __peer_init__
+                          __modu_init__
                           (ArgsPack [EdhObject $ edh'scope'this moduScope]
                                     odEmpty
                           )

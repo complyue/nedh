@@ -25,14 +25,8 @@ import           Language.Edh.Net.MicroProto
 import           Language.Edh.Net.Peer
 
 
-type ServiceAddr = Text
-type ServicePort = Int
-
 serviceAddressFrom
-  :: EdhThreadState
-  -> Object
-  -> ((ServiceAddr, ServicePort) -> STM ())
-  -> STM ()
+  :: EdhThreadState -> Object -> ((Text, Int) -> STM ()) -> STM ()
 serviceAddressFrom !ets !addrObj !exit = castObjectStore addrObj >>= \case
   Nothing         -> throwEdh ets UsageError "unsupported addr object"
   Just (_, !addr) -> case addr of
@@ -60,9 +54,9 @@ data EdhClient = EdhClient {
     -- the import spec of the module to run as the consumer
       edh'consumer'modu :: !Text
     -- local network interface to bind
-    , edh'service'addr :: !ServiceAddr
+    , edh'service'addr :: !Text
     -- local network port to bind
-    , edh'service'port :: !ServicePort
+    , edh'service'port :: !Int
     -- actually connected network addresses
     , edh'service'addrs :: !(TMVar [AddrInfo])
     -- end-of-life status
@@ -236,17 +230,14 @@ createClientClass !addrClass !peerClass !clsOuterScope =
                 `orElse` (Left <$> readTMVar cnsmrEoL)
                 )
               >>= \case
-                    Left _ -> return ()
-                    Right !pkt ->
-                      catch
-                          (  sendPacket clientId (sendAll sock) pkt
-                          >> serializeCmdsOut
-                          )
-                        $ \(e :: SomeException) -> -- mark eol on error
-                            atomically $ void $ tryPutTMVar cnsmrEoL $ Left e
+                    Left  _    -> return ()
+                    Right !pkt -> do
+                      sendPacket clientId (sendAll sock) pkt
+                      serializeCmdsOut
         -- pump commands out,
         -- make this thread the only one writing the handle
-        serializeCmdsOut
+        serializeCmdsOut `catch` \(e :: SomeException) -> -- mark eol on error
+          atomically $ void $ tryPutTMVar cnsmrEoL $ Left e
 
 
   reprProc :: EdhHostProc

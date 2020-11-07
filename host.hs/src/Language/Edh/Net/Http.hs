@@ -75,20 +75,17 @@ parseRoutes !ets !routes !exit = case edhUltimate routes of
       throwEdh ets UsageError $ "invalid route: " <> T.pack (show badRoute)
 
 
-type HttpServerAddr = Text
-type HttpServerPort = PortNumber
-
 data EdhHttpServer = EdhHttpServer {
     -- the import spec of the modules to provide static resources
       edh'http'server'modus :: ![Text]
     -- custom http routes
     , edh'http'custom'routes :: Snap.Snap ()
     -- local network interface to bind
-    , edh'http'server'addr :: !HttpServerAddr
+    , edh'http'server'addr :: !Text
     -- local network port to bind
-    , edh'http'server'port :: !HttpServerPort
+    , edh'http'server'port :: !PortNumber
     -- max port number to try bind
-    , edh'http'server'port'max :: !HttpServerPort
+    , edh'http'server'port'max :: !PortNumber
     -- actually listened network addresses
     , edh'http'serving'addrs :: !(TMVar [AddrInfo])
     -- end-of-life status

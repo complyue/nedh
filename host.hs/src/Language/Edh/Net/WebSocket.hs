@@ -29,18 +29,15 @@ import           Language.Edh.Net.Peer
 import           Language.Edh.Net.Addr
 
 
-type WsServerAddr = Text
-type WsServerPort = PortNumber
-
 data EdhWsServer = EdhWsServer {
     -- the import spec of the module to run as the server
       edh'ws'server'modu :: !Text
     -- local network interface to bind
-    , edh'ws'server'addr :: !WsServerAddr
+    , edh'ws'server'addr :: !Text
     -- local network port to bind
-    , edh'ws'server'port :: !WsServerPort
+    , edh'ws'server'port :: !PortNumber
     -- max port number to try bind
-    , edh'ws'server'port'max :: !WsServerPort
+    , edh'ws'server'port'max :: !PortNumber
     -- actually listened network addresses
     , edh'ws'serving'addrs :: !(TMVar [AddrInfo])
     -- end-of-life status

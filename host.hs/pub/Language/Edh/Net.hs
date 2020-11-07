@@ -3,6 +3,7 @@ module Language.Edh.Net
   ( installNetBatteries
   -- TODO organize and doc the re-exports
   , module Language.Edh.Net.MicroProto
+  , module Language.Edh.Net.Addr
   , module Language.Edh.Net.Peer
   , module Language.Edh.Net.Server
   , module Language.Edh.Net.Client
