@@ -177,22 +177,34 @@ createSnifferClass !addrClass !clsOuterScope =
             Just (Right ()) -> exitEdh ets exit $ EdhBool True
           sniffProc :: Scope -> EdhHostProc
           sniffProc !sandbox !exit !ets =
-            takeTMVar pktSink >>= \(!fromAddr, !payload) ->
-              edhCreateHostObj addrClass
+            (Right <$> takeTMVar pktSink)
+              `orElse` (Left <$> readTMVar snifEoL)
+              >>=      \case
+                         -- reached normal end-of-stream
+                         Left Right{} -> exitEdh ets exit nil
+                         -- previously eol due to error
+                         Left (Left !ex) ->
+                           edh'exception'wrapper (edh'ctx'world $ edh'context ets) ex
+                             >>= \ !exo -> edhThrow ets $ EdhObject exo
+                         Right (!fromAddr, !payload) ->
+                           edhCreateHostObj
+                               addrClass
                                (toDyn onAddr { addrAddress = fromAddr })
                                []
-                >>= \ !addrObj -> do
-                      -- provide the effectful sourceAddr
-                      implantEffect
-                        (edh'scope'entity $ contextScope $ edh'context ets)
-                        (AttrByName "sourceAddr")
-                        (EdhObject addrObj)
-                      -- interpret the payload as command, return as is
-                      let !src = decodeUtf8 payload
-                      runEdhInSandbox ets
-                                      sandbox
-                                      (evalEdh (show fromAddr) src)
-                                      exit
+                             >>= \ !addrObj -> do
+                                 -- provide the effectful sourceAddr
+                                   implantEffect
+                                     (edh'scope'entity $ contextScope $ edh'context
+                                       ets
+                                     )
+                                     (AttrByName "sourceAddr")
+                                     (EdhObject addrObj)
+                                   -- interpret the payload as command, return as is
+                                   let !src = decodeUtf8 payload
+                                   runEdhInSandbox ets
+                                                   sandbox
+                                                   (evalEdh (show fromAddr) src)
+                                                   exit
 
           prepSniffer :: EdhModulePreparation
           prepSniffer !etsModu !exit =

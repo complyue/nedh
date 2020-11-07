@@ -99,18 +99,20 @@ receivePacketStream peerSite !intaker !pktSink !eos = do
  where
 
   getExact :: Int64 -> IO (BL.ByteString, B.ByteString)
-  getExact !nbytes64 = intaker nbytes >>= \chunk ->
-    let more2read = nbytes64 - fromIntegral (B.length chunk)
+  getExact !nbytes64 = intaker nbytes >>= \ !chunk ->
+    let !more2read = nbytes64 - fromIntegral (B.length chunk)
     in  if more2read > 0
-          then getExact more2read >>= \(chunk', readahead) ->
-            return (BL.fromStrict chunk <> chunk', readahead)
+          then if B.null chunk
+            then throwIO $ EdhPeerError peerSite "premature disconnection"
+            else getExact more2read >>= \(!chunk', !readahead) ->
+              return (BL.fromStrict chunk <> chunk', readahead)
           else case B.splitAt nbytes chunk of
-            (exact, readahead) -> return (BL.fromStrict exact, readahead)
-    where nbytes = fromIntegral nbytes64
+            (!exact, !readahead) -> return (BL.fromStrict exact, readahead)
+    where !nbytes = fromIntegral nbytes64
 
   parsePkts :: BL.ByteString -> IO ()
   parsePkts !readahead = do
-    (payloadLen, directive, readahead') <- parseHdr readahead
+    (!payloadLen, !directive, !readahead') <- parseHdr readahead
     if payloadLen < 0
       then -- normal eos, try mark and done
            void $ atomically $ tryPutTMVar eos $ Right ()
@@ -145,7 +147,7 @@ receivePacketStream peerSite !intaker !pktSink !eos = do
 
   parseHdr :: BL.ByteString -> IO (Int64, Text, BL.ByteString)
   parseHdr !readahead = do
-    peeked <- if BL.null readahead
+    !peeked <- if BL.null readahead
       then BL.fromStrict <$> intaker chunkSize
       else return readahead
     if BL.null peeked
@@ -157,10 +159,10 @@ receivePacketStream peerSite !intaker !pktSink !eos = do
         let (hdrPart, rest) = C.break (== ']') peeked
         if not $ BL.null rest
           then do -- got a full packet header
-            let !hdrContent         = BL.drop 1 hdrPart
-                !readahead'         = BL.drop 1 rest
-                (lenStr, directive) = C.break (== '#') hdrContent
-                payloadLen          = read $ TL.unpack $ TLE.decodeUtf8 lenStr
+            let !hdrContent           = BL.drop 1 hdrPart
+                !readahead'           = BL.drop 1 rest
+                (!lenStr, !directive) = C.break (== '#') hdrContent
+                !payloadLen           = read $ TL.unpack $ TLE.decodeUtf8 lenStr
             return
               ( payloadLen
               , TL.toStrict $ TLE.decodeUtf8 $ BL.drop 1 directive
@@ -168,8 +170,10 @@ receivePacketStream peerSite !intaker !pktSink !eos = do
               )
           else if BL.length peeked < fromIntegral maxHeaderLength
             then do
-              morePeek <- BL.fromStrict <$> intaker chunkSize
-              parseHdr $ peeked <> morePeek
+              !morePeek <- BL.fromStrict <$> intaker chunkSize
+              if BL.null morePeek
+                then throwIO $ EdhPeerError peerSite "premature disconnection"
+                else parseHdr $ peeked <> morePeek
             else throwIO
               $ EdhPeerError peerSite "incoming packet header too long"
 
