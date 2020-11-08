@@ -10,18 +10,19 @@ cmdLineTo( '127.0.0.1', 3721, )
 # lines will be read by the cli loop as cli commands, then
 # each posted to the service as peer command, if not nil.
 
-
+# %%
 # the demo service acts as a remote expression evaluator, post
 # it some expression and it'll post back the eval result into
 # our conout, and the 'net/demo/hack' stdio loop takes care
 # of proper waiting it before reading next cli command.
 expr 3*7
 
+# %%
 # and the expression can be as any complex as the remote environment
 # supports
 expr service?calc and calc( 5, 11 ) or 'no `calc()` service'
 
-
+# %%
 {
   # enclose multiple statements within this block, so they're not
   # interpreted as multiple cli commands, but the last statement
@@ -30,7 +31,7 @@ expr service?calc and calc( 5, 11 ) or 'no `calc()` service'
   console.info<| 'Doing rpc directly - calling the police ...'
 
   # example of some local data to be baked into rpc
-  policeTelNo := 110
+  policeTelNo = 110
 
   peer.postCommand( expr # expr literal is the sane way,
     # to compose rpc commands.
@@ -47,7 +48,7 @@ expr service?calc and calc( 5, 11 ) or 'no `calc()` service'
   # `peer.postCommand()` returns nil, so this whole block is nop to cli
 }
 
-
+# %%
 {
   # expression is 1st class citizen in Edh, so we can ask the
   # remote peer to return some expr to be eval'ed here again
@@ -66,8 +67,10 @@ expr service?calc and calc( 5, 11 ) or 'no `calc()` service'
 }
 
 
+# %%
 # stop the cli loop, i.e. to actively disconnect from service
 quit
 
+# %%
 # here back to the top level Edh repl, quit gracefully
 quit

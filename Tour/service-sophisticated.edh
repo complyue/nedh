@@ -57,7 +57,7 @@ import * 'net'
     # @__exports__@ dict at the same time it's defined into local scope
     export server = Server (
       ***apk,
-      clients=outlet, # do the production of newly connected peers
+      clients= outlet, # do the production of newly connected peers
     )
 
     # @.addrs()@ will only be populated after successful listening at os level,
@@ -111,5 +111,5 @@ import * 'net'
     go trackClientLife( peer )
   }
 
-  console.print( 'Server done.', result=server.eol(), )
+  console.print( 'Server done.', result= __exports__.server.eol(), )
 }
