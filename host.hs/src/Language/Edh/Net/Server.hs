@@ -104,28 +104,26 @@ createServerClass !addrClass !peerClass !clsOuterScope =
             , edh'server'init     = __modu_init__
             , edh'serving'clients = clients
             }
+          finalCleanup !result = atomically $ do
+            -- fill empty addrs if the listening has ever failed
+            void $ tryPutTMVar servAddrs []
+            -- mark server end-of-life anyway finally
+            void $ tryPutTMVar servEoL result
+            -- mark eos for clients sink anyway finally
+            void $ postEvent clients nil
+
       runEdhTx etsCtor $ edhContIO $ do
-        void $ forkFinally
-          (serverThread server)
-          ( atomically
-          . ((
-              -- fill empty addrs if the connection has ever failed
-              tryPutTMVar servAddrs [] >>
-              -- mark eos for clients sink anyway finally
-                                          publishEvent clients nil) <*)
-              -- mark server end-of-life anyway finally
-          . tryPutTMVar servEoL
-          )
+        void $ forkFinally (serverThread server) finalCleanup
         atomically $ ctorExit $ HostStore (toDyn server)
 
     serverThread :: EdhServer -> IO ()
     serverThread (EdhServer !servModu !servAddr !servPort !portMax !servAddrs !servEoL !__modu_init__ !clients)
       = do
-        servThId <- myThreadId
+        !servThId <- myThreadId
         void $ forkIO $ do -- async terminate the accepter thread on stop signal
           _ <- atomically $ readTMVar servEoL
           killThread servThId
-        addr <- resolveServAddr
+        !addr <- resolveServAddr
         bracket (open addr) close acceptClients
      where
       ctx             = edh'context etsCtor
@@ -188,19 +186,18 @@ createServerClass !addrClass !peerClass !clsOuterScope =
               in
                 do
                   !peerObj <- edhCreateHostObj peerClass (toDyn peer) []
-                  -- announce this new peer to the event sink
-                  publishEvent clients $ EdhObject peerObj
-
                   -- implant to the module being prepared
                   iopdInsert (AttrByName "peer")
                              (EdhObject peerObj)
                              (edh'scope'entity moduScope)
-                  -- call the per-connection peer module initialization method in the
-                  -- module context (where both contextual this/that are the module
-                  -- object)
+                  -- announce this new client connected
+                  void $ postEvent clients $ EdhObject peerObj
                   if __modu_init__ == nil
                     then exit
                     else
+        -- call the per-connection peer module initialization method in the
+        -- module context (where both contextual this/that are the module
+        -- object)
                       edhPrepareCall'
                           etsModu
                           __modu_init__

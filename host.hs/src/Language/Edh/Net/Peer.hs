@@ -87,10 +87,9 @@ landPeerCmd (Peer !ident !sandbox _ _ _ !chdVar) (Packet !dir !payload) !ets !ex
         Nothing ->
           throwEdh ets UsageError $ "missing command channel: " <> T.pack
             (show lctr)
-        Just !chSink -> do
-          publishEvent chSink val  -- post the cmd to channel
-          -- yield nil as for `peer.readCommand()` wrt this cmd packet
-          exitEdh ets exit nil
+        Just !chSink -> -- post the cmd to channel, but yield nil as for
+          -- `peer.readCommand()` wrt this cmd packet
+          runEdhTx ets $ publishEvent chSink val $ const $ exitEdhTx exit nil
 
 
 createPeerClass :: Scope -> STM Object
