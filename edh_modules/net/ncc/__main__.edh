@@ -27,13 +27,7 @@ effect {
 }
 
 
-# count number of conout from server, make its change an event stream
-# later we rely on this signal to wait response after submitted some
-# cmd, before reading local stdio console again for next input, or
-# we won't see the response before submitted next command, as the
-# read will block `console.print()`
-conOutCnt = 0
-conOutSignal = sink
+chConOut = peer.armChannel( conout ?:= 1 )
 
 # by default, show peer's identity as part of the console prompt
 cinArgs = (
@@ -68,12 +62,10 @@ go {
   # channel 1 is named `conout` by convention, commands through it are
   # directed to `console.print()`
   # CAVEAT: the outputting is hung up during reading of console commands
-  perceive peer.armChannel( conout ?:= 1 ) { conOut } -> {
-    conOutSignal <- conOutCnt += 1 # increase and announce
-    ; | type( conOut ) is ArgsPackType -> {
-      console.print(*** conOut )
-    }
-    console.print( conOut )
+  perceive chConOut { conOut } -> {
+    if type( conOut ) is ArgsPackType
+    then console.print(*** conOut )
+    else console.print( conOut )
   }
 
   # channel 2 is named `conmsg` by convention, commands through it are
@@ -121,7 +113,7 @@ go {
 # wait the 1st cmd to our conout, whether the server will issue one
 # on connection on its own, we will post one (see above), so this
 # won't dead lock
-for _ from conOutSignal do break
+chConOut.latest
 
 # pump commands from local stdio console to the console server
 while peer.eol() is false {
@@ -130,12 +122,12 @@ while peer.eol() is false {
     ":quit" -> { break }
 
     { cmdSrc } -> {
-      cntrBefore = conOutSignal.mrv
-      peer.postCommand( cmdSrc )
-      for cntrAfter from conOutSignal do if cntrAfter != cntrBefore
-      # got new conout (supposed to be the eval result) from server,
-      # let's continue reading next cmd from local stdio console
-      then break
+      # expect a subsequent console out event after submitted the cmd,
+      # don't continue reading from local stdin, bcoz the read will prevent
+      # the actual output to local stdout from being printed
+      for _ from ( outlet= chConOut.subseq ) | () =>* {
+        peer.postCommand( cmdSrc )
+      } do break
     }
 
     # note nil as cmd value is ignored here, so a nil is effectively nop
