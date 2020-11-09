@@ -1,0 +1,47 @@
+
+import * 'net'
+
+export class WebRepl {
+
+  method __init__(
+    port as this.port = 2714, addr as this.addr = '127.0.0.1',
+    ws'port as this.ws'port = 2721, port'max as this.port'max = 2728,
+    useSandbox as this.useSandbox = true,
+  ) {
+    this.ws = WsServer(
+      'net/repl/ws', # facade module
+      this.addr, this.ws'port, this.port'max, # network address to listen
+      useSandbox= this.useSandbox,
+    )
+    case this.ws.addrs() of {
+      { wsAddr :> _extraWsAddrs } -> {
+        console.info<| 'Đ (Edh) web REPL listening: ws://'
+        ++ wsAddr.host() ++ ':' ++ wsAddr.port()
+      }
+      error( 'Đ (Edh) web REPL failed serving WebSocket.' )
+    }
+
+    this.http = HttpServer(
+      # multiple modules providing static web resources, can stack up
+      ( 'net/repl', 'net/web', 'web', ),
+      this.addr, this.port, this.port'max, # network address to listen
+      routes= ( # routes by URI
+        # tell web browser our port of WebSocket at uri `/:`
+        ( ":", '' ++ wsAddr.port(), mime= 'text/plain' ),
+      ),
+    )
+    case this.http.addrs() of {
+      { httpAddr :> _extraHttpAddrs } -> {
+        console.info<| 'Đ (Edh) web REPL listening: http://'
+        ++ httpAddr.host() ++ ':' ++ httpAddr.port()
+      }
+      error( 'Đ (Edh) web REPL failed serving HTTP.' )
+    }
+
+  }
+
+  method replHere() {
+
+  }
+
+}

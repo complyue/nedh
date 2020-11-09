@@ -1,0 +1,10 @@
+
+import * 'net'
+import * 'net/repl'
+
+wl = WebRepl(
+  useSandbox= false,
+)
+
+# %%
+wl.http.join()
