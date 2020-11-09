@@ -40,10 +40,11 @@ method deepComponentWork( cmpNo ) {
     wl.replHere( prompt )
   }
 
-  console.info<| 'Subsystem ' ++ perform sysNo ++ ', component '
-  ++ cmpNo ++ ' seems ' ++ if issue'solved
-  then 'working as expected'
-  else 'not working'
+  if issue'solved
+  then console.info<| 'Subsystem ' ++ perform sysNo ++ ', component '
+  ++ cmpNo ++ ' seems working as expected.'
+  else console.warn<| 'Subsystem ' ++ perform sysNo ++ ', component '
+  ++ cmpNo ++ ' seems not working.'
 
 }
 
