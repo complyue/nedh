@@ -21,6 +21,10 @@ defer {
   console.info<| 'Disconnecting ws client ' ++ peer
 }
 
+# reqPath should have been implanted as well, reflecting ws request path
+reqPath ?= '/'
+
+
 # define various effectful artifacts used for communication with this
 # connected consumer client session, with `@netPeer` and `@dataSink` the
 # minimum by convention

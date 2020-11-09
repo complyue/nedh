@@ -9,7 +9,7 @@ export class WebRepl {
     useSandbox as this.useSandbox = true,
   ) {
     this.ws = WsServer(
-      'net/repl/ws', # facade module
+      'net/web/repl/ws', # facade module
       this.addr, this.ws'port, this.port'max, # network address to listen
       useSandbox= this.useSandbox,
     )
@@ -23,7 +23,7 @@ export class WebRepl {
 
     this.http = HttpServer(
       # multiple modules providing static web resources, can stack up
-      ( 'net/repl', 'net/web', 'web', ),
+      ( 'net/web/repl', 'net/web', 'web', ),
       this.addr, this.port, this.port'max, # network address to listen
       routes= ( # routes by URI
         # tell web browser our port of WebSocket at uri `/:`
