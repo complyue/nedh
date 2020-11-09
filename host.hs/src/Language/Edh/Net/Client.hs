@@ -90,8 +90,9 @@ createClientClass !addrClass !peerClass !clsOuterScope =
     -> "addrSpec" ?: EdhValue
     -> "port" ?: Int
     -> "init" ?: EdhValue
+    -> "sandbox" ?: Bool
     -> EdhObjectAllocator
-  clientAllocator (mandatoryArg -> !consumer) (defaultArg (EdhString "127.0.0.1") -> !addrSpec) (defaultArg 3721 -> !ctorPort) (defaultArg nil -> !init_) !ctorExit !etsCtor
+  clientAllocator (mandatoryArg -> !consumer) (defaultArg (EdhString "127.0.0.1") -> !addrSpec) (defaultArg 3721 -> !ctorPort) (defaultArg nil -> !init_) (defaultArg True -> !useSandbox) !ctorExit !etsCtor
     = if edh'in'tx etsCtor
       then throwEdh etsCtor
                     UsageError
@@ -172,38 +173,38 @@ createClientClass !addrClass !peerClass !clsOuterScope =
 
         let
           prepConsumer :: EdhModulePreparation
-          prepConsumer !etsModu !exit =
-            mkSandbox etsModu moduObj $ \ !sandboxScope ->
-              let !peer = Peer { edh'peer'ident    = clientId
-                               , edh'peer'sandbox  = sandboxScope
-                               , edh'peer'eol      = cnsmrEoL
-                               , edh'peer'posting  = putTMVar poq
-                               , edh'peer'hosting  = takeTMVar pktSink
-                               , edh'peer'channels = chdVar
-                               }
-              in
-                edhCreateHostObj peerClass (toDyn peer) [] >>= \ !peerObj -> do
-                  -- implant to the module being prepared
-                  iopdInsert (AttrByName "peer")
-                             (EdhObject peerObj)
-                             (edh'scope'entity moduScope)
-                  -- call the per-connection peer module initialization method in the
-                  -- module context (where both contextual this/that are the module
-                  -- object)
-                  if __peer_init__ == nil
-                    then exit
-                    else
-                      edhPrepareCall'
-                          etsModu
-                          __peer_init__
-                          (ArgsPack [EdhObject $ edh'scope'this moduScope]
-                                    odEmpty
-                          )
-                        $ \ !mkCall ->
-                            runEdhTx etsModu $ mkCall $ \_result _ets -> exit
+          prepConsumer !etsModu !exit = if useSandbox
+            then mkSandbox etsModu moduObj $ withSandbox . Just
+            else withSandbox Nothing
            where
             !moduScope = contextScope $ edh'context etsModu
             !moduObj   = edh'scope'this moduScope
+            withSandbox !maybeSandbox = do
+              !peerObj <- edhCreateHostObj peerClass (toDyn peer) []
+              -- implant to the module being prepared
+              iopdInsert (AttrByName "peer")
+                         (EdhObject peerObj)
+                         (edh'scope'entity moduScope)
+              -- call the per-connection peer module initialization method in the
+              -- module context (where both contextual this/that are the module
+              -- object)
+              if __peer_init__ == nil
+                then exit
+                else
+                  edhPrepareCall'
+                      etsModu
+                      __peer_init__
+                      (ArgsPack [EdhObject $ edh'scope'this moduScope] odEmpty)
+                    $ \ !mkCall -> runEdhTx etsModu $ mkCall $ \_result _ets ->
+                        exit
+             where
+              !peer = Peer { edh'peer'ident    = clientId
+                           , edh'peer'sandbox  = maybeSandbox
+                           , edh'peer'eol      = cnsmrEoL
+                           , edh'peer'posting  = putTMVar poq
+                           , edh'peer'hosting  = takeTMVar pktSink
+                           , edh'peer'channels = chdVar
+                           }
 
         void
           -- run the consumer module as another program

@@ -79,8 +79,9 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
     -> "port'max" ?: Int
     -> "init" ?: EdhValue
     -> "clients" ?: EventSink
+    -> "sandbox" ?: Bool
     -> EdhObjectAllocator
-  serverAllocator (mandatoryArg -> !modu) (defaultArg "127.0.0.1" -> !ctorAddr) (defaultArg 3721 -> !ctorPort) (optionalArg -> port'max) (defaultArg nil -> !init_) (optionalArg -> maybeClients) !ctorExit !etsCtor
+  serverAllocator (mandatoryArg -> !modu) (defaultArg "127.0.0.1" -> !ctorAddr) (defaultArg 3721 -> !ctorPort) (optionalArg -> port'max) (defaultArg nil -> !init_) (optionalArg -> maybeClients) (defaultArg True -> !useSandbox) !ctorExit !etsCtor
     = if edh'in'tx etsCtor
       then throwEdh etsCtor
                     UsageError
@@ -92,7 +93,7 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
         !badInit -> edhValueDesc etsCtor badInit $ \ !badDesc ->
           throwEdh etsCtor UsageError $ "invalid init: " <> badDesc
    where
-    withInit !__peer_init__ = do
+    withInit !__modu_init__ = do
       !servAddrs <- newEmptyTMVar
       !servEoL   <- newEmptyTMVar
       !clients   <- maybe newEventSink return maybeClients
@@ -104,7 +105,7 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
           , edh'ws'server'port'max = fromIntegral $ fromMaybe ctorPort port'max
           , edh'ws'serving'addrs   = servAddrs
           , edh'ws'server'eol      = servEoL
-          , edh'ws'server'init     = __peer_init__
+          , edh'ws'server'init     = __modu_init__
           , edh'ws'serving'clients = clients
           }
         finalCleanup !result = atomically $ do
@@ -119,7 +120,7 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
         atomically $ ctorExit $ HostStore (toDyn server)
 
     serverThread :: EdhWsServer -> IO ()
-    serverThread (EdhWsServer !servModu !servAddr !servPort !portMax !servAddrs !servEoL !__peer_init__ !clients)
+    serverThread (EdhWsServer !servModu !servAddr !servPort !portMax !servAddrs !servEoL !__modu_init__ !clients)
       = do
         servThId <- myThreadId
         void $ forkIO $ do -- async terminate the accepter thread on stop signal
@@ -179,41 +180,40 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
 
         let
           prepService :: EdhModulePreparation
-          prepService !etsModu !exit =
-            mkSandbox etsModu moduObj $ \ !sandboxScope ->
-              let !peer = Peer { edh'peer'ident    = clientId
-                               , edh'peer'sandbox  = sandboxScope
-                               , edh'peer'eol      = clientEoL
-                               , edh'peer'posting  = putTMVar poq
-                               , edh'peer'hosting  = takeTMVar pktSink
-                               , edh'peer'channels = chdVar
-                               }
-              in
-                do
-                  !peerObj <- edhCreateHostObj peerClass (toDyn peer) []
-                  -- implant to the module being prepared
-                  iopdInsert (AttrByName "peer")
-                             (EdhObject peerObj)
-                             (edh'scope'entity moduScope)
-                  -- announce this new client connected
-                  void $ postEvent clients $ EdhObject peerObj
-                  if __peer_init__ == nil
-                    then exit
-                    else
-        -- call the per-connection peer module initialization method in the
-        -- module context (where both contextual this/that are the module
-        -- object)
-                      edhPrepareCall'
-                          etsModu
-                          __peer_init__
-                          (ArgsPack [EdhObject $ edh'scope'this moduScope]
-                                    odEmpty
-                          )
-                        $ \ !mkCall ->
-                            runEdhTx etsModu $ mkCall $ \_result _ets -> exit
+          prepService !etsModu !exit = if useSandbox
+            then mkSandbox etsModu moduObj $ withSandbox . Just
+            else withSandbox Nothing
            where
             !moduScope = contextScope $ edh'context etsModu
             !moduObj   = edh'scope'this moduScope
+            withSandbox !maybeSandbox = do
+              !peerObj <- edhCreateHostObj peerClass (toDyn peer) []
+              -- implant to the module being prepared
+              iopdInsert (AttrByName "peer")
+                         (EdhObject peerObj)
+                         (edh'scope'entity moduScope)
+              -- announce this new client connected
+              void $ postEvent clients $ EdhObject peerObj
+              if __modu_init__ == nil
+                then exit
+                else
+          -- call the per-connection peer module initialization method in the
+          -- module context (where both contextual this/that are the module
+          -- object)
+                  edhPrepareCall'
+                      etsModu
+                      __modu_init__
+                      (ArgsPack [EdhObject $ edh'scope'this moduScope] odEmpty)
+                    $ \ !mkCall -> runEdhTx etsModu $ mkCall $ \_result _ets ->
+                        exit
+             where
+              !peer = Peer { edh'peer'ident    = clientId
+                           , edh'peer'sandbox  = maybeSandbox
+                           , edh'peer'eol      = clientEoL
+                           , edh'peer'posting  = putTMVar poq
+                           , edh'peer'hosting  = takeTMVar pktSink
+                           , edh'peer'channels = chdVar
+                           }
 
         void
           -- run the server module on a separate thread as another program

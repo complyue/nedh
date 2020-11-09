@@ -21,7 +21,7 @@ import           Language.Edh.Net.MicroProto
 
 data Peer = Peer {
       edh'peer'ident :: !Text
-    , edh'peer'sandbox :: !Scope
+    , edh'peer'sandbox :: !(Maybe Scope)
     , edh'peer'eol :: !(TMVar (Either SomeException ()))
       -- todo this ever needs to be in CPS?
     , edh'peer'posting :: !(Packet -> STM ())
@@ -68,12 +68,16 @@ readPeerCommand !ets peer@(Peer _ _ !eol _ !ho _) !exit =
     Right !pkt -> landPeerCmd peer pkt ets exit
 
 landPeerCmd :: Peer -> Packet -> EdhThreadState -> EdhTxExit -> STM ()
-landPeerCmd (Peer !ident !sandbox _ _ _ !chdVar) (Packet !dir !payload) !ets !exit
+landPeerCmd (Peer !ident !maybeSandbox _ _ _ !chdVar) (Packet !dir !payload) !ets !exit
   = case T.stripPrefix "blob:" dir of
     Just !chLctr -> runEdhTx ets $ landValue chLctr $ EdhBlob payload
-    Nothing ->
-      runEdhInSandbox ets sandbox (evalEdh srcName (TE.decodeUtf8 payload))
-        $ \ !cmdVal -> landValue dir cmdVal
+    Nothing      -> case maybeSandbox of
+      Nothing ->
+        runEdhTx ets $ evalEdh srcName (TE.decodeUtf8 payload) $ \ !cmdVal ->
+          landValue dir cmdVal
+      Just !sandbox ->
+        runEdhInSandbox ets sandbox (evalEdh srcName (TE.decodeUtf8 payload))
+          $ \ !cmdVal -> landValue dir cmdVal
  where
   !srcName = T.unpack ident
   landValue !chLctr !val = if T.null chLctr
@@ -81,15 +85,20 @@ landPeerCmd (Peer !ident !sandbox _ _ _ !chdVar) (Packet !dir !payload) !ets !ex
     -- `peer.readCommand()`
     then exitEdhTx exit val
     -- to a specific channel, which should be located by the directive
-    else runEdhTxInSandbox sandbox (evalEdh srcName chLctr) $ \ !lctr _ets -> do
-      !chd <- readTVar chdVar
-      case Map.lookup lctr chd of
-        Nothing ->
-          throwEdh ets UsageError $ "missing command channel: " <> T.pack
-            (show lctr)
-        Just !chSink -> -- post the cmd to channel, but yield nil as for
-          -- `peer.readCommand()` wrt this cmd packet
-          runEdhTx ets $ publishEvent chSink val $ const $ exitEdhTx exit nil
+    else case maybeSandbox of
+      Nothing -> evalEdh srcName chLctr (postToChan val)
+      Just !sandbox ->
+        runEdhTxInSandbox sandbox (evalEdh srcName chLctr) (postToChan val)
+  postToChan :: EdhValue -> EdhValue -> EdhTx
+  postToChan !val !lctr _ets = do
+    !chd <- readTVar chdVar
+    case Map.lookup lctr chd of
+      Nothing ->
+        throwEdh ets UsageError $ "missing command channel: " <> T.pack
+          (show lctr)
+      Just !chSink -> -- post the cmd to channel, but yield nil as for
+        -- `peer.readCommand()` wrt this cmd packet
+        runEdhTx ets $ publishEvent chSink val $ const $ exitEdhTx exit nil
 
 
 createPeerClass :: Scope -> STM Object
