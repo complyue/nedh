@@ -77,7 +77,7 @@ createServerClass !addrClass !peerClass !clsOuterScope =
     -> "port'max" ?: Int
     -> "init" ?: EdhValue
     -> "clients" ?: EventSink
-    -> "sandbox" ?: Bool
+    -> "useSandbox" ?: Bool
     -> EdhObjectAllocator
   serverAllocator (mandatoryArg -> !modu) (defaultArg "127.0.0.1" -> !ctorAddr) (defaultArg 3721 -> !ctorPort) (optionalArg -> port'max) (defaultArg nil -> !init_) (optionalArg -> maybeClients) (defaultArg True -> !useSandbox) !ctorExit !etsCtor
     = if edh'in'tx etsCtor

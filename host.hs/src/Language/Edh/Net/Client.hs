@@ -90,7 +90,7 @@ createClientClass !addrClass !peerClass !clsOuterScope =
     -> "addrSpec" ?: EdhValue
     -> "port" ?: Int
     -> "init" ?: EdhValue
-    -> "sandbox" ?: Bool
+    -> "useSandbox" ?: Bool
     -> EdhObjectAllocator
   clientAllocator (mandatoryArg -> !consumer) (defaultArg (EdhString "127.0.0.1") -> !addrSpec) (defaultArg 3721 -> !ctorPort) (defaultArg nil -> !init_) (defaultArg True -> !useSandbox) !ctorExit !etsCtor
     = if edh'in'tx etsCtor
