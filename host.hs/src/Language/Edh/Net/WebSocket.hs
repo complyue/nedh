@@ -12,6 +12,7 @@ import           Control.Concurrent.STM
 import           Data.Maybe
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
+import qualified Data.Text.Encoding            as TE
 import qualified Data.Text.Lazy                as TL
 import qualified Data.Text.Lazy.Encoding       as TLE
 import qualified Data.ByteString.Lazy          as BL
@@ -171,14 +172,15 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
 
       servClient :: TMVar (Either SomeException ()) -> Text -> Socket -> IO ()
       servClient !clientEoL !clientId !sock = do
-        pConn <- WS.makePendingConnection sock
+        !pConn <- WS.makePendingConnection sock
           $ WS.defaultConnectionOptions { WS.connectionStrictUnicode = True }
-        wsc     <- WS.acceptRequest pConn
-        pktSink <- newEmptyTMVarIO
-        poq     <- newEmptyTMVarIO
-        chdVar  <- newTVarIO mempty
+        !wsc     <- WS.acceptRequest pConn
+        !pktSink <- newEmptyTMVarIO
+        !poq     <- newEmptyTMVarIO
+        !chdVar  <- newTVarIO mempty
 
         let
+          !reqPath = TE.decodeUtf8 $ WS.requestPath $ WS.pendingRequest pConn
           prepService :: EdhModulePreparation
           prepService !etsModu !exit = if useSandbox
             then mkSandbox etsModu moduObj $ withSandbox . Just
@@ -189,9 +191,11 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
             withSandbox !maybeSandbox = do
               !peerObj <- edhCreateHostObj peerClass (toDyn peer) []
               -- implant to the module being prepared
-              iopdInsert (AttrByName "peer")
-                         (EdhObject peerObj)
-                         (edh'scope'entity moduScope)
+              iopdUpdate
+                [ (AttrByName "peer"   , EdhObject peerObj)
+                , (AttrByName "reqPath", EdhString reqPath)
+                ]
+                (edh'scope'entity moduScope)
               -- announce this new client connected
               void $ postEvent clients $ EdhObject peerObj
               if __modu_init__ == nil
