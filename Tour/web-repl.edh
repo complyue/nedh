@@ -1,10 +1,69 @@
+{##
+ # a web based REPL server can be embedded into any running Edh process
+ #
+ # it can ease debugging & trouble-shooting
+ #}
 
-import * 'net'
 import * 'net/repl'
 
-wl = WebRepl(
-  useSandbox= false,
-)
 
 # %%
-wl.http.join()
+# create the ws+http REPL server
+#
+# ideally you start a singleton and have it shared globally, but multiple
+# instances can run simultaneously and work well together
+wl = WebRepl()
+
+
+# %%
+# simulate some concurrent thread in need of debugging power
+method deepSystemWork( sysNo ) {
+  effect sysNo = sysNo
+  for cmpNo from range( 3 )
+  do deepComponentWork( cmpNo )
+}
+
+method deepComponentWork( cmpNo ) {
+
+  issue'solved = false
+
+  if debug then { # debug will be `false` in normal case, but will be set to
+    # the debug module when env var EDH_LOG_LEVEL=DEBUG
+
+    prompt = if cmpNo // 2 * 2 is cmpNo
+    then None # demo default prompt for even component number
+    else ( # demo custom prompt for odd component number
+      'Please, subsystem ' ++ perform sysNo ++ ', component ' ++ cmpNo
+      ++ ' may have some problems to be tracked down ...' )
+
+    # replHere() will block until quit/continue issued from a web client
+    wl.replHere( prompt )
+  }
+
+  console.info<| 'Subsystem ' ++ perform sysNo ++ ', component '
+  ++ cmpNo ++ ' seems ' ++ if issue'solved
+  then 'working as expected'
+  else 'not working'
+
+}
+
+# %%
+# start 3 simultaneous subsystems
+for sysNo from range( 3 ) do go deepSystemWork( sysNo )
+# slightly some delay
+for _ from console.everyMillis( 20 ) do break
+
+
+# %%
+# show session count and url list every 30 seconds
+for _ from console.everySeconds( 30, wait1st= false )
+do case len( wl.sessions ) of {
+  0 -> console.info<| 'no REPL session atm.'
+  { scnt } -> {
+    console.info<| scnt ++ ' REPL session(s) atm:\n' ++
+    join ( sep= '\n',
+      *() =< for ( sid, session ) from wl.sessions
+      do ' *** ' ++ session.location ++ '\n  *  ' ++ session.url
+    )
+  }
+}

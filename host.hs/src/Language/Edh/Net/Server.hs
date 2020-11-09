@@ -185,7 +185,7 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
         let
           prepService :: EdhModulePreparation
           prepService !etsModu !exit = if useSandbox
-            then mkSandbox etsModu moduObj $ withSandbox . Just
+            then mkObjSandbox etsModu moduObj $ withSandbox . Just
             else withSandbox Nothing
            where
             !moduScope = contextScope $ edh'context etsModu

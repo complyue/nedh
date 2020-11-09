@@ -193,7 +193,7 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
           !reqPath = TE.decodeUtf8 $ WS.requestPath $ WS.pendingRequest pConn
           prepService :: EdhModulePreparation
           prepService !etsModu !exit = if useSandbox
-            then mkSandbox etsModu moduObj $ withSandbox . Just
+            then mkObjSandbox etsModu moduObj $ withSandbox . Just
             else withSandbox Nothing
            where
             !moduScope = contextScope $ edh'context etsModu

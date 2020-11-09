@@ -24,9 +24,9 @@
     }
 
     body {
-      color: #6ec73b;
+      color: #7f8ed6;
       margin: 1px;
-      padding: 1px 1px 1px 9pt;
+      padding: 1px 1px 20em 9pt;
     }
 
     textarea {
@@ -34,7 +34,8 @@
     }
 
     pre {
-      color: #3bc7c7;
+      font-size: 138%;
+      color: #6ec73b;
     }
 
     #printOut {
@@ -44,9 +45,10 @@
     }
 
     #printOut>div {
+      font-size: 80%;
       padding: 3pt 6pt;
       border: solid silver 1px;
-      color: #97da2a;
+      color: #c8da2a;
     }
 
     #readIn {
@@ -71,6 +73,17 @@
     (async () => {
       const divPrint = document.getElementById("printOut");
 
+      function printOut(msg) {
+        let printOutPane = document.createElement("pre");
+        printOutPane.appendChild(document.createTextNode(msg));
+        let printOutRecord = document.createElement("div");
+        printOutRecord.appendChild(document.createTextNode("💬 " + new Date()));
+        printOutRecord.appendChild(printOutPane);
+        divPrint.appendChild(printOutRecord);
+        divPrint.scrollTop = divPrint.scrollHeight;
+
+      }
+
       const wsPort = await getContentOf("/:");
       const wsUrl = "ws://" + location.hostname + ":" + wsPort
         + location.search;
@@ -81,14 +94,11 @@
           debugger;
           throw "WS printOut of type " + typeof me.data + " ?!";
         }
-        let printOutPane = document.createElement("pre");
-        printOutPane.appendChild(document.createTextNode(me.data));
-        let printOutRecord = document.createElement("div");
-        printOutRecord.appendChild(document.createTextNode("💬 " + new Date()));
-        printOutRecord.appendChild(printOutPane);
-        divPrint.appendChild(printOutRecord);
-        divPrint.scrollTop = divPrint.scrollHeight;
+        printOut(me.data);
       };
+      ws.onclose = () => {
+        printOut('REPL disconnected.')
+      }
 
       const chkAltSend = document.getElementById("altSend");
       const btnSend = document.getElementById("send");

@@ -12,6 +12,7 @@ export class WebRepl {
       'net/web/repl/ws', # facade module
       this.addr, this.ws'port, this.port'max, # network address to listen
       useSandbox= this.useSandbox,
+      init= ( modu ) => import * this into modu,
     )
     case this.ws.addrs() of {
       { wsAddr :> _extraWsAddrs } -> {
@@ -31,16 +32,139 @@ export class WebRepl {
       ),
     )
     case this.http.addrs() of {
-      { httpAddr :> _extraHttpAddrs } -> {
-        console.info<| 'Đ (Edh) web REPL listening: http://'
-        ++ httpAddr.host() ++ ':' ++ httpAddr.port()
-      }
+      { httpAddr :> _extraHttpAddrs } -> { pass }
       error( 'Đ (Edh) web REPL failed serving HTTP.' )
     }
 
+    this.httpUrlBase = 'http://' ++ httpAddr.host() ++ ':' ++ httpAddr.port()
+    this.sessions = {}
+
+    console.info<| 'Đ (Edh) web REPL listening: ' ++ this.httpUrlBase
   }
 
-  method replHere() {
+  interpreter replHere( callerScope, prompt= None ) {
+    this.replWith( callerScope, prompt and callerScope.eval( prompt ) )
+  }
+
+  method replWith( scopeOrObj, prompt= None ) {
+    inScope = case scopeOrObj of {@
+      { { scope:_ } } -> scopeOrObj
+      ; | type( scopeOrObj ) is ObjectType -> scope( ofObj=scopeOrObj )
+      _ -> error( 'Unexpected scope or object: ' ++ desc( scopeOrObj ) )
+    @}
+    if this.useSandbox then {
+      inScope = sandbox( inScope )
+    }
+
+    # create the session
+    session = ReplSession(
+      baseUrl= this.httpUrlBase,
+      inScope= inScope,
+      prompt= prompt,
+    )
+
+    console.info<| 'A REPL session is waiting interaction at: ' ++ session.url
+
+    # register the session
+    this.sessions[ session.sid ] = session
+    {
+      # wait end-of-life of the session
+      for () from session.eol do pass
+    } @=> {
+      # finally un-register the session
+      this.sessions[ session.sid ] = nil
+    }
+
+    # pass ctrl back to caller
+  }
+
+  export method hookToSession( peer, sessionId )
+  case this.sessions[ sessionId ] of {
+    { { ReplSession: s } } -> s.runREPL( peer )
+    _ -> peer.postCommand( `No such session - ` ++ sessionId )
+  }
+
+}
+
+class ReplSession {
+
+  method __init__(
+    baseUrl,
+    inScope as this.inScope,
+    prompt as this.prompt,
+  ) {
+    this.sid = str( UUID() )
+    this.url = baseUrl + '?' + this.sid
+    this.eol = sink
+  }
+
+  property$
+  method location() this.inScope.lexiLoc ++ ' 👈 ' ++ this.inScope.callerLoc
+
+  method runREPL( peer ) {
+
+    peer.postCommand( this.prompt or ( '''
+You are in a REPL at ''' ++ this.inScope.lexiLoc ++ ''',
+which is called from ''' ++ this.inScope.callerLoc ++ '''
+  ***
+send in `quit` or `continue` to leave the REPL session,
+so the caller can continue.
+''' ) )
+
+    while peer.eol() is false {
+
+      case peer.readSource() of {
+        { cmdSrc } | not null( cmdSrc ) -> { pass }
+        continue
+      }
+
+      case this.inScope.eval( parseEdh( cmdSrc ) ) of {@
+        { continue } -> {
+          this.eol <-nil
+          break
+        }
+
+        { { Command: cmd } } -> case cmd.cmd of {
+          # todo
+          #  *) enrich custom behaviors according to `cmd.apk`
+          #  *) support more commands
+
+          'quit' -> {
+            this.eol <-nil
+            break
+          }
+
+          'dir' -> peer.postCommand( case cmd.apk of {
+              # bare dir command
+              { () } -> sprintDir( ofThe= this.inScope )
+
+              # single arg as the target object/scope
+              { ( tgt ) } -> sprintDir( ofThe= tgt )
+
+              _ -> 'Unexpected args to dir command: ' ++ cmd.apk
+          } )
+
+          _ -> peer.postCommand( 'Unsupported command: ' ++ cmd )
+        }
+
+        { cmdVal } -> { peer.postCommand $ str $ cmdVal }
+
+        # note a nil result is ignored here
+      @}
+
+    } $=> { # catch exceptions
+
+      { { IOError:ioExc } } -> {
+        rethrow # escalate it
+      }
+
+      { cmdExc } -> {
+        if peer.eol() is false
+        then peer.postCommand( 'Recovered from error: ' ++ desc( cmdExc ) )
+        else rethrow # not recoverable
+      }
+
+    }
 
   }
 
