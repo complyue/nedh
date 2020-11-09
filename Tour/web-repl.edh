@@ -58,13 +58,4 @@ for _ from console.everyMillis( 20 ) do break
 # %%
 # show session count and url list every 30 seconds
 for _ from console.everySeconds( 30, wait1st= false )
-do case len( wl.sessions ) of {
-  0 -> console.info<| 'no REPL session atm.'
-  { scnt } -> {
-    console.info<| scnt ++ ' REPL session(s) atm:\n' ++
-    join ( sep= '\n',
-      *() =< for ( sid, session ) from wl.sessions
-      do ' *** ' ++ session.location ++ '\n  *  ' ++ session.url
-    )
-  }
-}
+do wl.showSessions()

@@ -84,6 +84,17 @@ export class WebRepl {
     _ -> peer.postCommand( `No such session - ` ++ sessionId )
   }
 
+  method showSessions( logLevel= console.info ) case len( this.sessions ) of {
+    0 -> logLevel<| 'no web REPL session atm.'
+    { scnt } -> {
+      logLevel<| scnt ++ ' web REPL session(s) atm:\n' ++
+      join ( sep= '\n',
+        *() =< for ( sid, session ) from this.sessions
+        do ' *** ' ++ session.location ++ '\n  *  ' ++ session.url
+      )
+    }
+  }
+
 }
 
 class ReplSession {
