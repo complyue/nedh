@@ -35,13 +35,16 @@ installNetBatteries !world =
 
     let !moduScope = contextScope $ edh'context ets
 
-    !peerClass       <- createPeerClass moduScope
-    !addrClass       <- createAddrClass moduScope
+    !peerClass <- createPeerClass moduScope
+    !addrClass <- createAddrClass moduScope
 
-    !serverClass     <- createServerClass addrClass peerClass moduScope
-    !clientClass     <- createClientClass addrClass peerClass moduScope
+    !serverClass <- createServerClass consoleWarn addrClass peerClass moduScope
+    !clientClass <- createClientClass consoleWarn addrClass peerClass moduScope
 
-    !wsServerClass   <- createWsServerClass addrClass peerClass moduScope
+    !wsServerClass <- createWsServerClass consoleWarn
+                                          addrClass
+                                          peerClass
+                                          moduScope
     !httpServerClass <- createHttpServerClass addrClass moduScope
 
     !snifferClass    <- createSnifferClass addrClass moduScope
@@ -65,3 +68,7 @@ installNetBatteries !world =
 
     exit
 
+ where
+  !worldLogger = consoleLogger $ edh'world'console world
+  consoleWarn !msg =
+    worldLogger 30 (Just "<nedh>") (ArgsPack [EdhString msg] odEmpty)

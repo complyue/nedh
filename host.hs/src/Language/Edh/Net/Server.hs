@@ -47,8 +47,8 @@ data EdhServer = EdhServer {
   }
 
 
-createServerClass :: Object -> Object -> Scope -> STM Object
-createServerClass !addrClass !peerClass !clsOuterScope =
+createServerClass :: (Text -> STM ()) -> Object -> Object -> Scope -> STM Object
+createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
   mkHostClass clsOuterScope "Server" (allocEdhObj serverAllocator) []
     $ \ !clsScope -> do
         !mths <-
@@ -159,12 +159,21 @@ createServerClass !addrClass !peerClass !clsOuterScope =
       acceptClients :: Socket -> IO ()
       acceptClients ssock = do
         bracketOnError (accept ssock) (close . fst) $ \(sock, addr) -> do
-          clientEoL <- newEmptyTMVarIO
-          void
-            $ forkFinally (servClient clientEoL (T.pack $ show addr) sock)
-            $ (gracefulClose sock 5000 <*)
-            . atomically
-            . tryPutTMVar clientEoL
+          !clientEoL <- newEmptyTMVarIO
+          let cleanupClient :: Either SomeException () -> IO ()
+              cleanupClient !result =
+                (gracefulClose sock 5000 >>) $ atomically $ do
+                  void $ tryPutTMVar clientEoL result
+                  readTMVar clientEoL >>= \case
+                    Right{} -> pure ()
+                    Left !err ->
+                      consoleWarn
+                        $  "Service module ["
+                        <> servModu
+                        <> "] incurred error:\n"
+                        <> T.pack (show err)
+          void $ forkFinally (servClient clientEoL (T.pack $ show addr) sock)
+                             cleanupClient
         acceptClients ssock -- tail recursion
 
       servClient :: TMVar (Either SomeException ()) -> Text -> Socket -> IO ()

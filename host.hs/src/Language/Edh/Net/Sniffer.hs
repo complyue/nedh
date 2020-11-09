@@ -192,7 +192,7 @@ createSnifferClass !addrClass !clsOuterScope =
                                (toDyn onAddr { addrAddress = fromAddr })
                                []
                              >>= \ !addrObj -> do
-                                 -- provide the effectful sourceAddr
+                                   -- provide the effectful sourceAddr
                                    implantEffect
                                      (edh'scope'entity $ contextScope $ edh'context
                                        ets

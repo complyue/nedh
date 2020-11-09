@@ -43,7 +43,11 @@ instance Hashable Packet where
 
 -- | Construct a textual packet.
 textPacket :: PacketDirective -> Text -> Packet
-textPacket !dir !txt = Packet dir payload
+textPacket !dir !txt = Packet dir payload where payload = TE.encodeUtf8 txt
+
+-- | Construct a textual packet with blank lines in beginning and end
+prettyTextPacket :: PacketDirective -> Text -> Packet
+prettyTextPacket !dir !txt = Packet dir payload
  where
   payload = TE.encodeUtf8 $ finishLine $ onSepLine txt
   onSepLine :: Text -> Text

@@ -50,8 +50,9 @@ data EdhWsServer = EdhWsServer {
   }
 
 
-createWsServerClass :: Object -> Object -> Scope -> STM Object
-createWsServerClass !addrClass !peerClass !clsOuterScope =
+createWsServerClass
+  :: (Text -> STM ()) -> Object -> Object -> Scope -> STM Object
+createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
   mkHostClass clsOuterScope "WsServer" (allocEdhObj serverAllocator) []
     $ \ !clsScope -> do
         !mths <-
@@ -162,12 +163,21 @@ createWsServerClass !addrClass !peerClass !clsOuterScope =
       acceptClients :: Socket -> IO ()
       acceptClients ssock = do
         bracketOnError (accept ssock) (close . fst) $ \(sock, addr) -> do
-          clientEoL <- newEmptyTMVarIO
-          void
-            $ forkFinally (servClient clientEoL (T.pack $ show addr) sock)
-            $ (gracefulClose sock 5000 <*)
-            . atomically
-            . tryPutTMVar clientEoL
+          !clientEoL <- newEmptyTMVarIO
+          let cleanupClient :: Either SomeException () -> IO ()
+              cleanupClient !result =
+                (gracefulClose sock 5000 >>) $ atomically $ do
+                  void $ tryPutTMVar clientEoL result
+                  readTMVar clientEoL >>= \case
+                    Right{} -> pure ()
+                    Left !err ->
+                      consoleWarn
+                        $  "Service module ["
+                        <> servModu
+                        <> "] incurred error:\n"
+                        <> T.pack (show err)
+          void $ forkFinally (servClient clientEoL (T.pack $ show addr) sock)
+                             cleanupClient
         acceptClients ssock -- tail recursion
 
       servClient :: TMVar (Either SomeException ()) -> Text -> Socket -> IO ()

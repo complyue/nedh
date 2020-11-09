@@ -66,8 +66,8 @@ data EdhClient = EdhClient {
   }
 
 
-createClientClass :: Object -> Object -> Scope -> STM Object
-createClientClass !addrClass !peerClass !clsOuterScope =
+createClientClass :: (Text -> STM ()) -> Object -> Object -> Scope -> STM Object
+createClientClass !consoleWarn !addrClass !peerClass !clsOuterScope =
   mkHostClass clsOuterScope "Client" (allocEdhObj clientAllocator) []
     $ \ !clsScope -> do
         !mths <- sequence
@@ -112,8 +112,8 @@ createClientClass !addrClass !peerClass !clsOuterScope =
         throwEdh etsCtor UsageError $ "bad address: " <> badDesc
      where
       go !addr !port = do
-        serviceAddrs <- newEmptyTMVar
-        cnsmrEoL     <- newEmptyTMVar
+        !serviceAddrs <- newEmptyTMVar
+        !cnsmrEoL     <- newEmptyTMVar
         let !client = EdhClient { edh'consumer'modu = consumer
                                 , edh'service'addr  = addr
                                 , edh'service'port  = fromIntegral port
@@ -121,16 +121,23 @@ createClientClass !addrClass !peerClass !clsOuterScope =
                                 , edh'consumer'eol  = cnsmrEoL
                                 , edh'consumer'init = __peer_init__
                                 }
-        runEdhTx etsCtor $ edhContIO $ do
-          void $ forkFinally
-            (consumerThread client)
-            ( void
-            . atomically
+            cleanupConsumer :: Either SomeException () -> IO ()
+            cleanupConsumer !result = atomically $ do
               -- fill empty addrs if the connection has ever failed
-            . (tryPutTMVar serviceAddrs [] <*)
+              void $ tryPutTMVar serviceAddrs []
               -- mark consumer end-of-life anyway finally
-            . tryPutTMVar cnsmrEoL
-            )
+              void $ tryPutTMVar cnsmrEoL result
+              readTMVar cnsmrEoL >>= \case
+                Right{} -> pure ()
+                Left !err ->
+                  consoleWarn
+                    $  "Consumer module ["
+                    <> consumer
+                    <> "] incurred error:\n"
+                    <> T.pack (show err)
+
+        runEdhTx etsCtor $ edhContIO $ do
+          void $ forkFinally (consumerThread client) cleanupConsumer
           atomically $ ctorExit $ HostStore (toDyn client)
 
     consumerThread :: EdhClient -> IO ()
@@ -140,9 +147,9 @@ createClientClass !addrClass !peerClass !clsOuterScope =
         bracket
             (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
             close
-          $ \sock -> do
+          $ \ !sock -> do
               connect sock $ addrAddress addr
-              srvAddr <- getPeerName sock
+              !srvAddr <- getPeerName sock
               atomically
                 $   fromMaybe []
                 <$> tryTakeTMVar serviceAddrs
@@ -167,9 +174,9 @@ createClientClass !addrClass !peerClass !clsOuterScope =
 
       consumeService :: Text -> Socket -> IO ()
       consumeService !clientId !sock = do
-        pktSink <- newEmptyTMVarIO
-        poq     <- newEmptyTMVarIO
-        chdVar  <- newTVarIO mempty
+        !pktSink <- newEmptyTMVarIO
+        !poq     <- newEmptyTMVarIO
+        !chdVar  <- newTVarIO mempty
 
         let
           prepConsumer :: EdhModulePreparation
