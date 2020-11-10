@@ -161,8 +161,7 @@ createClientClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                 .   tryPutTMVar cnsmrEoL
 
      where
-      ctx             = edh'context etsCtor
-      world           = edh'ctx'world ctx
+      world           = edh'prog'world $ edh'thread'prog etsCtor
 
       resolveServAddr = do
         let hints =
@@ -278,7 +277,7 @@ createClientClass !consoleWarn !addrClass !peerClass !clsOuterScope =
       Just (Left !e) -> edh'exception'wrapper world e
         >>= \ !exo -> exitEdh ets exit $ EdhObject exo
       Just (Right ()) -> exitEdh ets exit $ EdhBool True
-    where world = edh'ctx'world $ edh'context ets
+    where world = edh'prog'world $ edh'thread'prog ets
 
   joinProc :: EdhHostProc
   joinProc !exit !ets = withThisHostObj ets $ \ !client ->
@@ -286,7 +285,7 @@ createClientClass !consoleWarn !addrClass !peerClass !clsOuterScope =
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
       Right () -> exitEdh ets exit nil
-    where world = edh'ctx'world $ edh'context ets
+    where world = edh'prog'world $ edh'thread'prog ets
 
   stopProc :: EdhHostProc
   stopProc !exit !ets = withThisHostObj ets $ \ !client -> do

@@ -44,7 +44,7 @@ readPeerSource !ets peer@(Peer _ _ !eol _ !ho _) !exit =
     Left (Right _) -> exitEdh ets exit nil
     -- previously eol due to error
     Left (Left !ex) ->
-      edh'exception'wrapper (edh'ctx'world $ edh'context ets) ex
+      edh'exception'wrapper (edh'prog'world $ edh'thread'prog ets) ex
         >>= \ !exo -> edhThrow ets $ EdhObject exo
     -- got next command source incoming
     Right pkt@(Packet !dir !payload) -> case dir of
@@ -62,7 +62,7 @@ readPeerCommand !ets peer@(Peer _ _ !eol _ !ho _) !exit =
     Left (Right _) -> exitEdh ets exit nil
     -- previously eol due to error
     Left (Left !ex) ->
-      edh'exception'wrapper (edh'ctx'world $ edh'context ets) ex
+      edh'exception'wrapper (edh'prog'world $ edh'thread'prog ets) ex
         >>= \ !exo -> edhThrow ets $ EdhObject exo
     -- got next command incoming
     Right !pkt -> landPeerCmd peer pkt ets exit
@@ -139,7 +139,7 @@ createPeerClass !clsOuterScope =
       Just (Left !e) -> edh'exception'wrapper world e
         >>= \ !exo -> exitEdh ets exit $ EdhObject exo
       Just (Right ()) -> exitEdh ets exit $ EdhBool True
-    where world = edh'ctx'world $ edh'context ets
+    where world = edh'prog'world $ edh'thread'prog ets
 
   joinProc :: EdhHostProc
   joinProc !exit !ets = withThisHostObj ets $ \ !peer ->
@@ -147,7 +147,7 @@ createPeerClass !clsOuterScope =
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
       Right () -> exitEdh ets exit nil
-    where world = edh'ctx'world $ edh'context ets
+    where world = edh'prog'world $ edh'thread'prog ets
 
   stopProc :: EdhHostProc
   stopProc !exit !ets = withThisHostObj ets $ \ !peer -> do

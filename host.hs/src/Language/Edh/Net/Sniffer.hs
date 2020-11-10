@@ -127,8 +127,7 @@ createSnifferClass !addrClass !clsOuterScope =
         addr <- resolveServAddr
         bracket (open addr) close $ sniffFrom addr
      where
-      ctx             = edh'context etsCtor
-      world           = edh'ctx'world ctx
+      world           = edh'prog'world $ edh'thread'prog etsCtor
 
       resolveServAddr = do
         let
@@ -184,7 +183,9 @@ createSnifferClass !addrClass !clsOuterScope =
                          Left Right{} -> exitEdh ets exit nil
                          -- previously eol due to error
                          Left (Left !ex) ->
-                           edh'exception'wrapper (edh'ctx'world $ edh'context ets) ex
+                           edh'exception'wrapper
+                               (edh'prog'world $ edh'thread'prog ets)
+                               ex
                              >>= \ !exo -> edhThrow ets $ EdhObject exo
                          Right (!fromAddr, !payload) ->
                            edhCreateHostObj
@@ -285,7 +286,7 @@ createSnifferClass !addrClass !clsOuterScope =
       Just (Left !e) -> edh'exception'wrapper world e
         >>= \ !exo -> exitEdh ets exit $ EdhObject exo
       Just (Right ()) -> exitEdh ets exit $ EdhBool True
-    where world = edh'ctx'world $ edh'context ets
+    where world = edh'prog'world $ edh'thread'prog ets
 
   joinMth :: EdhHostProc
   joinMth !exit !ets = withThisHostObj ets $ \ !sniffer ->
@@ -293,7 +294,7 @@ createSnifferClass !addrClass !clsOuterScope =
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
       Right () -> exitEdh ets exit nil
-    where world = edh'ctx'world $ edh'context ets
+    where world = edh'prog'world $ edh'thread'prog ets
 
   stopMth :: EdhHostProc
   stopMth !exit !ets = withThisHostObj ets $ \ !sniffer -> do

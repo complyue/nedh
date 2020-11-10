@@ -212,7 +212,7 @@ createAdvertiserClass !addrClass !clsOuterScope =
       Just (Left !e) -> edh'exception'wrapper world e
         >>= \ !exo -> exitEdh ets exit $ EdhObject exo
       Just (Right ()) -> exitEdh ets exit $ EdhBool True
-    where world = edh'ctx'world $ edh'context ets
+    where world = edh'prog'world $ edh'thread'prog ets
 
   joinMth :: EdhHostProc
   joinMth !exit !ets = withThisHostObj ets $ \ !advertiser ->
@@ -220,7 +220,7 @@ createAdvertiserClass !addrClass !clsOuterScope =
       Left !e ->
         edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
       Right () -> exitEdh ets exit nil
-    where world = edh'ctx'world $ edh'context ets
+    where world = edh'prog'world $ edh'thread'prog ets
 
   stopMth :: EdhHostProc
   stopMth !exit !ets = withThisHostObj ets $ \ !advertiser -> do
