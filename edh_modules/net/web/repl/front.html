@@ -29,12 +29,19 @@
 
     body {
       color: #7f8ed6;
-      margin: 1px;
+      margin: 0;
       padding: 1px 1px 5em 9pt;
     }
 
     textarea.input {
       color: #71ccae;
+    }
+
+    pre {
+      font-size: 138%;
+      color: #6ec73b;
+      margin: 0;
+      padding: 3pt 6pt;
     }
 
     pre.input {
@@ -44,11 +51,21 @@
       padding: 1pt 12pt;
     }
 
-    pre {
-      font-size: 138%;
-      color: #6ec73b;
+    div.record {
+      color: #c8da2a;
+      overflow: scroll;
+    }
+
+    div.timestamp {
+      margin: 1pt;
+      padding: 0;
+    }
+
+    div.output {
+      display: block;
       margin: 0;
-      padding: 3pt 6pt;
+      padding: 0;
+      overflow: scroll;
     }
 
     #divPrint {
@@ -65,9 +82,7 @@
 
     #divPrint>div>div {
       display: table-cell;
-      color: #c8da2a;
-      margin: 0;
-      padding: 0;
+      max-width: 90vw;
     }
 
     #txtReadIn {
@@ -98,18 +113,31 @@
       const txtReadIn = document.getElementById('txtReadIn');
 
       function printOut(msg) {
-        let printOutPane = document.createElement('pre');
-        printOutPane.appendChild(document.createTextNode(msg));
-        let printOutRecord = document.createElement('div');
-        printOutRecord.appendChild(document.createTextNode('💬 ' + new Date()));
+        const printOutRecord = document.createElement('div');
+        printOutRecord.classList.add('record');
+
+        const tsPane = document.createElement('div');
+        tsPane.classList.add('timestamp');
+        tsPane.appendChild(document.createTextNode('💬 ' + new Date()));
+        printOutRecord.appendChild(tsPane);
+
         if (lastCmd !== null) {
-          let cmdPane = document.createElement('pre');
+          const cmdPane = document.createElement('pre');
           cmdPane.classList.add('input');
           cmdPane.appendChild(document.createTextNode('' + lastCmd));
           printOutRecord.appendChild(cmdPane);
         }
+
+        const printOutPane = document.createElement('div');
+        printOutPane.classList.add('output');
+        const outputBox = document.createElement('pre');
+        outputBox.appendChild(document.createTextNode(msg));
+        printOutPane.appendChild(outputBox);
         printOutRecord.appendChild(printOutPane);
-        divPrint.appendChild(printOutRecord);
+
+        const divRow = document.createElement('div');
+        divRow.appendChild(printOutRecord);
+        divPrint.appendChild(divRow);
 
         // make sure the input textarea is visible
         txtReadIn.scrollIntoView();
