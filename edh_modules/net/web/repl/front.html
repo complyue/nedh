@@ -9,13 +9,17 @@
 <body>
   <h3><img src="/edh-fav.png" alt="Đ" width="32" height="32" /> web REPL</h3>
 
-  <div id="printOut"></div>
+  <div id="divPrint"></div>
   <hr />
-  <input type="checkbox" id="altSend"></input>
-  <label for="altSend">Alt+Enter to</label>
-  <button id="send">Send</button>
+  <input type="checkbox" id="chkAltSend"></input>
+  <label for="chkAltSend">Alt+Enter to</label>
+  <button id="btnSend">Send</button>
+  <b style="size: 0; margin: 0 7pt;"></b> <!-- spacer -->
+  <button id="btnContinue">Continue</button>
+  <b style="size: 0; margin: 0 3pt;"></b> <!-- spacer -->
+  <button id="btnSessions">Sessions</button>
   <br />
-  <textarea rows="5" id="readIn">dir</textarea>
+  <textarea class="input" rows="5" id="txtReadIn">dir</textarea>
 
   <style>
     body,
@@ -26,32 +30,47 @@
     body {
       color: #7f8ed6;
       margin: 1px;
-      padding: 1px 1px 20em 9pt;
+      padding: 1px 1px 5em 9pt;
     }
 
-    textarea {
+    textarea.input {
       color: #71ccae;
+    }
+
+    pre.input {
+      font-size: 68%;
+      color: #71ccae;
+      margin: 0;
+      padding: 1pt 12pt;
     }
 
     pre {
       font-size: 138%;
       color: #6ec73b;
-    }
-
-    #printOut {
-      width: 90%;
-      height: 60%;
-      overflow: scroll;
-    }
-
-    #printOut>div {
-      font-size: 80%;
+      margin: 0;
       padding: 3pt 6pt;
-      border: solid silver 1px;
-      color: #c8da2a;
     }
 
-    #readIn {
+    #divPrint {
+      font-size: 80%;
+      width: 90%;
+      display: table;
+      border-collapse: collapse;
+    }
+
+    #divPrint>div {
+      display: table-row;
+      border: solid silver 1px;
+    }
+
+    #divPrint>div>div {
+      display: table-cell;
+      color: #c8da2a;
+      margin: 0;
+      padding: 0;
+    }
+
+    #txtReadIn {
       margin: 6pt 3pt;
       width: 96%;
       resize: vertical;
@@ -63,7 +82,7 @@
     function getContentOf(url) {
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("GET", url);
+        xhr.open('GET', url);
         xhr.onerror = reject;
         xhr.onload = () => resolve(xhr.responseText);
         xhr.send();
@@ -71,28 +90,42 @@
     }
 
     (async () => {
-      const divPrint = document.getElementById("printOut");
+      let lastCmd = null;
+      const divPrint = document.getElementById('divPrint');
+
+      const chkAltSend = document.getElementById('chkAltSend');
+      const btnSend = document.getElementById('btnSend');
+      const txtReadIn = document.getElementById('txtReadIn');
 
       function printOut(msg) {
-        let printOutPane = document.createElement("pre");
+        let printOutPane = document.createElement('pre');
         printOutPane.appendChild(document.createTextNode(msg));
-        let printOutRecord = document.createElement("div");
-        printOutRecord.appendChild(document.createTextNode("💬 " + new Date()));
+        let printOutRecord = document.createElement('div');
+        printOutRecord.appendChild(document.createTextNode('💬 ' + new Date()));
+        if (lastCmd !== null) {
+          let cmdPane = document.createElement('pre');
+          cmdPane.classList.add('input');
+          cmdPane.appendChild(document.createTextNode('' + lastCmd));
+          printOutRecord.appendChild(cmdPane);
+        }
         printOutRecord.appendChild(printOutPane);
         divPrint.appendChild(printOutRecord);
-        divPrint.scrollTop = divPrint.scrollHeight;
 
+        // make sure the input textarea is visible
+        txtReadIn.scrollIntoView();
+        // make sure last output is visible
+        printOutRecord.scrollIntoView();
       }
 
-      const wsPort = await getContentOf("/:");
-      const wsUrl = "ws://" + location.hostname + ":" + wsPort
+      const wsPort = await getContentOf('/:');
+      const wsUrl = 'ws://' + location.hostname + ':' + wsPort
         + location.search;
       const ws = new WebSocket(wsUrl);
 
       ws.onmessage = (me) => {
-        if ("string" !== typeof me.data) {
+        if ('string' !== typeof me.data) {
           debugger;
-          throw "WS printOut of type " + typeof me.data + " ?!";
+          throw 'WS printOut of type ' + typeof me.data + ' ?!';
         }
         printOut(me.data);
       };
@@ -100,39 +133,49 @@
         printOut('REPL disconnected.')
       }
 
-      const chkAltSend = document.getElementById("altSend");
-      const btnSend = document.getElementById("send");
-      const txtReadIn = document.getElementById("readIn");
-
-      function doSend() {
+      function sendCmd(cmd) {
         if (ws.readyState !== WebSocket.OPEN) {
           alert(
             `You've been disconnected from the server.\n`
             + `Refresh the page to reconnect.`
           );
-          return;
+          return false;
         }
-        ws.send(txtReadIn.value);
-        txtReadIn.value = "";
+        lastCmd = cmd;
+        ws.send(lastCmd);
+        return true;
       }
 
-      btnSend.onclick = doSend;
-      window.addEventListener("keydown", function onKeyDown(evt) {
-        if (evt.key === "Enter") {
-          if (chkAltSend.checked && !evt.getModifierState("Alt")) {
+      btnSend.onclick = function doSend() {
+        if (sendCmd(txtReadIn.value)) {
+          txtReadIn.value = '';
+        }
+      }
+      window.addEventListener('keydown', function onKeyDown(evt) {
+        if (evt.key === 'Enter') {
+          if (chkAltSend.checked && !evt.getModifierState('Alt')) {
             return true;
           }
-
           evt.preventDefault();
           evt.stopImmediatePropagation();
-          doSend();
+          if (sendCmd(txtReadIn.value)) {
+            txtReadIn.value = '';
+          }
           return false;
         }
       }, { capture: true });
 
+      const btnContinue = document.getElementById('btnContinue');
+      const btnSessions = document.getElementById('btnSessions');
+      btnContinue.onclick = function doContinue() {
+        sendCmd('continue');
+      }
+      btnSessions.onclick = function doContinue() {
+        sendCmd('perform listSessions()');
+      }
+
       txtReadIn.focus();
       txtReadIn.select();
-
     })();
   </script>
 </body>

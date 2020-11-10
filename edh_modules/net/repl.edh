@@ -42,6 +42,9 @@ export class WebRepl {
     console.info<| 'Đ (Edh) web REPL listening: ' ++ this.httpUrlBase
   }
 
+  method __repr__() '<web ' ++ this.httpUrlBase ++ ' REPL>'
+
+
   interpreter replHere( callerScope, prompt= None ) {
     this.replWith( callerScope, prompt and callerScope.eval( prompt ) )
   }
@@ -63,7 +66,8 @@ export class WebRepl {
       prompt= prompt,
     )
 
-    console.info<| 'A REPL session is waiting interaction at: ' ++ session.url
+    console.info<| 'A new REPL session is waiting interaction:\n *** '
+    ++ session.location ++ '\n  *  ' ++ session.url
 
     # register the session
     this.sessions[ session.sid ] = session
@@ -78,16 +82,26 @@ export class WebRepl {
     # pass ctrl back to caller
   }
 
+
+  {##
+   # should be exposed to the ws service module, and meant to be called from
+   # there.
+   #
+   # note once this procedure returns, the ws connection is disconnected.
+   #}
   export method hookToSession( peer, sessionId )
   case this.sessions[ sessionId ] of {
-    { { ReplSession: s } } -> s.runREPL( peer )
+    { { ReplSession: s } } -> {
+      effect listSessions = this.sprintSessions
+      s.runREPL( peer )
+    }
     _ -> peer.postCommand( `No such session - ` ++ sessionId )
   }
 
-  method showSessions( logLevel= console.info ) case len( this.sessions ) of {
-    0 -> logLevel<| 'no web REPL session atm.'
+  method sprintSessions() case len( this.sessions ) of {
+    0 -> 'no web REPL session atm from ' ++ this.httpUrlBase
     { scnt } -> {
-      logLevel<| scnt ++ ' web REPL session(s) atm:\n' ++
+      scnt ++ ' web REPL session(s) atm:\n' ++
       join ( sep= '\n',
         *() =< for ( sid, session ) from this.sessions
         do ' *** ' ++ session.location ++ '\n  *  ' ++ session.url
@@ -95,7 +109,12 @@ export class WebRepl {
     }
   }
 
+  method logSessions( logLevel= console.info ) {
+    logLevel<| this.sprintSessions()
+  }
+
 }
+
 
 class ReplSession {
 
@@ -114,7 +133,7 @@ class ReplSession {
 
   method runREPL( peer ) {
 
-    peer.postCommand( this.prompt or ( '''
+    peer.postCommand( this.prompt or ( '''  ***
 You are in a REPL at ''' ++ this.inScope.lexiLoc ++ ''',
 which is called from ''' ++ this.inScope.callerLoc ++ '''
   ***

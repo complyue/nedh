@@ -12,7 +12,17 @@ import * 'net/repl'
 #
 # ideally you start a singleton and have it shared globally, but multiple
 # instances can run simultaneously and work well together
-wl = WebRepl()
+wl = WebRepl(
+  # lexical outer scopes are not available to a sandboxed repl,
+  # e.g. the `wl` attribute above
+  #
+  # ability to import from host and/or file modules is neither available
+  #
+  # it's enabled by default, but you can disable the sandbox mechanism:
+  # some security risks are mitigated at the cost of some debuggabilities
+  # sacrificed, and vice versa
+  useSandbox= null$debug,
+)
 
 
 # %%
@@ -25,10 +35,11 @@ method deepSystemWork( sysNo ) {
 
 method deepComponentWork( cmpNo ) {
 
-  issue'solved = false
+  issue'detected = true
 
-  if debug then { # debug will be `false` in normal case, but will be set to
-    # the debug module when env var EDH_LOG_LEVEL=DEBUG
+  if issue'detected or debug then {
+    # debug will be `false` in normal case, but will be set to the debug module,
+    # when env var EDH_LOG_LEVEL=DEBUG
 
     prompt = if cmpNo // 2 * 2 is cmpNo
     then None # demo default prompt for even component number
@@ -40,11 +51,11 @@ method deepComponentWork( cmpNo ) {
     wl.replHere( prompt )
   }
 
-  if issue'solved
-  then console.info<| 'Subsystem ' ++ perform sysNo ++ ', component '
-  ++ cmpNo ++ ' seems working as expected.'
-  else console.warn<| 'Subsystem ' ++ perform sysNo ++ ', component '
+  if issue'detected
+  then console.warn<| 'Subsystem ' ++ perform sysNo ++ ', component '
   ++ cmpNo ++ ' seems not working.'
+  else console.info<| 'Subsystem ' ++ perform sysNo ++ ', component '
+  ++ cmpNo ++ ' seems working as expected.'
 
 }
 
@@ -58,4 +69,4 @@ for _ from console.everyMillis( 20 ) do break
 # %%
 # show session count and url list every 30 seconds
 for _ from console.everySeconds( 30, wait1st= false )
-do wl.showSessions()
+do wl.logSessions()
