@@ -66,7 +66,7 @@ export class WebRepl {
       prompt= prompt,
     )
 
-    console.info<| 'A new REPL session is waiting interaction:\n *** '
+    console.info<| 'A new REPL session is waiting for interaction:\n *** '
     ++ session.location ++ '\n  *  ' ++ session.url
 
     # register the session
@@ -99,7 +99,7 @@ export class WebRepl {
   }
 
   method sprintSessions() case len( this.sessions ) of {
-    0 -> 'no web REPL session atm from ' ++ this.httpUrlBase
+    0 -> 'no web REPL session atm - ' ++ this.httpUrlBase
     { scnt } -> {
       scnt ++ ' web REPL session(s) atm:\n' ++
       join ( sep= '\n',

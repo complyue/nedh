@@ -13,15 +13,17 @@ import * 'net/repl'
 # ideally you start a singleton and have it shared globally, but multiple
 # instances can run simultaneously and work well together
 wl = WebRepl(
-  # lexical outer scopes are not available to a sandboxed repl,
-  # e.g. the `wl` attribute above
+  # lexical outer scopes are not available to a sandboxed repl, e.g. the `wl`
+  # attribute above, besides other constraints e.g. the ability to import from
+  # host and/or file modules is neither available.
   #
-  # ability to import from host and/or file modules is neither available
+  # it's enabled by default, but you can disable the sandbox mechanism -
   #
-  # it's enabled by default, but you can disable the sandbox mechanism:
   # some security risks are mitigated at the cost of some debuggabilities
-  # sacrificed, and vice versa
+  # sacrificed, and vice versa.
   useSandbox= null$debug,
+  # debug will be `false` in normal case, but will be set to the debug module,
+  # when the env var is set EDH_LOG_LEVEL=DEBUG
 )
 
 
@@ -35,11 +37,14 @@ method deepSystemWork( sysNo ) {
 
 method deepComponentWork( cmpNo ) {
 
-  issue'detected = true
+  # potential issue detection should be rather sophisticated,
+  # we just assume it right done here for demo purpose
+  issue'detected = perform sysNo is 1
+  # in the demo, you are supposed to send a `issue'solved = true` input command
+  # to mark the issue resolved
+  issue'solved = not issue'detected
 
-  if issue'detected or debug then {
-    # debug will be `false` in normal case, but will be set to the debug module,
-    # when env var EDH_LOG_LEVEL=DEBUG
+  if issue'detected then {
 
     prompt = if cmpNo // 2 * 2 is cmpNo
     then None # demo default prompt for even component number
@@ -51,7 +56,7 @@ method deepComponentWork( cmpNo ) {
     wl.replHere( prompt )
   }
 
-  if issue'detected
+  if not issue'solved
   then console.warn<| 'Subsystem ' ++ perform sysNo ++ ', component '
   ++ cmpNo ++ ' seems not working.'
   else console.info<| 'Subsystem ' ++ perform sysNo ++ ', component '
