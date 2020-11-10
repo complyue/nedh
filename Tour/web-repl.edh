@@ -67,11 +67,14 @@ method deepComponentWork( cmpNo ) {
 # %%
 # start 3 simultaneous subsystems
 for sysNo from range( 3 ) do go deepSystemWork( sysNo )
-# slightly some delay
-for _ from console.everyMillis( 20 ) do break
 
+# %%
+# slightly delay some
+for _ from console.everyMillis( 20 ) do break
+# log sessions atm
+wl.logSessions()
 
 # %%
 # show session count and url list every 30 seconds
-for _ from console.everySeconds( 30, wait1st= false )
+for _ from console.everySeconds( 30 )
 do wl.logSessions()
