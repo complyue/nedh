@@ -64,7 +64,9 @@
     div.output {
       display: block;
       margin: 0;
-      padding: 0;
+      /* workaround the obstructive horizontal scroll bar,
+       on macOS with magic mouse */
+      padding: 0 0 0.6em 0;
       overflow: scroll;
     }
 
