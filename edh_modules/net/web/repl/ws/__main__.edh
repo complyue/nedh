@@ -34,7 +34,10 @@ case reqPath of {
 
 {
   hookToSession( peer, sessionId )
-} $=> { exc } -> {
-  console.error<| 'Exception by REPL web client ' ++ peer
-  ++ ' error: ' ++ desc( exc )
+} $=> {
+  { { ThreadTerminate:_ } } -> { pass } # usually network reset
+  { exc } -> {
+    console.error<| 'Exception by REPL web client ' ++ peer
+    ++ ' error: ' ++ desc( exc )
+  }
 }
