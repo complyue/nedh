@@ -79,7 +79,7 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
     -> "clients" ?: EventSink
     -> "useSandbox" ?: Bool
     -> EdhObjectAllocator
-  serverAllocator (mandatoryArg -> !modu) (defaultArg "127.0.0.1" -> !ctorAddr) (defaultArg 3721 -> !ctorPort) (optionalArg -> port'max) (defaultArg nil -> !init_) (optionalArg -> maybeClients) (defaultArg True -> !useSandbox) !ctorExit !etsCtor
+  serverAllocator (mandatoryArg -> !modu) (defaultArg "127.0.0.1" -> !ctorAddr) (defaultArg 3721 -> !ctorPort) (defaultArg ctorPort -> port'max) (defaultArg nil -> !init_) (optionalArg -> maybeClients) (defaultArg True -> !useSandbox) !ctorExit !etsCtor
     = if edh'in'tx etsCtor
       then throwEdh etsCtor
                     UsageError
@@ -95,16 +95,15 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
       !servAddrs <- newEmptyTMVar
       !servEoL   <- newEmptyTMVar
       !clients   <- maybe newEventSink return maybeClients
-      let !server = EdhServer
-            { edh'server'modu     = modu
-            , edh'server'addr     = ctorAddr
-            , edh'server'port     = fromIntegral ctorPort
-            , edh'server'port'max = fromIntegral $ fromMaybe ctorPort port'max
-            , edh'serving'addrs   = servAddrs
-            , edh'server'eol      = servEoL
-            , edh'server'init     = __modu_init__
-            , edh'serving'clients = clients
-            }
+      let !server = EdhServer { edh'server'modu     = modu
+                              , edh'server'addr     = ctorAddr
+                              , edh'server'port     = fromIntegral ctorPort
+                              , edh'server'port'max = fromIntegral port'max
+                              , edh'serving'addrs   = servAddrs
+                              , edh'server'eol      = servEoL
+                              , edh'server'init     = __modu_init__
+                              , edh'serving'clients = clients
+                              }
           finalCleanup !result = atomically $ do
             -- fill empty addrs if the listening has ever failed
             void $ tryPutTMVar servAddrs []
