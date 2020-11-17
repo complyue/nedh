@@ -129,7 +129,7 @@ class ReplSession {
   }
 
   property$
-  method location() this.inScope.lexiLoc ++ ' 👈 ' ++ this.inScope.callerLoc
+  method location() this.inScope.lexiLoc
 
 
   method runSession() for (*** volatileIns ) from this.cmdIn do {@
@@ -178,8 +178,7 @@ class ReplSession {
   method runREPL( peer ) {
 
     peer.postCommand( this.prompt or ( '''  ***
-You are in a REPL at ''' ++ this.inScope.lexiLoc ++ ''',
-which is called from ''' ++ this.inScope.callerLoc ++ '''
+You are in a REPL at ''' ++ this.inScope.lexiLoc ++ '''
   ***
 send in `quit` or `continue` to leave the REPL session,
 so the caller can continue.
