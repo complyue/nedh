@@ -7,7 +7,6 @@ import           Prelude
 import           Control.Exception
 import           Control.Concurrent.STM
 
-import qualified Data.List.NonEmpty            as NE
 import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import qualified Data.Text.Encoding            as TE
@@ -79,7 +78,7 @@ landPeerCmd (Peer !ident !maybeSandbox _ _ _ !chdVar) (Packet !dir !payload) !et
         runEdhInSandbox ets sandbox (evalEdh srcName (TE.decodeUtf8 payload))
           $ \ !cmdVal -> landValue dir cmdVal
  where
-  !srcName = T.unpack ident
+  !srcName = "peer:" <> ident
   landValue !chLctr !val = if T.null chLctr
     -- to the default channel, which yields as direct result of 
     -- `peer.readCommand()`
@@ -177,23 +176,8 @@ createPeerClass !clsOuterScope =
     withThisHostObj ets $ \ !peer -> readPeerSource ets peer exit
 
   readPeerCmdProc :: EdhHostProc
-  readPeerCmdProc !exit !ets = withThisHostObj ets
-    $ \ !peer -> readPeerCommand etsCmd peer exit
-   where
-    !ctx         = edh'context ets
-    !callerScope = contextFrame ctx 1
-    !etsCmd      = ets
-      { edh'context = ctx
-        { edh'ctx'stack =
-          callerScope
-              {
-                      -- use a meaningful caller stmt
-                edh'scope'caller = StmtSrc
-                                     (startPosOfFile "<peer-cmd>", VoidStmt)
-              }
-            NE.:| NE.tail (edh'ctx'stack ctx)
-        }
-      }
+  readPeerCmdProc !exit !ets =
+    withThisHostObj ets $ \ !peer -> readPeerCommand ets peer exit
 
   postCmd :: EdhValue -> EdhValue -> EdhTxExit -> EdhTx
   postCmd !dirVal !cmdVal !exit !ets = withThisHostObj ets $ \ !peer -> do

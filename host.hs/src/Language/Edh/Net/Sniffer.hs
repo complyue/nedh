@@ -202,10 +202,13 @@ createSnifferClass !addrClass !clsOuterScope =
                                      (EdhObject addrObj)
                                    -- interpret the payload as command, return as is
                                    let !src = decodeUtf8 payload
-                                   runEdhInSandbox ets
-                                                   sandbox
-                                                   (evalEdh (show fromAddr) src)
-                                                   exit
+                                   runEdhInSandbox
+                                     ets
+                                     sandbox
+                                     (evalEdh (T.pack $ "sniff:" ++ show fromAddr)
+                                              src
+                                     )
+                                     exit
 
           prepSniffer :: EdhModulePreparation
           prepSniffer !etsModu !exit =
