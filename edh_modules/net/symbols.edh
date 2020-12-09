@@ -7,9 +7,9 @@ export {
   conmsg := 2
 
   # identifier for the effect to send commands to remote site's stdio out
-  sendConOut = Symbol( '@sendConOut' )
+  symbol @sendConOut
   # identifier for the effect to send commands to remote site's stdio err
-  sendConMsg = Symbol( '@sendConMsg' )
+  symbol @sendConMsg
 
   # conventional Nedh channel for error reporting
   errChan := 'err'
@@ -18,18 +18,18 @@ export {
   dataChan := 'data'
 
   # effectful identifier of the peer object
-  netPeer = Symbol( '@netPeer' )
+  symbol @netPeer
 
   # effectful identifier of the local event sink for data intaking
-  dataSink = Symbol( '@dataSink' )
+  symbol @dataSink
 
   # effectful identifier of the method procedure for normal command sending
-  sendCmd = Symbol( '@sendCmd' )
+  symbol @sendCmd
 
   # effectful identifier of the method procedure for normal data sending
-  sendData = Symbol( '@sendData' )
+  symbol @sendData
 
   # effectful identifier of the method procedure to disconnect the connection
-  disconnectPeer = Symbol( '@disconnectPeer' )
+  symbol @disconnectPeer
 
 }

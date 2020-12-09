@@ -211,9 +211,7 @@ createPeerClass !clsOuterScope =
           postPeerCommand ets peer (Packet ("blob:" <> dir) payload) exit
         _ ->
           throwEdh ets UsageError $
-            "unsupported command type: "
-              <> T.pack
-                (edhTypeNameOf cmdVal)
+            "unsupported command type: " <> edhTypeNameOf cmdVal
     p2cProc :: "dir" ?: EdhValue -> "cmd" ?: EdhValue -> EdhHostProc
     p2cProc (defaultArg nil -> !dirVal) (defaultArg nil -> !cmdVal) !exit =
       postCmd dirVal cmdVal $ \() -> exitEdhTx exit nil
