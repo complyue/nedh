@@ -132,47 +132,49 @@ class ReplSession {
   method location() this.inScope.lexiLoc
 
 
-  method runSession() for (*** volatileIns ) from this.cmdIn do {@
+  method runSession() for (*** _volatileIns ) from this.cmdIn do {@
     # capture them within this scoped block, outer attrs receiving loop args
     # tend to be overwritten, after the iteration done, i.e. accessed by
     # threads forked from here
-    let ( cmdSrc, cmdOut ) = volatileIns {
-      case this.inScope.eval( parseEdh( cmdSrc ) ) of {
-        { continue } -> {
-          this.cmdIn <- cmdOut <-nil
-          return nil
-        }
+    let ( cmdSrc, cmdOut ) = _volatileIns
 
-        { { Command: cmd } } -> case cmd.cmd of {
-          # todo
-          #  *) enrich custom behaviors according to `cmd.apk`
-          #  *) support more commands
-
-          'quit' -> {
-            this.cmdIn <- cmdOut <-nil
-            return nil
-          }
-
-          'dir' -> cmdOut <- case cmd.apk of {
-            # bare dir command
-            { () } -> sprintDir( ofThe= this.inScope )
-
-            # single arg as the target object/scope
-            { ( tgt ) } -> sprintDir( ofThe= tgt )
-
-            _ -> 'Unexpected args to dir command: ' ++ cmd.apk
-          }
-
-          _ -> cmdOut <- 'Unsupported command: ' ++ cmd
-        }
-
-        { cmdVal } -> cmdOut <- str( cmdVal )
-
-        # note a nil result is ignored here
+    case this.inScope.eval( parseEdh( cmdSrc ) ) of {
+      { cmdVal } -> {
+        fallthrough
       }
+      { continue } -> {
+        return void this.cmdIn <- cmdOut <-nil
+      }
+
+      { { Command: cmd } } -> case cmd.cmd of {
+        # todo
+        #  *) enrich custom behaviors according to `cmd.apk`
+        #  *) support more commands
+
+        'quit' -> {
+          return void this.cmdIn <- cmdOut <-nil
+        }
+
+        'dir' -> cmdOut <- case cmd.apk of {
+          # bare dir command
+          { () } -> sprintDir( ofThe= this.inScope )
+
+          # single arg as the target object/scope
+          { ( tgt ) } -> sprintDir( ofThe= tgt )
+
+          _ -> 'Unexpected args to dir command: ' ++ cmd.apk
+        }
+
+        _ -> cmdOut <- 'Unsupported command: ' ++ cmd
+      }
+
+      { cmdVal } -> cmdOut <- str( cmdVal )
+
+      # note a nil result is ignored here
     } $=> { exc } -> {
       if not cmdOut.eos then cmdOut <- exc
     }
+
   @}
 
   method runREPL( peer ) {

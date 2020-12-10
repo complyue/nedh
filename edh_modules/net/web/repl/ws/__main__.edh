@@ -28,8 +28,9 @@ defer {
 
 case reqPath of {
   { _ @< '?' >@ sessionId } -> { pass }
-  peer.postCommand( 'You need to include the session id in the url.' )
-  return nil
+  return void peer.postCommand(
+    'You need to include the session id in the url.'
+  )
 }
 
 {
