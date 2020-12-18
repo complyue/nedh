@@ -11,7 +11,6 @@ import           System.Exit
 import           Control.Monad
 import           Control.Exception
 import           Control.Concurrent
-import           Control.Concurrent.STM
 
 import qualified Data.Text                     as T
 
@@ -24,7 +23,7 @@ main = getArgs >>= \case
   [edhFile] -> do
 
     !console <- defaultEdhConsole defaultEdhConsoleSettings
-    let !consoleOut = writeTBQueue (consoleIO console) . ConsoleOut
+    let !consoleOut = consoleIO console . ConsoleOut
         runIt       = do
 
           world <- createEdhWorld console
@@ -34,7 +33,7 @@ main = getArgs >>= \case
           installNetBatteries world
 
           runEdhFile world edhFile >>= \case
-            Left !err -> atomically $ do
+            Left !err -> do
               -- program crash on error
               consoleOut "Nedh crashed with an error:\n"
               consoleOut $ T.pack $ show err <> "\n"
@@ -42,7 +41,7 @@ main = getArgs >>= \case
               -- clean program halt, all done
               EdhNil -> return ()
               -- unclean program exit
-              _      -> atomically $ do
+              _      -> do
                 consoleOut "Nedh halted with a result:\n"
                 consoleOut $ (<> "\n") $ case phv of
                   EdhString msg -> msg
@@ -51,10 +50,10 @@ main = getArgs >>= \case
     void $ forkFinally runIt $ \ !result -> do
       case result of
         Left (e :: SomeException) ->
-          atomically $ consoleOut $ "💥 " <> T.pack (show e)
+          consoleOut $ "💥 " <> T.pack (show e)
         Right _ -> pure ()
       -- shutdown console IO anyway
-      atomically $ writeTBQueue (consoleIO console) ConsoleShutdown
+      consoleIO console ConsoleShutdown
 
     consoleIOLoop console
 
