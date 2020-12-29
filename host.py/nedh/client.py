@@ -38,6 +38,7 @@ class EdhClient:
         self.service_port = service_port
         self.init = init
 
+        self.peer = None
         self.service_addrs = loop.create_future()
         self.eol = eol
         self.net_opts = net_opts or {}
@@ -68,7 +69,7 @@ class EdhClient:
     def __await__(self):
         yield from self.service_addrs
         logger.info(f"Connected to service at {self.service_addrs.result()!s}")
-        return self
+        return self.peer
 
     async def join(self):
         await self.eol
@@ -87,7 +88,6 @@ class EdhClient:
                 self.service_addr, self.service_port, **self.net_opts,
             )
             addr = outlet.get_extra_info("peername", "<some-peer>")
-            self.service_addrs.set_result([addr])
 
             # prepare the peer object
             ident = str(addr)
@@ -100,6 +100,8 @@ class EdhClient:
             hoq = asyncio.Queue(maxsize=1)
 
             peer = Peer(ident=ident, eol=eol, posting=poq.put, hosting=hoq.get,)
+            self.peer = peer
+            self.service_addrs.set_result([addr])
 
             # per-connection peer module preparation
             modu = {"peer": peer}
@@ -136,6 +138,8 @@ class EdhClient:
             if not eol.done():
                 eol.set_exception(exc)
         finally:
+            if not self.service_addrs.done():
+                self.service_addrs.set_result([])
             if outlet is not None:
                 # todo post err (if any) to peer
                 outlet.close()
