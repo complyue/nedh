@@ -6,7 +6,7 @@ export class WebRepl {
   method __init__(
     port as this.port = 2714, addr as this.addr = '127.0.0.1',
     ws'port as this.ws'port = 2721, port'max as this.port'max = 2728,
-    useSandbox as this.useSandbox = true,
+    useSandbox as this.useSandbox = null( debug ),
   ) {
     this.ws = WsServer(
       'net/web/repl/ws', # facade module
