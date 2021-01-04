@@ -172,16 +172,23 @@ createPeerClass !clsOuterScope =
           Nothing -> exitEdh ets exit nil
           Just !chSink -> exitEdh ets exit $ EdhSink chSink
 
-    armChannelProc :: "chLctr" !: EdhValue -> "chSink" ?: EventSink -> EdhHostProc
-    armChannelProc (mandatoryArg -> !chLctr) (optionalArg -> !maybeSink) !exit !ets =
-      withThisHostObj ets $ \ !peer -> do
-        let armSink :: EventSink -> STM ()
-            armSink !chSink = do
-              modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
-              exitEdh ets exit $ EdhSink chSink
-        case maybeSink of
-          Nothing -> newEventSink >>= armSink
-          Just !chSink -> armSink chSink
+    armChannelProc ::
+      "chLctr" !: EdhValue ->
+      "chSink" ?: EventSink ->
+      EdhHostProc
+    armChannelProc
+      (mandatoryArg -> !chLctr)
+      (optionalArg -> !maybeSink)
+      !exit
+      !ets =
+        withThisHostObj ets $ \ !peer -> do
+          let armSink :: EventSink -> STM ()
+              armSink !chSink = do
+                modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
+                exitEdh ets exit $ EdhSink chSink
+          case maybeSink of
+            Nothing -> newEventSink >>= armSink
+            Just !chSink -> armSink chSink
 
     readPeerSrcProc :: EdhHostProc
     readPeerSrcProc !exit !ets =
@@ -212,6 +219,7 @@ createPeerClass !clsOuterScope =
         _ ->
           throwEdh ets UsageError $
             "unsupported command type: " <> edhTypeNameOf cmdVal
+
     p2cProc :: "dir" ?: EdhValue -> "cmd" ?: EdhValue -> EdhHostProc
     p2cProc (defaultArg nil -> !dirVal) (defaultArg nil -> !cmdVal) !exit =
       postCmd dirVal cmdVal $ \() -> exitEdhTx exit nil
