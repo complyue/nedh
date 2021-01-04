@@ -10,115 +10,150 @@
  #}
 error( 'Missing host module: ' ++ __name__ )
 
+export {
 
-class Peer {
-
-  eol :: () -> BoolType
   {##
-   # check whether this peer is at end-of-life
-   # i.e. the underlying network connection has been disconnected
-   #
-   # `false` is returned if this peer is still alive;
-   # `true` is returned if the underlying connection has disconnected normally;
-   # the exception which has caused abnormal disconnection will be thrown.
+   # A `Peer` object stands in local process as a stub for communication with
+   # another site, i.e. the peer site
    #}
-  method eol() pass
+  class Peer {
 
-  join :: () -> nil
+    eol :: () -> BoolType
+    {##
+     # check whether this peer is at end-of-life
+     # i.e. the underlying network connection has been disconnected
+     #
+     # `false` is returned if this peer is still alive;
+     # `true` is returned if the underlying connection has disconnected normally;
+     # the exception which has caused abnormal disconnection will be thrown.
+     #}
+    method eol() pass
+
+    join :: () -> nil
+    {##
+     # wait for this peer to be stopped
+     # i.e. the underlying network connection get disconnected
+     #
+     # `nil` is returned until this peer is stopped from another thread;
+     # the exception which has caused abnormal disconnection will be thrown.
+     #}
+    method join() pass
+
+    stop :: () -> nil
+    {##
+     # stop this peer
+     # i.e. disconnect the underlying network connection if it is still connected
+     #
+     # `true` is returned if this peer is originally alive, `false` otherwise.
+     #}
+    method stop() pass
+
+    armedChannel :: ( Any ) -> SinkType || nil
+    {##
+     # obtain the channel sink armed to this peer, by the specified locator
+     #
+     # `nil` is returned when no channel has been armed with the specified
+     # channel locator
+     #}
+    method armedChannel( chLctr ) pass
+
+    armChannel :: ( Any ) -> SinkType || nil
+    {##
+     # arm a new channel with the specified locator
+     #
+     # previously armed channel with the same locator will be replaced, the newly
+     # armed channel sink is returned
+     #}
+    method armChannel( chLctr, chSink= sink ) pass
+
+
+    readSource :: () -> StringType
+    {##
+     # read a subsequent command from the peer site in source form
+     #}
+    method readSource() pass
+
+    readCommand :: () -> StringType
+    {##
+     # read a subsequent command from the peer site in evaluated value form
+     #
+     # note that evaluating the Edh source in the caller's context is usually the
+     # desired side-effect by calling this method
+     #}
+    method readCommand() pass
+
+    p2c :: ( dir!Any, cmd!StringType ) -> nil
+    p2c :: ( dir!Any, cmd!ExprType ) -> nil
+    p2c :: ( dir!Any, cmd!BlobType ) -> nil
+    {##
+     # post a command to a channel at peer site
+     #
+     # `dir` if not `nil`, should be a channel locator value with appropriate
+     # `repr` implementation, that used to construct the channel locator at
+     # peer site for distribution of the command
+     #
+     # `cmd` is the command to be posted, in any of the following forms:
+     #  * source code - usually in the host language of peer site, but can be in
+     #    any other language given the peer site be using `readSource()` and
+     #    interpreting the content accordingly
+     #  * expression - meant to be evaluated by peer site in its host language
+     #  * blob - meant to be treated by peer site as binary data, either as a
+     #    chunk of binary stream, or standalone object
+     #
+     # note this method is equivalent to `postCommand()` with arguments flipped
+     #}
+    method p2c( dir= None, cmd= None ) pass
+
+    postCommand :: ( dir!Any, cmd!StringType ) -> nil
+    postCommand :: ( dir!Any, cmd!ExprType ) -> nil
+    postCommand :: ( dir!Any, cmd!BlobType ) -> nil
+    {##
+     # post a command to a channel at peer site
+     #
+     # `dir` if not `nil`, should be a channel locator value with appropriate
+     # `repr` implementation, that used to construct the channel locator at
+     # peer site for distribution of the command
+     #
+     # `cmd` is the command to be posted, in any of the following forms:
+     #  * source code - usually in the host language of peer site, but can be in
+     #    any other language given the peer site be using `readSource()` and
+     #    interpreting the content accordingly
+     #  * expression - meant to be evaluated by peer site in its host language
+     #  * blob - meant to be treated by peer site as binary data, either as a
+     #    chunk of binary stream, or standalone object
+     #
+     # note this method is equivalent to `p2c()` with arguments flipped
+     #}
+    method postCommand( cmd, dir= None ) pass
+
+  }
+
   {##
-   # wait for this peer to be stopped
-   # i.e. the underlying network connection get disconnected
+   # An `Addr` object represent a network address
    #
-   # `nil` is returned until this peer is stopped from another thread;
-   # the exception which has caused abnormal disconnection will be thrown.
+   # it is usually in IPv4/IPv6 format for the time being, but no such
+   # assumption should be made for forward compatibility concerns
    #}
-  method join() pass
+  data Addr( host= '127.0.0.1', port= 0 ) {
 
-  stop :: () -> nil
-  {##
-   # stop this peer
-   # i.e. disconnect the underlying network connection if it is still connected
-   #
-   # `true` is returned if this peer is originally alive, `false` otherwise.
-   #}
-  method stop() pass
+    host :: () -> host!StringType
+    {##
+     # obtain the host in string form
+     #}
+    method host() pass
 
-  armedChannel :: ( Any ) -> SinkType || nil
-  {##
-   # obtain the channel sink armed to this peer, by the specified locator
-   #
-   # `nil` is returned when no channel has been armed with the specified
-   # channel locator
-   #}
-  method armedChannel( chLctr ) pass
+    port :: () -> port!int!DecimalType
+    {##
+     # obtain the port in integral form
+     #}
+    method port() pass
 
-  armChannel :: ( Any ) -> SinkType || nil
-  {##
-   # arm a new channel with the specified locator
-   #
-   # previously armed channel with the same locator will be replaced, the newly
-   # armed channel sink is returned
-   #}
-  method armChannel( chLctr, chSink= sink ) pass
+    info :: () -> StringType
+    {##
+     # obtain the protocol specific descriptive information about this address
+     #}
+    method info() pass
 
-
-  readSource :: () -> StringType
-  {##
-   # read a subsequent command from the peer site in source form
-   #}
-  method readSource() pass
-
-  readCommand :: () -> StringType
-  {##
-   # read a subsequent command from the peer site in evaluated value form
-   #
-   # note that evaluating the Edh source in the caller's context is usually the
-   # desired side-effect by calling this method
-   #}
-  method readCommand() pass
-
-  p2c :: ( dir!Any, cmd!StringType ) -> nil
-  p2c :: ( dir!Any, cmd!ExprType ) -> nil
-  p2c :: ( dir!Any, cmd!BlobType ) -> nil
-  {##
-   # post a command to a channel at peer site
-   #
-   # `dir` if not `nil`, should be a channel locator value with appropriate
-   # `repr` implementation, that used to construct the channel locator at
-   # peer site for distribution of the command
-   #
-   # `cmd` is the command to be posted, in any of the following forms:
-   #  * source code - usually in the host language of peer site, but can be in
-   #    any other language given the peer site be using `readSource()` and
-   #    interpreting the content accordingly
-   #  * expression - meant to be evaluated by peer site in its host language
-   #  * blob - meant to be treated by peer site as binary data, either as a
-   #    chunk of binary stream, or standalone object
-   #
-   # note this method is equivalent to `postCommand()` with arguments flipped
-   #}
-  method p2c( dir= None, cmd= None ) pass
-
-  postCommand :: ( dir!Any, cmd!StringType ) -> nil
-  postCommand :: ( dir!Any, cmd!ExprType ) -> nil
-  postCommand :: ( dir!Any, cmd!BlobType ) -> nil
-  {##
-   # post a command to a channel at peer site
-   #
-   # `dir` if not `nil`, should be a channel locator value with appropriate
-   # `repr` implementation, that used to construct the channel locator at
-   # peer site for distribution of the command
-   #
-   # `cmd` is the command to be posted, in any of the following forms:
-   #  * source code - usually in the host language of peer site, but can be in
-   #    any other language given the peer site be using `readSource()` and
-   #    interpreting the content accordingly
-   #  * expression - meant to be evaluated by peer site in its host language
-   #  * blob - meant to be treated by peer site as binary data, either as a
-   #    chunk of binary stream, or standalone object
-   #
-   # note this method is equivalent to `p2c()` with arguments flipped
-   #}
-  method postCommand( cmd, dir= None ) pass
+  }
 
 }
