@@ -61,7 +61,7 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
       iopdUpdate mths $ edh'scope'entity clsScope
   where
     serverAllocator ::
-      "modu" !: Text ->
+      "service" !: Text ->
       "addr" ?: Text ->
       "port" ?: Int ->
       "port'max" ?: Int ->
@@ -70,7 +70,7 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
       "useSandbox" ?: Bool ->
       EdhObjectAllocator
     serverAllocator
-      (mandatoryArg -> !modu)
+      (mandatoryArg -> !service)
       (defaultArg "127.0.0.1" -> !ctorAddr)
       (defaultArg 3721 -> !ctorPort)
       (defaultArg ctorPort -> port'max)
@@ -98,7 +98,7 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
             !clients <- maybe newEventSink return maybeClients
             let !server =
                   EdhServer
-                    { edh'server'modu = modu,
+                    { edh'server'modu = service,
                       edh'server'addr = ctorAddr,
                       edh'server'port = fromIntegral ctorPort,
                       edh'server'port'max = fromIntegral port'max,
