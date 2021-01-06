@@ -164,7 +164,13 @@ export {
    # One instance of the specified service module is instantiated per client
    # connection, the per-connection peer module initialization method if
    # specified, will run in each such instance's scope before the module source
-   # get evaluated.
+   # get evaluated
+   #
+   # The following artifact(s) will be implanted into the module instance even
+   # before calling the module initialization method:
+```edh
+peer :: Peer
+```
    #
    # The `Server` class specializes on TCP connections
    #}
@@ -224,7 +230,13 @@ export {
    # One instance of the specified service module is instantiated per client
    # connection, the per-connection peer module initialization method if
    # specified, will run in each such instance's scope before the module source
-   # get evaluated.
+   # get evaluated
+   #
+   # The following artifact(s) will be implanted into the module instance even
+   # before calling the module initialization method:
+```edh
+peer :: Peer
+```
    #
    # The `WsServer` class specializes on WebSocket connections
    #}
@@ -350,13 +362,21 @@ routes :: example!(
 
 
   {##
-   # A network client connects to some service over the network and will consume
-   # the service via the connection
+   # A network client connects to some service over the network and will
+   # consume the service via the connection
    #
    # An instance of the specified consumer module is instantiated for the
    # connection, the per-connection peer module initialization method if
    # specified, will run in this instance's scope before the module source
    # get evaluated.
+   #
+   # The following artifact(s) will be implanted into the module instance even
+   # before calling the module initialization method:
+```edh
+peer :: Peer
+```
+   #
+   # the `Client` class specializes on TCP connections
    #}
   class Client {
 
@@ -369,7 +389,78 @@ routes :: example!(
 
     addrs :: () -> [ Addr ]
     {##
-     # obtain network addresses the server successfuly listens on
+     # obtain network addresses the client successfuly connected to
+     #
+     # this method blocks until the network connection succeeded or failed, an
+     # empty list is returned if failed, otherwise one or more addresses are
+     # returned
+     #}
+    method addrs() pass
+
+    eol :: () -> BoolType
+    {##
+     # check whether this client is at end-of-life, i.e. stopped
+     #
+     # `false` is returned if this client is still alive;
+     # `true` is returned if the client has been stopped normally;
+     # the exception which has caused abnormal stop will be thrown.
+     #}
+    method eol() pass
+
+    join :: () -> nil
+    {##
+     # wait for this client to be stopped
+     #
+     # `nil` is returned until this client is stopped from another thread;
+     # the exception which has caused abnormal stop will be thrown.
+     #}
+    method join() pass
+
+    stop :: () -> nil
+    {##
+     # stop this client
+     #
+     # `true` is returned if this client is originally alive, `false` otherwise.
+     #}
+    method stop() pass
+
+  }
+
+
+  {##
+   # A network sniffer sniffs network packets directed to its address(es)
+   #
+   # An instance of the specified module is instantiated for the sniffing, the
+   # per-connection peer module initialization method if specified, will run in
+   # this instance's scope before the module source get evaluated
+   #
+   # The following artifacts will be implanted into the module instance even
+   # before calling the module initialization method:
+```edh
+peer :: Peer
+eol :: () -> bool
+sniff :: () -> Any
+```
+   #
+   # And the following artifact(s) will be implanted into the module instance,
+   # before the source code of an incoming command is evaluated:
+```edh
+sourceAddr :: Addr
+```
+   #
+   # The `Sniffer` class specializes on UDP traffics
+   #}
+  class Sniffer {
+
+    method __init__(
+      modu,
+      addr= '127.0.0.1', port= 3721,
+      init= None,
+    ) pass
+
+    addrs :: () -> [ Addr ]
+    {##
+     # obtain network addresses the sniffer successfuly listens on
      #
      # this method blocks until the network listening succeeded or failed, an
      # empty list is returned if failed, otherwise one or more addresses are
@@ -379,28 +470,99 @@ routes :: example!(
 
     eol :: () -> BoolType
     {##
-     # check whether this server is at end-of-life, i.e. stopped
+     # check whether this sniffer is at end-of-life, i.e. stopped
      #
-     # `false` is returned if this server is still alive;
-     # `true` is returned if the server has been stopped normally;
+     # `false` is returned if this sniffer is still alive;
+     # `true` is returned if the sniffer has been stopped normally;
      # the exception which has caused abnormal stop will be thrown.
      #}
     method eol() pass
 
     join :: () -> nil
     {##
-     # wait for this server to be stopped
+     # wait for this sniffer to be stopped
      #
-     # `nil` is returned until this server is stopped from another thread;
+     # `nil` is returned until this sniffer is stopped from another thread;
      # the exception which has caused abnormal stop will be thrown.
      #}
     method join() pass
 
     stop :: () -> nil
     {##
-     # stop this server
+     # stop this sniffer
      #
-     # `true` is returned if this server is originally alive, `false` otherwise.
+     # `true` is returned if this sniffer is originally alive, `false`
+     # otherwise.
+     #}
+    method stop() pass
+
+  }
+
+
+  {##
+   # A network advertiser broadcast packets to its address(es)
+   #
+   # The `Advertiser` class specializes on UDP traffics
+   #}
+  class Advertiser {
+
+    method __init__(
+      addr= '255.255.255.255', port= 3721,
+      from'addr= None,
+    ) pass
+
+    addrs :: () -> [ Addr ]
+    {##
+     # obtain network addresses the sniffer successfuly listens on
+     #
+     # this method blocks until the network listening succeeded or failed, an
+     # empty list is returned if failed, otherwise one or more addresses are
+     # returned
+     #}
+    method addrs() pass
+
+
+    post :: ( cmd!StringType ) -> nil
+    post :: ( cmd!ExprType ) -> nil
+    {##
+     # broadcast one or more commands to the network
+     #
+     # `cmds` are the commands to be posted, each in any of the following forms:
+     #
+     #  * source code - usually in the host language of peer site, but can be in
+     #    any other language given the sniffer be using `readSource()` and
+     #    interpreting the content accordingly
+     #  * expression - meant to be evaluated by peer site in its host language
+     #
+     #}
+    method post( *cmds ) pass
+
+
+    eol :: () -> BoolType
+    {##
+     # check whether this sniffer is at end-of-life, i.e. stopped
+     #
+     # `false` is returned if this sniffer is still alive;
+     # `true` is returned if the sniffer has been stopped normally;
+     # the exception which has caused abnormal stop will be thrown.
+     #}
+    method eol() pass
+
+    join :: () -> nil
+    {##
+     # wait for this sniffer to be stopped
+     #
+     # `nil` is returned until this sniffer is stopped from another thread;
+     # the exception which has caused abnormal stop will be thrown.
+     #}
+    method join() pass
+
+    stop :: () -> nil
+    {##
+     # stop this sniffer
+     #
+     # `true` is returned if this sniffer is originally alive, `false`
+     # otherwise.
      #}
     method stop() pass
 
