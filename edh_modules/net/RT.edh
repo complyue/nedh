@@ -165,8 +165,70 @@ export {
    # connection, the per-connection peer module initialization method if
    # specified, will run in each such instance's scope before the module source
    # get evaluated.
+   #
+   # The `Server` class specializes on TCP connections
    #}
   class Server {
+
+    method __init__ (
+      service'module'name,
+      addr= '127.0.0.1', port= 3721, port'max= 3721,
+      init= None,
+      clients= sink,
+      useSandbox= true,
+    ) pass
+
+    addrs :: () -> [ Addr ]
+    {##
+     # obtain network addresses the server successfuly listens on
+     #
+     # this method blocks until the network listening succeeded or failed, an
+     # empty list is returned if failed, otherwise one or more addresses are
+     # returned
+     #}
+    method addrs() pass
+
+    eol :: () -> BoolType
+    {##
+     # check whether this server is at end-of-life, i.e. stopped
+     #
+     # `false` is returned if this server is still alive;
+     # `true` is returned if the server has been stopped normally;
+     # the exception which has caused abnormal stop will be thrown.
+     #}
+    method eol() pass
+
+    join :: () -> nil
+    {##
+     # wait for this server to be stopped
+     #
+     # `nil` is returned until this server is stopped from another thread;
+     # the exception which has caused abnormal stop will be thrown.
+     #}
+    method join() pass
+
+    stop :: () -> nil
+    {##
+     # stop this server
+     #
+     # `true` is returned if this server is originally alive, `false` otherwise.
+     #}
+    method stop() pass
+
+  }
+
+
+  {##
+   # A network server listens and will serve incoming connections from clients
+   #
+   # One instance of the specified service module is instantiated per client
+   # connection, the per-connection peer module initialization method if
+   # specified, will run in each such instance's scope before the module source
+   # get evaluated.
+   #
+   # The `WsServer` class specializes on WebSocket connections
+   #}
+  class WsServer {
 
     method __init__ (
       service'module'name,

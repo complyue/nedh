@@ -247,8 +247,7 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                                     odEmpty
                                 )
                                 $ \ !mkCall -> runEdhTx etsModu $
-                                  mkCall $ \_result _ets ->
-                                    exit
+                                  mkCall $ \_result _ets -> exit
                             where
                               !peer =
                                 Peer
