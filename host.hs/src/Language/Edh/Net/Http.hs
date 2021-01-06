@@ -43,11 +43,12 @@ parseRoutes !ets !routes !exit = case edhUltimate routes of
   _ -> throwEdh ets UsageError "invalid routes"
   where
     mimeArg :: Text -> KwArgs -> (Text -> STM ()) -> STM ()
-    mimeArg !defMime !kwargs !exit' = case odLookup (AttrByName "mime") kwargs of
-      Nothing -> exit' defMime
-      Just (EdhString !mime) -> exit' mime
-      Just !badMime ->
-        throwEdh ets UsageError $ "invalid mime: " <> T.pack (show badMime)
+    mimeArg !defMime !kwargs !exit' =
+      case odLookup (AttrByName "mime") kwargs of
+        Nothing -> exit' defMime
+        Just (EdhString !mime) -> exit' mime
+        Just !badMime ->
+          throwEdh ets UsageError $ "invalid mime: " <> T.pack (show badMime)
     inMemRoute :: Text -> Text -> ByteString -> Snap.Snap ()
     inMemRoute !path !mime !payload = Snap.path (TE.encodeUtf8 path) $ do
       Snap.modifyResponse $
@@ -56,14 +57,15 @@ parseRoutes !ets !routes !exit = case edhUltimate routes of
       Snap.writeBS payload
     parseRoute :: Text -> EdhValue -> (Snap.Snap () -> STM ()) -> STM ()
     parseRoute !defMime !route !exit' = case edhUltimate route of
-      EdhArgsPack (ArgsPack !args !kwargs) -> mimeArg defMime kwargs $ \mime ->
-        case args of
+      EdhArgsPack (ArgsPack !args !kwargs) -> mimeArg defMime kwargs $
+        \ !mime -> case args of
           [EdhString !path, EdhBlob !payload] ->
             exit' $ inMemRoute path mime payload
           [EdhString !path, EdhString !content] ->
             exit' $ inMemRoute path mime (TE.encodeUtf8 content)
           badRoute ->
-            throwEdh ets UsageError $ "invalid route: " <> T.pack (show badRoute)
+            throwEdh ets UsageError $
+              "invalid route: " <> T.pack (show badRoute)
       badRoute ->
         throwEdh ets UsageError $ "invalid route: " <> T.pack (show badRoute)
 
@@ -102,18 +104,18 @@ createHttpServerClass !addrClass !clsOuterScope =
       iopdUpdate mths $ edh'scope'entity clsScope
   where
     serverAllocator ::
-      "resModules" !: EdhValue ->
+      "resource'modules" !: EdhValue ->
       "addr" ?: Text ->
       "port" ?: Int ->
       "port'max" ?: Int ->
       "routes" ?: EdhValue ->
       EdhObjectAllocator
     serverAllocator
-      (mandatoryArg -> !resModules)
+      (mandatoryArg -> !resource'modules)
       (defaultArg "127.0.0.1" -> !ctorAddr)
       (defaultArg 3780 -> !ctorPort)
       (optionalArg -> port'max)
-      (defaultArg nil -> !routes)
+      (defaultArg (EdhArgsPack (ArgsPack [] odEmpty)) -> !routes)
       !ctorExit
       !etsCtor =
         if edh'in'tx etsCtor
@@ -122,7 +124,7 @@ createHttpServerClass !addrClass !clsOuterScope =
               etsCtor
               UsageError
               "you don't create network objects within a transaction"
-          else case edhUltimate resModules of
+          else case edhUltimate resource'modules of
             EdhString !modu -> withModules [modu]
             EdhArgsPack (ArgsPack !args _kwargs) ->
               seqcontSTM
@@ -136,7 +138,7 @@ createHttpServerClass !addrClass !clsOuterScope =
             _ ->
               throwEdh etsCtor UsageError $
                 "invalid type for modus: "
-                  <> edhTypeNameOf resModules
+                  <> edhTypeNameOf resource'modules
         where
           withModules !modus = parseRoutes etsCtor routes $ \ !custRoutes -> do
             servAddrs <- newEmptyTMVar
@@ -161,7 +163,8 @@ createHttpServerClass !addrClass !clsOuterScope =
                     ( atomically
                         . void
                         . (
-                            -- fill empty addrs if the connection has ever failed
+                            -- fill empty addrs if the connection has ever
+                            -- failed
                             tryPutTMVar servAddrs [] <*
                           )
                         -- mark server end-of-life anyway finally
@@ -204,7 +207,8 @@ createHttpServerClass !addrClass !clsOuterScope =
                         fromMaybe [] {- HLINT ignore "Redundant <$>" -}
                           <$> tryTakeTMVar servAddrs
                           >>= putTMVar servAddrs
-                            . ( ( (\sockName -> addr {addrAddress = sockName}) <$> listenAddrs
+                            . ( ( (\sockName -> addr {addrAddress = sockName})
+                                    <$> listenAddrs
                                 )
                                   ++
                               )
@@ -212,13 +216,19 @@ createHttpServerClass !addrClass !clsOuterScope =
                     frontRoute =
                       Snap.getSafePath >>= \case
                         "" -> do
-                          Snap.modifyRequest $ \r -> r {Snap.rqPathInfo = "front.html"}
+                          Snap.modifyRequest $ \r ->
+                            r
+                              { Snap.rqPathInfo = "front.html"
+                              }
                           staticRoutes
                         path ->
                           if "/" `isSuffixOf` path
                             then do
                               Snap.modifyRequest $ \r ->
-                                r {Snap.rqPathInfo = C.pack $ path <> "front.html"}
+                                r
+                                  { Snap.rqPathInfo =
+                                      C.pack $ path <> "front.html"
+                                  }
                               staticRoutes
                             else staticRoutes
                     tryServ !cfg !port =
@@ -233,7 +243,10 @@ createHttpServerClass !addrClass !clsOuterScope =
               where
                 resolveServAddr = do
                   let hints =
-                        defaultHints {addrFlags = [AI_PASSIVE], addrSocketType = Stream}
+                        defaultHints
+                          { addrFlags = [AI_PASSIVE],
+                            addrSocketType = Stream
+                          }
                   addr : _ <-
                     getAddrInfo
                       (Just hints)
@@ -283,7 +296,8 @@ createHttpServerClass !addrClass !clsOuterScope =
     joinProc !exit !ets = withThisHostObj ets $ \ !server ->
       readTMVar (edh'http'server'eol server) >>= \case
         Left !e ->
-          edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
+          edh'exception'wrapper world e
+            >>= \ !exo -> edhThrow ets $ EdhObject exo
         Right () -> exitEdh ets exit nil
       where
         world = edh'prog'world $ edh'thread'prog ets

@@ -172,7 +172,7 @@ export {
 
     method __init__ (
       service'module'name,
-      addr= '127.0.0.1', port= 3721, port'max= 3721,
+      addr= '127.0.0.1', port= 3721, port'max= None,
       init= None,
       clients= sink,
       useSandbox= true,
@@ -232,10 +232,81 @@ export {
 
     method __init__ (
       service'module'name,
-      addr= '127.0.0.1', port= 3721, port'max= 3721,
+      addr= '127.0.0.1', port= 3721, port'max= None,
       init= None,
       clients= sink,
       useSandbox= true,
+    ) pass
+
+    addrs :: () -> [ Addr ]
+    {##
+     # obtain network addresses the server successfuly listens on
+     #
+     # this method blocks until the network listening succeeded or failed, an
+     # empty list is returned if failed, otherwise one or more addresses are
+     # returned
+     #}
+    method addrs() pass
+
+    eol :: () -> BoolType
+    {##
+     # check whether this server is at end-of-life, i.e. stopped
+     #
+     # `false` is returned if this server is still alive;
+     # `true` is returned if the server has been stopped normally;
+     # the exception which has caused abnormal stop will be thrown.
+     #}
+    method eol() pass
+
+    join :: () -> nil
+    {##
+     # wait for this server to be stopped
+     #
+     # `nil` is returned until this server is stopped from another thread;
+     # the exception which has caused abnormal stop will be thrown.
+     #}
+    method join() pass
+
+    stop :: () -> nil
+    {##
+     # stop this server
+     #
+     # `true` is returned if this server is originally alive, `false` otherwise.
+     #}
+    method stop() pass
+
+  }
+
+
+  {##
+   # An instance of `HttpServer` serves static resources for web browsers
+   #
+   # A list of the name of Edh modules must be specified, those providing
+   # overlaid static web resources, while a list of routing specification can
+   # be optionally specified
+   #
+   # Currently supported routing specification format is:
+```edh
+routes :: example!(
+  (path1!StringType, payload!BlobType, mime!StringType= "application/zip"),
+  (path2!StringType, content!StringType),
+  *(),
+  (pathN!StringType, content!StringType, mime!StringType= "text/javascript"),
+  mime!StringType= "text/plain",
+)
+```
+   #
+   # note dynamic routes are not supported for now, while in the future, the
+   # routing specification may be extended to allow procedures as for dynamic
+   # (possibly streaming) contents
+   #}
+  class HttpServer {
+
+    method __init__ (
+      resource'modules,
+      addr= '127.0.0.1', port= 3780, port'max= None,
+      init= None,
+      routes= (),
     ) pass
 
     addrs :: () -> [ Addr ]
@@ -291,9 +362,8 @@ export {
 
     method __init__ (
       consumer'module'name,
-      addr= '127.0.0.1', port= 3721, port'max= 3721,
+      addrSpec= '127.0.0.1', port= 3721,
       init= None,
-      clients= sink,
       useSandbox= true,
     ) pass
 
