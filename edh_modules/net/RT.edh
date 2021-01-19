@@ -140,7 +140,7 @@ export {
    #}
   class Addr {
 
-    method __init__( host= '127.0.0.1', port= 0 ) pass
+    method __init__( host as _ = '127.0.0.1', port as _ = 0, ) pass
 
     host :: () -> host!StringType
     {##
