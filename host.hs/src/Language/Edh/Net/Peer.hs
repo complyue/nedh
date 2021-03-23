@@ -4,6 +4,7 @@ module Language.Edh.Net.Peer where
 
 import Control.Concurrent.STM
 import Control.Exception
+import Control.Monad
 import Data.Dynamic
 import qualified Data.HashMap.Strict as Map
 import Data.Text (Text)
@@ -104,10 +105,11 @@ landPeerCmd
               "missing command channel: "
                 <> T.pack
                   (show lctr)
-          Just !chSink ->
-            -- post the cmd to channel, but yield nil as for
+          Just !chSink -> do
+            -- post the cmd to channel, but evals to nil as for
             -- `peer.readCommand()` wrt this cmd packet
-            runEdhTx ets $ publishEvent chSink val $ const $ exitEdhTx exit nil
+            void $ postEvent chSink val
+            exitEdh ets exit nil
 
 createPeerClass :: Scope -> STM Object
 createPeerClass !clsOuterScope =
