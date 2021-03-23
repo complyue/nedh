@@ -111,7 +111,7 @@ createAdvertiserClass !addrClass !clsOuterScope =
                     -- mark end-of-life anyway finally
                     (atomically . void . tryPutTMVar advtEoL)
 
-                atomically $ ctorExit $ HostStore (toDyn advertiser)
+                atomically $ ctorExit Nothing $ HostStore (toDyn advertiser)
 
           advtThread :: EdhAdvertiser -> IO ()
           advtThread

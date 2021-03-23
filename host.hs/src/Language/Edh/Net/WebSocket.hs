@@ -122,7 +122,7 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
             runEdhTx etsCtor $
               edhContIO $ do
                 void $ forkFinally (serverThread server) finalCleanup
-                atomically $ ctorExit $ HostStore (toDyn server)
+                atomically $ ctorExit Nothing $ HostStore (toDyn server)
 
           serverThread :: EdhWsServer -> IO ()
           serverThread

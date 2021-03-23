@@ -119,7 +119,7 @@ createSnifferClass !addrClass !clsOuterScope =
                         -- mark end-of-life anyway finally
                         . tryPutTMVar snifEoL
                     )
-                atomically $ ctorExit $ HostStore (toDyn sniffer)
+                atomically $ ctorExit Nothing $ HostStore (toDyn sniffer)
 
           sniffThread :: EdhSniffer -> IO ()
           sniffThread

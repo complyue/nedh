@@ -135,7 +135,7 @@ createPeerClass !clsOuterScope =
   where
     peerAllocator :: ArgsPack -> EdhObjectAllocator
     -- not really constructable from Edh code, this only creates bogus peer obj
-    peerAllocator _ !ctorExit _ = ctorExit $ HostStore (toDyn nil)
+    peerAllocator _ !ctorExit _ = ctorExit Nothing $ HostStore (toDyn nil)
 
     eolProc :: EdhHostProc
     eolProc !exit !ets = withThisHostObj ets $ \ !peer ->

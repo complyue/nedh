@@ -170,7 +170,7 @@ createHttpServerClass !addrClass !clsOuterScope =
                         -- mark server end-of-life anyway finally
                         . tryPutTMVar servEoL
                     )
-                atomically $ ctorExit $ HostStore (toDyn server)
+                atomically $ ctorExit Nothing $ HostStore (toDyn server)
 
           serverThread :: EdhHttpServer -> IO ()
           serverThread

@@ -42,7 +42,8 @@ serviceAddressFrom !ets !addrObj !exit =
               )
       (AddrInfo _ _ _ _ (SockAddrInet6 !port _ (n1, n2, n3, n4) _) _) ->
         exit
-          ( T.pack $ show n1 <> ":" <> show n2 <> ":" <> show n3 <> "::" <> show n4,
+          ( T.pack $
+              show n1 <> ":" <> show n2 <> ":" <> show n3 <> "::" <> show n4,
             fromIntegral port
           )
       _ -> throwEdh ets UsageError "unsupported addr object"
@@ -144,7 +145,7 @@ createClientClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                 runEdhTx etsCtor $
                   edhContIO $ do
                     void $ forkFinally (consumerThread client) cleanupConsumer
-                    atomically $ ctorExit $ HostStore (toDyn client)
+                    atomically $ ctorExit Nothing $ HostStore (toDyn client)
 
           consumerThread :: EdhClient -> IO ()
           consumerThread
