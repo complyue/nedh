@@ -33,7 +33,7 @@ maxHeaderLength = 60
 type PacketDirective = Text
 type PacketPayload = B.ByteString
 type PacketSink = TMVar Packet
-type EndOfStream = TMVar (Either SomeException ())
+type StreamResult = TMVar (Either SomeException ())
 
 data Packet = Packet !PacketDirective !PacketPayload
   deriving (Eq, Show)
@@ -89,7 +89,7 @@ sendPacket peerSite !outletter (Packet !dir !payload) = do
 -- The caller is responsible to close the handle anyway appropriate, but
 -- only after eos is signaled.
 receivePacketStream
-  :: Text -> (Int -> IO B.ByteString) -> PacketSink -> EndOfStream -> IO ()
+  :: Text -> (Int -> IO B.ByteString) -> PacketSink -> StreamResult -> IO ()
 receivePacketStream peerSite !intaker !pktSink !eos = do
   recvThId <- myThreadId -- async kill the receiving action on eos
   void $ forkIO $ atomically (readTMVar eos) >> killThread recvThId
