@@ -37,7 +37,7 @@ data EdhServer = EdhServer
     -- service module initializer, must callable if not nil
     edh'server'init :: !EdhValue,
     -- each connected peer is sunk into this
-    edh'serving'clients :: !EventSink
+    edh'serving'clients :: !EdhSink
   }
 
 createServerClass :: (Text -> STM ()) -> Object -> Object -> Scope -> STM Object
@@ -66,7 +66,7 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
       "port" ?: Int ->
       "port'max" ?: Int ->
       "init" ?: EdhValue ->
-      "clients" ?: EventSink ->
+      "clients" ?: EdhSink ->
       "useSandbox" ?: Bool ->
       EdhObjectAllocator
     serverAllocator
@@ -95,7 +95,7 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
           withInit !__modu_init__ = do
             !servAddrs <- newEmptyTMVar
             !servEoL <- newEmptyTMVar
-            !clients <- maybe newEventSink return maybeClients
+            !clients <- maybe newEdhSink return maybeClients
             let !server =
                   EdhServer
                     { edh'server'modu = service,
@@ -311,7 +311,7 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
 
     clientsProc :: EdhHostProc
     clientsProc !exit !ets = withThisHostObj ets $
-      \ !server -> exitEdh ets exit $ EdhSink $ edh'serving'clients server
+      \ !server -> exitEdh ets exit $ EdhEvs $ edh'serving'clients server
 
     reprProc :: EdhHostProc
     reprProc !exit !ets =

@@ -21,7 +21,7 @@ data Peer = Peer
     -- todo this ever needs to be in CPS?
     edh'peer'posting :: !(Packet -> STM ()),
     edh'peer'hosting :: !(STM Packet),
-    edh'peer'channels :: !(TVar (Map.HashMap EdhValue EventSink))
+    edh'peer'channels :: !(TVar (Map.HashMap EdhValue EdhSink))
   }
 
 postPeerCommand :: EdhThreadState -> Peer -> Packet -> EdhTxExit () -> STM ()
@@ -172,11 +172,11 @@ createPeerClass !clsOuterScope =
         {- HLINT ignore "Redundant <$>" -}
         Map.lookup chLctr <$> readTVar (edh'peer'channels peer) >>= \case
           Nothing -> exitEdh ets exit nil
-          Just !chSink -> exitEdh ets exit $ EdhSink chSink
+          Just !chSink -> exitEdh ets exit $ EdhEvs chSink
 
     armChannelProc ::
       "chLctr" !: EdhValue ->
-      "chSink" ?: EventSink ->
+      "chSink" ?: EdhSink ->
       EdhHostProc
     armChannelProc
       (mandatoryArg -> !chLctr)
@@ -184,12 +184,12 @@ createPeerClass !clsOuterScope =
       !exit
       !ets =
         withThisHostObj ets $ \ !peer -> do
-          let armSink :: EventSink -> STM ()
+          let armSink :: EdhSink -> STM ()
               armSink !chSink = do
                 modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
-                exitEdh ets exit $ EdhSink chSink
+                exitEdh ets exit $ EdhEvs chSink
           case maybeSink of
-            Nothing -> newEventSink >>= armSink
+            Nothing -> newEdhSink >>= armSink
             Just !chSink -> armSink chSink
 
     readPeerSrcProc :: EdhHostProc
