@@ -239,7 +239,7 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                           !moduObj = edh'scope'this moduScope
                           withSandbox !maybeSandbox = do
                             !peerObj <-
-                              edhCreateHostObj peerClass (toDyn peer) []
+                              edhCreateHostObj peerClass peer
                             -- implant to the module being prepared
                             iopdUpdate
                               [ (AttrByName "peer", EdhObject peerObj),
@@ -437,7 +437,7 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
         wrapAddrs addrs [] =
           exitEdh ets exit $ EdhArgsPack $ ArgsPack addrs odEmpty
         wrapAddrs !addrs (addr : rest) =
-          edhCreateHostObj addrClass (toDyn addr) []
+          edhCreateHostObj addrClass addr
             >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
     eolProc :: EdhHostProc

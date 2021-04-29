@@ -278,7 +278,7 @@ createHttpServerClass !addrClass !clsOuterScope =
         wrapAddrs addrs [] =
           exitEdh ets exit $ EdhArgsPack $ ArgsPack addrs odEmpty
         wrapAddrs !addrs (addr : rest) =
-          edhCreateHostObj addrClass (toDyn addr) []
+          edhCreateHostObj addrClass addr
             >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
     eolProc :: EdhHostProc

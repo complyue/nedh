@@ -213,8 +213,7 @@ createSnifferClass !addrClass !clsOuterScope =
                             Right (!fromAddr, !payload) ->
                               edhCreateHostObj
                                 addrClass
-                                (toDyn onAddr {addrAddress = fromAddr})
-                                []
+                                onAddr {addrAddress = fromAddr}
                                 >>= \ !addrObj -> do
                                   -- provide the effectful sourceAddr
                                   implantEffect
@@ -314,7 +313,7 @@ createSnifferClass !addrClass !clsOuterScope =
         wrapAddrs addrs [] =
           exitEdh ets exit $ EdhArgsPack $ ArgsPack addrs odEmpty
         wrapAddrs !addrs (addr : rest) =
-          edhCreateHostObj addrClass (toDyn addr) []
+          edhCreateHostObj addrClass addr
             >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
     eolMth :: EdhHostProc
