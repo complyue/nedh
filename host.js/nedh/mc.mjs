@@ -27,13 +27,13 @@ export class McPeer {
         const cmdVal = await lander.land(me.data, null);
         // to the default channel, only side-effects desirable
         if (undefined !== cmdVal) {
-          console.warn(
-            "Some " +
-              typeof cmdVal +
-              " value resulted in the default channel: ",
-            cmdVal,
-            me.data
-          );
+          // console.warn(
+          //   "Some " +
+          //     typeof cmdVal +
+          //     " value resulted in the default channel: ",
+          //   cmdVal,
+          //   me.data
+          // );
         }
         return;
       }
