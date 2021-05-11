@@ -62,21 +62,26 @@ async def takeEdhFd(
             sock = socket.socket(fileno=wsc_fd)
             intake, outlet = await asyncio.open_connection(sock=sock, **net_opts or {},)
 
+            async def pumpCmdsOut():
+                # this task is the only one writing the socket
+                try:
+                    while True:
+                        pkt = await read_stream(eol, poq.get())
+                        if pkt is EndOfStream:
+                            break
+                        await sendPacket(ident, outlet, pkt)
+                except Exception as exc:
+                    logger.error("Nedh fd client error.", exc_info=True)
+                    if not eol.done():
+                        eol.set_exception(exc)
+
+            asyncio.create_task(pumpCmdsOut())
+
             # pump commands in,
             # this task is the only one reading the socket
-            asyncio.create_task(
-                receivePacketStream(
-                    peer_site=ident, intake=intake, pkt_sink=hoq.put, eos=eol,
-                )
+            await receivePacketStream(
+                peer_site=ident, intake=intake, pkt_sink=hoq.put, eos=eol,
             )
-
-            # pump commands out,
-            # this task is the only one writing the socket
-            while True:
-                pkt = await read_stream(eol, poq.get())
-                if pkt is EndOfStream:
-                    break
-                await sendPacket(ident, outlet, pkt)
 
         except Exception as exc:
             logger.error("Nedh fd client error.", exc_info=True)

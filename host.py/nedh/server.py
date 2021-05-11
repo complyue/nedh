@@ -168,7 +168,7 @@ class EdhServer:
 
             # pump commands in,
             # this task is the only one reading the socket
-            receivePacketStream(
+            await receivePacketStream(
                 peer_site=ident, intake=intake, pkt_sink=hoq.put, eos=eol,
             )
         except asyncio.CancelledError:
