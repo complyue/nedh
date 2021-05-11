@@ -183,6 +183,8 @@ class EdhServer:
             if not eol.done():
                 eol.set_result(None)
             # todo post err (if any) to peer
+            outlet.write_eof()
             outlet.close()
-            await outlet.wait_closed()
+            # don't do this to workaround https://bugs.python.org/issue39758
+            # await outlet.wait_closed()
 

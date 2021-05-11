@@ -147,5 +147,7 @@ class EdhClient:
                 self.service_addrs.set_result([])
             if outlet is not None:
                 # todo post err (if any) to peer
+                outlet.write_eof()
                 outlet.close()
-                await outlet.wait_closed()
+                # don't do this to workaround https://bugs.python.org/issue39758
+                # await outlet.wait_closed()

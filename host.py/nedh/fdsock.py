@@ -90,8 +90,10 @@ async def takeEdhFd(
         finally:
             if outlet is not None:
                 # todo post err (if any) to peer
+                outlet.write_eof()
                 outlet.close()
-                await outlet.wait_closed()
+                # don't do this to workaround https://bugs.python.org/issue39758
+                # await outlet.wait_closed()
 
     asyncio.create_task(_consumer_thread()).add_done_callback(client_cleanup)
 
