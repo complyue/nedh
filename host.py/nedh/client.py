@@ -117,21 +117,26 @@ class EdhClient:
             )
             logger.debug(f"Nedh peer module {self.consumer_modu} initialized")
 
+            async def pumpCmdsOut():
+                # this task is the only one writing the socket
+                try:
+                    while True:
+                        pkt = await read_stream(eol, poq.get())
+                        if pkt is EndOfStream:
+                            break
+                        await sendPacket(ident, outlet, pkt)
+                except Exception as exc:
+                    logger.error("Nedh client error.", exc_info=True)
+                    if not eol.done():
+                        eol.set_exception(exc)
+
+            asyncio.create_task(pumpCmdsOut())
+
             # pump commands in,
             # this task is the only one reading the socket
-            asyncio.create_task(
-                receivePacketStream(
-                    peer_site=ident, intake=intake, pkt_sink=hoq.put, eos=eol,
-                )
+            receivePacketStream(
+                peer_site=ident, intake=intake, pkt_sink=hoq.put, eos=eol,
             )
-
-            # pump commands out,
-            # this task is the only one writing the socket
-            while True:
-                pkt = await read_stream(eol, poq.get())
-                if pkt is EndOfStream:
-                    break
-                await sendPacket(ident, outlet, pkt)
 
         except Exception as exc:
             logger.error("Nedh client error.", exc_info=True)
