@@ -70,9 +70,7 @@ async def receivePacketStream(
         while True:
             if len(readahead) < 1:
                 readahead = await read_stream(eos, intake.read(MAX_HEADER_LENGTH))
-                if readahead is EndOfStream:
-                    return EndOfStream  # reached end-of-stream
-                if not readahead:
+                if readahead is EndOfStream or not readahead:
                     return EndOfStream  # reached end-of-stream
             if b"["[0] != readahead[0]:
                 logger.error(f"readahead: {readahead!r}")
@@ -80,7 +78,7 @@ async def receivePacketStream(
             hdr_end_pos = readahead.find(b"]")
             if hdr_end_pos < 0:
                 readmore = await read_stream(eos, intake.read(MAX_HEADER_LENGTH))
-                if readmore is EndOfStream:
+                if readmore is EndOfStream or not readmore:
                     raise RuntimeError("premature end of packet stream")
                 readahead += readmore
                 continue
@@ -106,7 +104,7 @@ async def receivePacketStream(
                 readahead = b""
             elif more2read > 0:
                 more_payload = await read_stream(eos, intake.readexactly(more2read))
-                if more_payload is EndOfStream:
+                if more_payload is EndOfStream or not more_payload:
                     raise RuntimeError("premature end of packet stream")
                 payload = readahead + more_payload
                 readahead = b""
