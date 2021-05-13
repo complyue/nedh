@@ -73,7 +73,7 @@ export class Lander {
 
       // land one packet
       try {
-        _resolve(await eval(`((async()=>{ ${_src} })())`));
+        _resolve(await eval(_src));
       } catch (exc) {
         _reject(exc);
       }
