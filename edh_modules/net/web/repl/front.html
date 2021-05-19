@@ -4,22 +4,6 @@
 <head>
   <link rel="icon" type="image/png" href="/edh-fav.png?v=1" />
   <title>web REPL</title>
-</head>
-
-<body>
-  <h3><img src="/edh-fav.png" alt="Đ" width="32" height="32" /> web REPL</h3>
-
-  <div id="divPrint"></div>
-  <hr />
-  <input type="checkbox" id="chkAltSend"></input>
-  <label for="chkAltSend">Alt+Enter to</label>
-  <button id="btnSend">Send</button>
-  <b style="size: 0; margin: 0 7pt;"></b> <!-- spacer -->
-  <button id="btnContinue">Continue</button>
-  <b style="size: 0; margin: 0 3pt;"></b> <!-- spacer -->
-  <button id="btnSessions">Sessions</button>
-  <br />
-  <textarea class="input" rows="5" id="txtReadIn">dir</textarea>
 
   <style>
     body,
@@ -207,4 +191,20 @@
       txtReadIn.select();
     })();
   </script>
+</head>
+
+<body>
+  <h3><img src="/edh-fav.png" alt="Đ" width="32" height="32" /> web REPL</h3>
+
+  <div id="divPrint"></div>
+  <hr />
+  <input type="checkbox" id="chkAltSend"></input>
+  <label for="chkAltSend">Alt+Enter to</label>
+  <button id="btnSend">Send</button>
+  <b style="size: 0; margin: 0 7pt;"></b> <!-- spacer -->
+  <button id="btnContinue">Continue</button>
+  <b style="size: 0; margin: 0 3pt;"></b> <!-- spacer -->
+  <button id="btnSessions">Sessions</button>
+  <br />
+  <textarea class="input" rows="5" id="txtReadIn">dir</textarea>
 </body>
