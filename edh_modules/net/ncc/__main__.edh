@@ -125,7 +125,7 @@ while peer.eol() is false {
       # expect a subsequent console out event after submitted the cmd,
       # don't continue reading from local stdin, bcoz the read will prevent
       # the actual output to local stdout from being printed
-      for _ from ( outlet= chConOut.subseq ) | () =>* {
+      for _ from (outlet= chConOut.subseq )|() =>* {
         peer.postCommand( cmdSrc )
       } do break
     }
