@@ -9,7 +9,7 @@
 import * 'net'
 
 
-if false then { # mockup the assumed environment
+if false then { # hint the assumed environment
 
   # a Peer object representing the ws connection should have been implanted
   peer ?= Peer()
