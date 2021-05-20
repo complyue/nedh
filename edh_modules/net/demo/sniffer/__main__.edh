@@ -5,7 +5,7 @@
 # sniffer is configured to sniff
 
 
-import ( Addr, **_ ) 'net'
+import ( Addr, ** ) 'net'
 
 # mocking artifacts those should have been implanted by host
 # module preparation, to give meaningful information to IDEs

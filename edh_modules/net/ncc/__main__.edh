@@ -5,7 +5,7 @@
  # this is the server-facing entry module for networked console
  #}
 
-import ( Peer, **_ ) 'net/RT'
+import ( Peer, ** ) 'net/RT'
 import * 'net/symbols'
 effect import * 'net/effects'
 

@@ -6,7 +6,7 @@
  # client is disconnected once this module finished running.
  #}
 
-import ( Peer, **_ ) 'net/RT'
+import ( Peer, ** ) 'net/RT'
 import * 'net/symbols'
 effect import * 'net/effects'
 

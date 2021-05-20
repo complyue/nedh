@@ -4,7 +4,7 @@
  # CLI (command line interface) service client
  #}
 
-import ( Peer, **_ ) 'net/RT'
+import ( Peer, ** ) 'net/RT'
 import * 'net/symbols'
 effect import * 'net/effects'
 
