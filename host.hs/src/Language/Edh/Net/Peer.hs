@@ -7,6 +7,8 @@ import Control.Exception
 import Control.Monad
 import Data.Dynamic
 import qualified Data.HashMap.Strict as Map
+import qualified Data.HashSet as Set
+import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -15,12 +17,20 @@ import Language.Edh.Net.MicroProto
 import Prelude
 
 data Peer = Peer
-  { edh'peer'ident :: !Text,
+  { -- | identifier of the peer
+    edh'peer'ident :: !Text,
+    -- | sandboxed scope or nothing for no sandboxing
     edh'peer'sandbox :: !(Maybe Scope),
+    -- | end-of-life with the cause
     edh'peer'eol :: !(TMVar (Either SomeException ())),
-    -- todo this ever needs to be in CPS?
+    -- | outlet for outgoing packets
     edh'peer'posting :: !(Packet -> STM ()),
+    -- | intake for incoming packets
     edh'peer'hosting :: !(STM Packet),
+    -- | sinks to be cut-off (i.e. marked eos) on eol of this peer
+    edh'peer'disposals :: !(TVar (Set.HashSet EdhSink)),
+    -- | registry of comm channels associated with this peer,
+    -- identified by arbitrary Edh values
     edh'peer'channels :: !(TVar (Map.HashMap EdhValue EdhSink))
   }
 
@@ -33,7 +43,7 @@ postPeerCommand !ets !peer !pkt !exit =
       exitEdh ets exit ()
 
 readPeerSource :: EdhThreadState -> Peer -> EdhTxExit EdhValue -> STM ()
-readPeerSource !ets peer@(Peer _ _ !eol _ !ho _) !exit =
+readPeerSource !ets peer@(Peer _ _ !eol _ !ho _ _) !exit =
   ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) >>= \case
     -- reached normal end-of-stream
     Left (Right _) -> exitEdh ets exit nil
@@ -51,7 +61,7 @@ readPeerSource !ets peer@(Peer _ _ !eol _ !ho _) !exit =
 -- Note a command may target a specific channel, thus get posted to that
 --      channel's sink, and nil will be returned from here for it.
 readPeerCommand :: EdhThreadState -> Peer -> EdhTxExit EdhValue -> STM ()
-readPeerCommand !ets peer@(Peer _ _ !eol _ !ho _) !exit =
+readPeerCommand !ets peer@(Peer _ _ !eol _ !ho _ _) !exit =
   ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) >>= \case
     -- reached normal end-of-stream
     Left (Right _) -> exitEdh ets exit nil
@@ -64,7 +74,7 @@ readPeerCommand !ets peer@(Peer _ _ !eol _ !ho _) !exit =
 
 landPeerCmd :: Peer -> Packet -> EdhThreadState -> EdhTxExit EdhValue -> STM ()
 landPeerCmd
-  (Peer !ident !maybeSandbox _ _ _ !chdVar)
+  (Peer !ident !maybeSandbox _ _ _ _ !chdVar)
   (Packet !dir !payload)
   !ets
   !exit =
@@ -123,6 +133,7 @@ createPeerClass !clsOuterScope =
                 ("stop", EdhMethod, wrapHostProc stopProc),
                 ("armedChannel", EdhMethod, wrapHostProc armedChannelProc),
                 ("armChannel", EdhMethod, wrapHostProc armChannelProc),
+                ("dispose", EdhMethod, wrapHostProc disposeProc),
                 ("readSource", EdhMethod, wrapHostProc readPeerSrcProc),
                 ("readCommand", EdhMethod, wrapHostProc readPeerCmdProc),
                 ("p2c", EdhMethod, wrapHostProc p2cProc),
@@ -177,20 +188,29 @@ createPeerClass !clsOuterScope =
     armChannelProc ::
       "chLctr" !: EdhValue ->
       "chSink" ?: EdhSink ->
+      "dispose" ?: Bool ->
       EdhHostProc
     armChannelProc
       (mandatoryArg -> !chLctr)
       (optionalArg -> !maybeSink)
+      (defaultArg True -> !dispose)
       !exit
       !ets =
         withThisHostObj ets $ \ !peer -> do
-          let armSink :: EdhSink -> STM ()
-              armSink !chSink = do
-                modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
-                exitEdh ets exit $ EdhEvs chSink
-          case maybeSink of
-            Nothing -> newEdhSink >>= armSink
-            Just !chSink -> armSink chSink
+          !chSink <- maybe newEdhSink return maybeSink
+          modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
+          when dispose $
+            modifyTVar' (edh'peer'disposals peer) $ Set.insert chSink
+          exitEdh ets exit $ EdhEvs chSink
+
+    disposeProc :: "dependentSink" !: EdhSink -> EdhHostProc
+    disposeProc (mandatoryArg -> !sink) !exit !ets =
+      withThisHostObj ets $ \ !peer -> do
+        modifyTVar' (edh'peer'disposals peer) $ Set.insert sink
+        tryReadTMVar (edh'peer'eol peer) >>= \case
+          Just {} -> void $ postEvent sink EdhNil -- already eol, mark eos now
+          _ -> pure ()
+        exitEdh ets exit $ EdhEvs sink
 
     readPeerSrcProc :: EdhHostProc
     readPeerSrcProc !exit !ets =

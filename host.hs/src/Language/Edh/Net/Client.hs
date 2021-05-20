@@ -7,6 +7,7 @@ import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Data.Dynamic
+import qualified Data.HashSet as Set
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -15,9 +16,6 @@ import Language.Edh.Net.MicroProto
 import Language.Edh.Net.Peer
 import Network.Socket
 import Network.Socket.ByteString
-  ( recv,
-    sendAll,
-  )
 import Prelude
 
 serviceAddressFrom ::
@@ -198,6 +196,7 @@ createClientClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                 consumeService !clientId !sock = do
                   !pktSink <- newEmptyTMVarIO
                   !poq <- newEmptyTMVarIO
+                  !disposalsVar <- newTVarIO mempty
                   !chdVar <- newTVarIO mempty
 
                   let prepConsumer :: EdhModulePreparation
@@ -240,17 +239,21 @@ createClientClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                                     edh'peer'eol = cnsmrEoL,
                                     edh'peer'posting = putTMVar poq,
                                     edh'peer'hosting = takeTMVar pktSink,
+                                    edh'peer'disposals = disposalsVar,
                                     edh'peer'channels = chdVar
                                   }
 
                   void $ -- run the consumer module as another program
                     forkFinally
                       (runEdhModule' world (T.unpack cnsmrModu) prepConsumer)
-                      -- mark client end-of-life with the result anyway
-                      $ void
-                        . atomically
-                        . tryPutTMVar cnsmrEoL
-                        . void
+                      -- anyway after the module code done:
+                      --   dispose of all dependent (channel or not) sinks
+                      --   mark client end-of-life with the result
+                      $ \ !result -> atomically $ do
+                        !sinks2Dispose <- readTVar disposalsVar
+                        sequence_ $
+                          flip postEvent EdhNil <$> Set.toList sinks2Dispose
+                        void $ tryPutTMVar cnsmrEoL $ void result
 
                   -- pump commands in, making this thread the only one reading
                   -- the handle

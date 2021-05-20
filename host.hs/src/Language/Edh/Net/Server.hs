@@ -7,6 +7,7 @@ import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Data.Dynamic
+import qualified Data.HashSet as Set
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -16,9 +17,6 @@ import Language.Edh.Net.MicroProto
 import Language.Edh.Net.Peer
 import Network.Socket
 import Network.Socket.ByteString
-  ( recv,
-    sendAll,
-  )
 import Prelude
 
 data EdhServer = EdhServer
@@ -211,9 +209,10 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                   Socket ->
                   IO ()
                 servClient !clientEoL !clientId !sock = do
-                  pktSink <- newEmptyTMVarIO
-                  poq <- newEmptyTMVarIO
-                  chdVar <- newTVarIO mempty
+                  !pktSink <- newEmptyTMVarIO
+                  !poq <- newEmptyTMVarIO
+                  !disposalsVar <- newTVarIO mempty
+                  !chdVar <- newTVarIO mempty
 
                   let prepService :: EdhModulePreparation
                       prepService !etsModu !exit =
@@ -256,6 +255,7 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                                     edh'peer'eol = clientEoL,
                                     edh'peer'posting = putTMVar poq,
                                     edh'peer'hosting = takeTMVar pktSink,
+                                    edh'peer'disposals = disposalsVar,
                                     edh'peer'channels = chdVar
                                   }
 
@@ -273,11 +273,14 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                   void $
                     forkFinally
                       (runEdhModule' world (T.unpack servModu) prepService)
-                      -- mark client end-of-life with the result anyway
-                      $ void
-                        . atomically
-                        . tryPutTMVar clientEoL
-                        . void
+                      -- anyway after the module code done:
+                      --   dispose of all dependent (channel or not) sinks
+                      --   mark client end-of-life with the result
+                      $ \ !result -> atomically $ do
+                        !sinks2Dispose <- readTVar disposalsVar
+                        sequence_ $
+                          flip postEvent EdhNil <$> Set.toList sinks2Dispose
+                        void $ tryPutTMVar clientEoL $ void result
 
                   -- pump commands in,
                   -- making this thread the only one reading the handle
