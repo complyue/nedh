@@ -16,10 +16,10 @@ if false then { # hint the assumed environment
 
   # reqPath & reqParams should have been implanted as well, reflecting ws request path and query parameters
   reqPath ?= '/'
-  reqParams ?= ()
+  reqParams ?= ( s= '<session-id>', )
 
   # such a method bound to a WebRepl instance should have been implanted
-  method hookToSession( peer, sessionId ) pass
+  method hookToSession( peer_, sessionId_ ) pass
 }
 
 console.debug<| 'REPL web client connected - ' ++ peer
@@ -28,19 +28,20 @@ defer {
   console.debug<| 'REPL web client disconnecting ' ++ peer
 }
 
+
 case reqParams.s of {
   { sessionId } -> { pass }
+  # return from the module procedure will disconnect the ws connection
+  # a string posted back will be shown directly on the web repl page
   return void peer.postCommand(
     'You need to include the session id in the url.'
   )
 }
 
-{
-  hookToSession( peer, sessionId )
-} $=> {
-  { { ThreadTerminate:_ } } -> { pass } # usually network reset
-  { exc } -> {
-    console.error<| 'Exception by REPL web client ' ++ peer
-    ++ ' error: ' ++ desc( exc )
-  }
+
+hookToSession( peer, sessionId )
+$=> { ThreadTerminate() } -> { pass } # usually network reset
+$=> { exc } -> {
+  console.error<| 'Exception by REPL web client ' ++ peer ++ ' error: '
+  ++ desc( exc )
 }
