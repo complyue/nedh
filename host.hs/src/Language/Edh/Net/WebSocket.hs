@@ -6,10 +6,13 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy as BL
 import Data.Dynamic
 import qualified Data.HashSet as Set
 import Data.IORef
+import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -222,20 +225,21 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                       WS.defaultConnectionOptions
                         { WS.connectionStrictUnicode = True
                         }
-                  case Snap.urlDecode $ WS.requestPath $ WS.pendingRequest pConn of
-                    Nothing -> WS.rejectRequest pConn $ TE.encodeUtf8 "bad req path"
-                    Just !rawPath -> do
+                  case parseWsRequest $ WS.pendingRequest pConn of
+                    Left !err -> WS.rejectRequest pConn err
+                    Right (!reqPath, !reqParams) -> do
                       !wsc <- WS.acceptRequest pConn
                       !pktSink <- newEmptyTMVarIO
                       !poq <- newEmptyTMVarIO
                       !disposalsVar <- newTVarIO mempty
                       !chdVar <- newTVarIO mempty
 
-                      let !reqPath = TE.decodeUtf8 rawPath
-                          prepService :: EdhModulePreparation
+                      let prepService :: EdhModulePreparation
                           prepService !etsModu !exit =
                             if useSandbox
-                              then mkObjSandbox etsModu moduObj $ withSandbox . Just
+                              then
+                                mkObjSandbox etsModu moduObj $
+                                  withSandbox . Just
                               else withSandbox Nothing
                             where
                               !moduScope = contextScope $ edh'context etsModu
@@ -246,7 +250,23 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                                 -- implant to the module being prepared
                                 iopdUpdate
                                   [ (AttrByName "peer", EdhObject peerObj),
-                                    (AttrByName "reqPath", EdhString reqPath)
+                                    (AttrByName "reqPath", EdhString reqPath),
+                                    ( AttrByName "reqParams",
+                                      EdhArgsPack $
+                                        ArgsPack [] $
+                                          odFromList $
+                                            flip fmap reqParams $
+                                              \(name, vs) ->
+                                                ( AttrByName name,
+                                                  case vs of
+                                                    [] -> nil
+                                                    [v] -> EdhString v
+                                                    _ ->
+                                                      EdhArgsPack $
+                                                        flip ArgsPack odEmpty $
+                                                          EdhString <$> vs
+                                                )
+                                    )
                                   ]
                                   (edh'scope'entity moduScope)
                                 -- announce this new client connected
@@ -255,8 +275,8 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                                   then exit
                                   else -- call the per-connection peer module
                                   -- initialization method in the module context
-                                  -- (where both contextual this/that are the module
-                                  -- object)
+                                  -- (where both contextual this/that are the
+                                  -- module object)
                                   edhPrepareCall'
                                     etsModu
                                     __modu_init__
@@ -344,7 +364,8 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                           \case
                             WS.CloseRequest closeCode closeReason
                               | closeCode == 1000 || closeCode == 1001 ->
-                                atomically $ void $ tryPutTMVar clientEoL $ Right ()
+                                atomically $
+                                  void $ tryPutTMVar clientEoL $ Right ()
                               | otherwise ->
                                 do
                                   atomically $
@@ -363,7 +384,8 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                                   -- peer
                                   unmask pumpPkts
                             WS.ConnectionClosed ->
-                              atomically $ void $ tryPutTMVar clientEoL $ Right ()
+                              atomically $
+                                void $ tryPutTMVar clientEoL $ Right ()
                             _ ->
                               atomically $
                                 void $
@@ -472,3 +494,37 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
     stopProc !exit !ets = withThisHostObj ets $ \ !server -> do
       stopped <- tryPutTMVar (edh'ws'server'eol server) $ Right ()
       exitEdh ets exit $ EdhBool stopped
+
+    parseWsRequest ::
+      WS.RequestHead -> Either ByteString (Text, [(Text, [Text])])
+    parseWsRequest !reqHead = do
+      let (!reqPathBytes, !reqSearch) =
+            C.break (== '?') (WS.requestPath reqHead)
+      case Snap.urlDecode reqPathBytes of
+        Nothing -> Left $ TE.encodeUtf8 "bad request path"
+        Just !pathBytes -> do
+          !reqPath <- decode1 pathBytes
+          if C.length reqSearch < 1
+            then return (reqPath, [])
+            else
+              (reqPath,)
+                <$> decodeParams (Snap.parseUrlEncoded $ C.tail reqSearch)
+      where
+        decodeParams ::
+          Map.Map ByteString [ByteString] -> Either ByteString [(Text, [Text])]
+        decodeParams = go [] . Map.toDescList
+
+        go ::
+          [(Text, [Text])] ->
+          [(ByteString, [ByteString])] ->
+          Either ByteString [(Text, [Text])]
+        go result [] = return result
+        go result ((n, vs) : rest) = do
+          !n' <- decode1 n
+          !vs' <- sequence $ decode1 <$> vs
+          go ((n', vs') : result) rest
+
+        decode1 :: ByteString -> Either ByteString Text
+        decode1 !bytes = case TE.decodeUtf8' bytes of
+          Left !exc -> Left $ TE.encodeUtf8 $ T.pack $ show exc
+          Right !txt -> return txt

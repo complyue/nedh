@@ -14,20 +14,22 @@ if false then { # hint the assumed environment
   # a Peer object representing the ws connection should have been implanted
   peer ?= Peer()
 
-  # reqPath should have been implanted as well, reflecting ws request path
+  # reqPath & reqParams should have been implanted as well, reflecting ws request path and query parameters
   reqPath ?= '/'
+  reqParams ?= ()
 
   # such a method bound to a WebRepl instance should have been implanted
   method hookToSession( peer, sessionId ) pass
 }
 
 console.debug<| 'REPL web client connected - ' ++ peer
+# console.debug<| ( reqPath= reqPath, reqParams= reqParams, )
 defer {
   console.debug<| 'REPL web client disconnecting ' ++ peer
 }
 
-case reqPath of {
-  { _ @< '?' >@ sessionId } -> { pass }
+case reqParams.s of {
+  { sessionId } -> { pass }
   return void peer.postCommand(
     'You need to include the session id in the url.'
   )
