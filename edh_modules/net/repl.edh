@@ -12,7 +12,7 @@ export class WebRepl {
       'net/web/repl/ws', # facade module
       this.addr, this.ws'port, this.port'max, # network address to listen
       useSandbox= this.useSandbox,
-      init= ( modu ) => import * this into modu,
+      init= ( modu ) => from this import * into modu,
     )
     case this.ws.addrs() of {
       { wsAddr :> _extraWsAddrs } -> {
@@ -50,11 +50,11 @@ export class WebRepl {
   }
 
   method replWith( scopeOrObj, prompt= None ) {
-    inScope = case scopeOrObj of {@
-      { { scope:_ } } -> scopeOrObj
-      ; | type( scopeOrObj ) is ObjectType -> scope( ofObj= scopeOrObj )
-      _ -> error( 'Unexpected scope or object: ' ++ desc( scopeOrObj ) )
-    @}
+    case scopeOrObj of {
+      { scope() = inScope } -> { pass }
+      ;| type(scopeOrObj) is ObjectType -> inScope = scope(ofObj= scopeOrObj)
+      _ -> error( 'Unexpected scope or object: ' ++ desc(scopeOrObj) )
+    }
     if this.useSandbox then {
       inScope = sandbox( inScope )
     }
@@ -71,16 +71,14 @@ export class WebRepl {
 
     # register the session
     this.sessions[ session.sid ] = session
-    {
+    # finally un-register the session after it's done
+    this.sessions[ session.sid ] = nil <=@ {
       effect listSessions = this.sprintSessions
-      # run the session until let go by som REPL client
+      # run the session, until it's let go by some REPL client
       session.runSession()
-    } @=> {
-      # finally un-register the session
-      this.sessions[ session.sid ] = nil
     }
 
-    # pass ctrl back to caller
+    # ctrl is passed back to caller after reaching here
   }
 
 
@@ -130,34 +128,34 @@ data ReplSession (
   method location() this.inScope.lexiLoc
 
 
-  method runSession() for (*** _volatileIns ) from this.cmdIn do {@
-    # capture them within this scoped block, outer attrs receiving loop args tend to be overwritten, after the iteration done, i.e. accessed by threads forked from here
+  method runSession() for * as _volatileIns from this.cmdIn do {@
+    # outer attrs receiving loop args tend to be overwritten, after the iteration done, capture while destructuring the loop args within this scoped block, so they are safe to be accessed by threads forked from within this scoped block
     let ( cmdSrc, cmdOut ) = _volatileIns
 
     { exc } -> {
       if not cmdOut.eos then cmdOut <- exc
     } <=$ case this.inScope.eval( parseEdh( cmdSrc ) ) of {
       { continue } -> {
-        return void this.cmdIn <- cmdOut <-nil
+        return void this.cmdIn <- cmdOut <- nil
       }
 
-      { { Command: cmd } } -> case cmd.cmd of {
+      { Command(cmd, apk= cmdArgs) } -> case cmd of {
         # todo
-        #  *) enrich custom behaviors according to `cmd.apk`
+        #  *) enrich custom behaviors according to `cmdArgs`
         #  *) support more commands
 
         'quit' -> {
-          return void this.cmdIn <- cmdOut <-nil
+          return void this.cmdIn <- cmdOut <- nil
         }
 
-        'dir' -> cmdOut <- case cmd.apk of {
+        'dir' -> cmdOut <- case cmdArgs of {
           # bare dir command
-          { () } -> sprintDir( ofThe= this.inScope )
+          {( )} -> sprintDir( ofThe= this.inScope )
 
           # single arg as the target object/scope
-          { ( tgt ) } -> sprintDir( ofThe= tgt )
+          {( tgt )} -> sprintDir( ofThe= tgt )
 
-          _ -> 'Unexpected args to dir command: ' ++ cmd.apk
+          _ -> 'Unexpected args to dir command: ' ++ cmdArgs
         }
 
         _ -> cmdOut <- 'Unsupported command: ' ++ cmd
