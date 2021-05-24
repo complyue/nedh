@@ -128,45 +128,41 @@ data ReplSession (
   method location() this.inScope.lexiLoc
 
 
-  method runSession() for * as _volatileIns from this.cmdIn do {@
-    # outer attrs receiving loop args tend to be overwritten, after the iteration done, capture while destructuring the loop args within this scoped block, so they are safe to be accessed by threads forked from within this scoped block
-    let ( cmdSrc, cmdOut ) = _volatileIns
+  method runSession()
+  # use a scoped for loop here, so the loop vars are in isolated scopes across iterations
+  for@ ( cmdSrc, cmdOut ) from this.cmdIn do { exc } -> {
+    if not cmdOut.eos then cmdOut <- exc
+  } <=$ case this.inScope.eval( parseEdh( cmdSrc ) ) of {
+    { continue } -> {
+      return void this.cmdIn <- cmdOut <- nil
+    }
 
-    { exc } -> {
-      if not cmdOut.eos then cmdOut <- exc
-    } <=$ case this.inScope.eval( parseEdh( cmdSrc ) ) of {
-      { continue } -> {
+    { Command(cmd, apk= cmdArgs) } -> case cmd of {
+      # todo
+      #  *) enrich custom behaviors according to `cmdArgs`
+      #  *) support more commands
+
+      'quit' -> {
         return void this.cmdIn <- cmdOut <- nil
       }
 
-      { Command(cmd, apk= cmdArgs) } -> case cmd of {
-        # todo
-        #  *) enrich custom behaviors according to `cmdArgs`
-        #  *) support more commands
+      'dir' -> cmdOut <- case cmdArgs of {
+        # bare dir command
+        {( )} -> sprintDir( ofThe= this.inScope )
 
-        'quit' -> {
-          return void this.cmdIn <- cmdOut <- nil
-        }
+        # single arg as the target object/scope
+        {( tgt )} -> sprintDir( ofThe= tgt )
 
-        'dir' -> cmdOut <- case cmdArgs of {
-          # bare dir command
-          {( )} -> sprintDir( ofThe= this.inScope )
-
-          # single arg as the target object/scope
-          {( tgt )} -> sprintDir( ofThe= tgt )
-
-          _ -> 'Unexpected args to dir command: ' ++ cmdArgs
-        }
-
-        _ -> cmdOut <- 'Unsupported command: ' ++ cmd
+        _ -> 'Unexpected args to dir command: ' ++ cmdArgs
       }
 
-      { cmdVal } -> cmdOut <- str( cmdVal )
-
-      # note a nil result is ignored here
+      _ -> cmdOut <- 'Unsupported command: ' ++ cmd
     }
 
-  @}
+    { cmdVal } -> cmdOut <- str( cmdVal )
+
+    # note a nil result is ignored here
+  }
 
 
   method runREPL( peer ) {
