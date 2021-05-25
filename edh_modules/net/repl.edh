@@ -131,6 +131,7 @@ data ReplSession (
   method runSession()
   # use a scoped for loop here, so the loop vars are in isolated scopes across iterations
   for@ ( cmdSrc, cmdOut ) from this.cmdIn do { exc } -> {
+    # wild exception catching is never a good idea, here the speciality of REPL may justify it
     if not cmdOut.eos then cmdOut <- exc
   } <=$ case this.inScope.eval( parseEdh( cmdSrc ) ) of {
     { continue } -> {

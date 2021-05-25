@@ -39,9 +39,9 @@ case reqParams.s of {
 }
 
 
-# Note that a former handler in a chain of multiple ($=>) handlers, still can't prevent `ThreadTerminate` from escalating to later handlers, as it's not catchable. So a handler block is used here to filter `ThreadTerminate` out from logging.
+# Note that a former handler in a chain of multiple ($=>) handlers, still can't prevent `ThreadTerminate` from escalating to later handlers, as it's not catchable. So a handler block is used here to filter out `ThreadTerminate` from logging.
 hookToSession( peer, sessionId ) $=> {
-  { ThreadTerminate() } -> { pass } # usually network reset. Though `ThreadTerminate` is not catchable, we branch out to not do logging for it here.
+  { ThreadTerminate() } -> { pass } # usually network reset. Though `ThreadTerminate` is not catchable, we branch out to avoid logging for it here.
 
   { exc } -> {
     console.error<| 'Exception by REPL web client ' ++ peer ++ ' error: '
