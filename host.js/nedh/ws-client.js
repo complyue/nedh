@@ -100,16 +100,18 @@ export class WsPeer {
       const cmdVal = await lander.land(pktData, chLctr)
       if (null === chLctr) {
         // to the default channel, only side-effects desirable
-        if (undefined !== cmdVal) {
-          console.warn(
-            "Some " +
-            typeof cmdVal +
-            " value resulted in the default channel: ",
-            cmdVal,
-            pktData
-          )
-          debugger
-        }
+        /*
+          if (undefined !== cmdVal) {
+            console.warn(
+              "Some " +
+              typeof cmdVal +
+              " value resulted in the default channel: ",
+              cmdVal,
+              pktData
+            )
+            // debugger
+          }
+        */
         return
       }
 
