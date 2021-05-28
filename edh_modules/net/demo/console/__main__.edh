@@ -14,7 +14,7 @@ effect import * 'net/effects'
 # a Peer object should have been implanted atomically, the following
 # line should have no technical effect but to hint an IDE for code
 # completion etc.
-peer ?= Peer()
+peer =: Peer()
 
 console.info<| 'Console client connected - ' ++ peer
 defer {

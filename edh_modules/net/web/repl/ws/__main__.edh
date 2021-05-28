@@ -12,11 +12,11 @@ import * 'net'
 if false then { # hint the assumed environment
 
   # a Peer object representing the ws connection should have been implanted
-  peer ?= Peer()
+  peer =: Peer()
 
   # reqPath & reqParams should have been implanted as well, reflecting ws request path and query parameters
-  reqPath ?= '/'
-  reqParams ?= ( s= '<session-id>', )
+  reqPath =: '/'
+  reqParams =: ( s= '<session-id>', )
 
   # such a method bound to a WebRepl instance should have been implanted
   method hookToSession( peer_, sessionId_ ) pass
