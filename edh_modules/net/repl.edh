@@ -52,7 +52,7 @@ export class WebRepl {
   method replWith( scopeOrObj, prompt= None ) {
     case scopeOrObj of {
       { scope() = inScope } -> { pass }
-      ;| type(scopeOrObj) is ObjectType -> inScope = scope(ofObj= scopeOrObj)
+      ;| type(scopeOrObj) is "Object" -> inScope = scope(ofObj= scopeOrObj)
       _ -> error( 'Unexpected scope or object: ' ++ desc(scopeOrObj) )
     }
     if this.useSandbox then {
@@ -180,7 +180,7 @@ so the caller can continue.
 
     # show results
     perceive cmdOut = sink { cmdResult } -> {
-      ;| type(cmdResult) is StringType -> peer.postCommand( cmdResult )
+      ;| type(cmdResult) is "String" -> peer.postCommand( cmdResult )
       ;| peer.eol() is false -> {
         peer.postCommand( 'Recovered from error: ' ++ desc( cmdResult ) )
       }

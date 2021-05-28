@@ -22,7 +22,7 @@ export {
    #}
   class Peer {
 
-    eol :: () -> BoolType
+    eol :: () -> Bool
     {##
      # check whether this peer is at end-of-life
      # i.e. the underlying network connection has been disconnected
@@ -52,7 +52,7 @@ export {
      #}
     method stop() pass
 
-    armedChannel :: ( Any ) -> SinkType || nil
+    armedChannel :: ( Any ) -> Sink || nil
     {##
      # obtain the channel sink armed to this peer, by the specified locator
      #
@@ -61,7 +61,7 @@ export {
      #}
     method armedChannel( chLctr ) pass
 
-    armChannel :: ( Any ) -> SinkType || nil
+    armChannel :: ( Any ) -> Sink || nil
     {##
      # arm a new channel with the specified locator
      #
@@ -71,13 +71,13 @@ export {
     method armChannel( chLctr, chSink= sink ) pass
 
 
-    readSource :: () -> StringType
+    readSource :: () -> String
     {##
      # read a subsequent command from the peer site in source form
      #}
     method readSource() pass
 
-    readCommand :: () -> StringType
+    readCommand :: () -> String
     {##
      # read a subsequent command from the peer site in evaluated value form
      #
@@ -86,9 +86,9 @@ export {
      #}
     method readCommand() pass
 
-    p2c :: ( dir!Any, cmd!StringType ) -> nil
-    p2c :: ( dir!Any, cmd!ExprType ) -> nil
-    p2c :: ( dir!Any, cmd!BlobType ) -> nil
+    p2c :: ( dir!Any, cmd!String ) -> nil
+    p2c :: ( dir!Any, cmd!Expr ) -> nil
+    p2c :: ( dir!Any, cmd!Blob ) -> nil
     {##
      # post a command to a channel at peer site
      #
@@ -108,9 +108,9 @@ export {
      #}
     method p2c( dir= None, cmd= None ) pass
 
-    postCommand :: ( dir!Any, cmd!StringType ) -> nil
-    postCommand :: ( dir!Any, cmd!ExprType ) -> nil
-    postCommand :: ( dir!Any, cmd!BlobType ) -> nil
+    postCommand :: ( dir!Any, cmd!String ) -> nil
+    postCommand :: ( dir!Any, cmd!Expr ) -> nil
+    postCommand :: ( dir!Any, cmd!Blob ) -> nil
     {##
      # post a command to a channel at peer site
      #
@@ -142,19 +142,19 @@ export {
 
     method __init__( host as _ = '127.0.0.1', port as _ = 0, ) pass
 
-    host :: () -> host!StringType
+    host :: () -> host!String
     {##
      # obtain the host in string form
      #}
     method host() pass
 
-    port :: () -> port!int!DecimalType
+    port :: () -> port!int!Decimal
     {##
      # obtain the port in integral form
      #}
     method port() pass
 
-    info :: () -> StringType
+    info :: () -> String
     {##
      # obtain the protocol specific descriptive information about this address
      #}
@@ -198,7 +198,7 @@ peer :: Peer
      #}
     method addrs() pass
 
-    eol :: () -> BoolType
+    eol :: () -> Bool
     {##
      # check whether this server is at end-of-life, i.e. stopped
      #
@@ -264,7 +264,7 @@ peer :: Peer
      #}
     method addrs() pass
 
-    eol :: () -> BoolType
+    eol :: () -> Bool
     {##
      # check whether this server is at end-of-life, i.e. stopped
      #
@@ -304,11 +304,11 @@ peer :: Peer
    # Currently supported routing specification format is:
 ```edh
 routes :: example!(
-  (path1!StringType, payload!BlobType, mime!StringType= "application/zip"),
-  (path2!StringType, content!StringType),
+  (path1!String, payload!Blob, mime!String= "application/zip"),
+  (path2!String, content!String),
   *(),
-  (pathN!StringType, content!StringType, mime!StringType= "text/javascript"),
-  mime!StringType= "text/plain",
+  (pathN!String, content!String, mime!String= "text/javascript"),
+  mime!String= "text/plain",
 )
 ```
    #
@@ -335,7 +335,7 @@ routes :: example!(
      #}
     method addrs() pass
 
-    eol :: () -> BoolType
+    eol :: () -> Bool
     {##
      # check whether this server is at end-of-life, i.e. stopped
      #
@@ -401,7 +401,7 @@ peer :: Peer
      #}
     method addrs() pass
 
-    eol :: () -> BoolType
+    eol :: () -> Bool
     {##
      # check whether this client is at end-of-life, i.e. stopped
      #
@@ -472,7 +472,7 @@ sourceAddr :: Addr
      #}
     method addrs() pass
 
-    eol :: () -> BoolType
+    eol :: () -> Bool
     {##
      # check whether this sniffer is at end-of-life, i.e. stopped
      #
@@ -526,8 +526,8 @@ sourceAddr :: Addr
     method addrs() pass
 
 
-    post :: ( cmd!StringType ) -> nil
-    post :: ( cmd!ExprType ) -> nil
+    post :: ( cmd!String ) -> nil
+    post :: ( cmd!Expr ) -> nil
     {##
      # broadcast one or more commands to the network
      #
@@ -542,7 +542,7 @@ sourceAddr :: Addr
     method post( *cmds ) pass
 
 
-    eol :: () -> BoolType
+    eol :: () -> Bool
     {##
      # check whether this sniffer is at end-of-life, i.e. stopped
      #
