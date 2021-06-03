@@ -1,5 +1,7 @@
 module Language.Edh.Net
   ( installNetBatteries,
+    withPeerClass,
+    withAddrClass,
     -- TODO organize and doc the re-exports
     module Language.Edh.Net.MicroProto,
     module Language.Edh.Net.Addr,
@@ -69,3 +71,15 @@ installNetBatteries !world =
     !worldLogger = consoleLogger $ edh'world'console world
     consoleWarn !msg =
       worldLogger 30 (Just "<nedh>") msg
+
+withPeerClass :: (Object -> EdhTx) -> EdhTx
+withPeerClass !act = importEdhModule "net/RT" $ \ !moduRT !ets ->
+  lookupEdhObjAttr moduRT (AttrByName "Peer") >>= \case
+    (_, EdhObject !clsPeer) -> runEdhTx ets $ act clsPeer
+    _ -> error "bug: net/RT provides no Peer class"
+
+withAddrClass :: (Object -> EdhTx) -> EdhTx
+withAddrClass !act = importEdhModule "net/RT" $ \ !moduRT !ets ->
+  lookupEdhObjAttr moduRT (AttrByName "Addr") >>= \case
+    (_, EdhObject !clsAddr) -> runEdhTx ets $ act clsAddr
+    _ -> error "bug: net/RT provides no Addr class"
