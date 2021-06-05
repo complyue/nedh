@@ -100,7 +100,7 @@ export class WebRepl {
     0 -> 'no web REPL session atm - ' ++ this.httpUrlBase
     { scnt } -> {
       scnt ++ ' web REPL session(s) atm:\n' ++
-      join ( sep= '\n',
+      '\n'.join(
         *() =< for ( sid, session ) from this.sessions
         do ' *** ' ++ session.location ++ '\n  *  ' ++ session.url
       )
