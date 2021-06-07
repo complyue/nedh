@@ -216,12 +216,8 @@ createSnifferClass !addrClass !clsOuterScope =
                                 onAddr {addrAddress = fromAddr}
                                 >>= \ !addrObj -> do
                                   -- provide the effectful sourceAddr
-                                  implantEffect
-                                    ( edh'scope'entity $
-                                        contextScope $
-                                          edh'context
-                                            ets
-                                    )
+                                  defineEffect
+                                    ets
                                     (AttrByName "sourceAddr")
                                     (EdhObject addrObj)
                                   -- interpret the payload as command,
