@@ -50,21 +50,18 @@ installNetBatteries !world =
       !advertiserClass <- createAdvertiserClass addrClass moduScope
 
       let !moduArts =
-            [ ("Peer", EdhObject peerClass),
-              ("Addr", EdhObject addrClass),
-              ("Server", EdhObject serverClass),
-              ("Client", EdhObject clientClass),
-              ("WsServer", EdhObject wsServerClass),
-              ("HttpServer", EdhObject httpServerClass),
-              ("Sniffer", EdhObject snifferClass),
-              ("Advertiser", EdhObject advertiserClass)
+            [ (AttrByName "Peer", EdhObject peerClass),
+              (AttrByName "Addr", EdhObject addrClass),
+              (AttrByName "Server", EdhObject serverClass),
+              (AttrByName "Client", EdhObject clientClass),
+              (AttrByName "WsServer", EdhObject wsServerClass),
+              (AttrByName "HttpServer", EdhObject httpServerClass),
+              (AttrByName "Sniffer", EdhObject snifferClass),
+              (AttrByName "Advertiser", EdhObject advertiserClass)
             ]
-      !artsDict <-
-        EdhDict
-          <$> createEdhDict [(EdhString k, v) | (k, v) <- moduArts]
-      flip iopdUpdate (edh'scope'entity moduScope) $
-        [(AttrByName k, v) | (k, v) <- moduArts]
-          ++ [(AttrByName "__exports__", artsDict)]
+      iopdUpdate moduArts $ edh'scope'entity moduScope
+      prepareExpStore ets (edh'scope'this moduScope) $ \ !esExps ->
+        iopdUpdate moduArts esExps
 
       exit
   where
