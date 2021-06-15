@@ -321,8 +321,7 @@ routes :: example!(
     method __init__ (
       resource'modules,
       addr= '127.0.0.1', port= 3780, port'max= None,
-      init= None,
-      routes= (),
+      routes= (), defaultMime= 'text/plain',
     ) pass
 
     addrs :: () -> [ Addr ]

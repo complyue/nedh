@@ -33,17 +33,13 @@ mimeTypes =
   flip Map.union Snap.defaultMimeTypes $
     Map.fromList [(".mjs", "text/javascript")]
 
-parseRoutes :: EdhThreadState -> EdhValue -> (Snap.Snap () -> STM ()) -> STM ()
-parseRoutes !ets !routes !exit = case edhUltimate routes of
-  EdhArgsPack (ArgsPack !args !kwargs) ->
-    mimeArg "text/plain" kwargs $ \defMime ->
-      if null args
-        then exit Snap.pass
-        else foldcontSTM Snap.pass (<|>) (parseRoute defMime <$> args) exit
-  _ -> throwEdh ets UsageError "invalid routes"
+parseRoutes :: EdhThreadState -> [EdhValue] -> Text -> (Snap.Snap () -> STM ()) -> STM ()
+parseRoutes _ets [] _defMime !exit = exit Snap.pass
+parseRoutes !ets !routes !defMime !exit =
+  foldcontSTM Snap.pass (<|>) (parseRoute <$> routes) exit
   where
-    mimeArg :: Text -> KwArgs -> (Text -> STM ()) -> STM ()
-    mimeArg !defMime !kwargs !exit' =
+    mimeArg :: KwArgs -> (Text -> STM ()) -> STM ()
+    mimeArg !kwargs !exit' =
       case odLookup (AttrByName "mime") kwargs of
         Nothing -> exit' defMime
         Just (EdhString !mime) -> exit' mime
@@ -55,9 +51,9 @@ parseRoutes !ets !routes !exit = case edhUltimate routes of
         Snap.setContentLength (fromIntegral $ B.length payload)
           . Snap.setContentType (TE.encodeUtf8 mime)
       Snap.writeBS payload
-    parseRoute :: Text -> EdhValue -> (Snap.Snap () -> STM ()) -> STM ()
-    parseRoute !defMime !route !exit' = case edhUltimate route of
-      EdhArgsPack (ArgsPack !args !kwargs) -> mimeArg defMime kwargs $
+    parseRoute :: EdhValue -> (Snap.Snap () -> STM ()) -> STM ()
+    parseRoute !route !exit' = case edhUltimate route of
+      EdhArgsPack (ArgsPack !args !kwargs) -> mimeArg kwargs $
         \ !mime -> case args of
           [EdhString !path, EdhBlob !payload] ->
             exit' $ inMemRoute path mime payload
@@ -108,14 +104,16 @@ createHttpServerClass !addrClass !clsOuterScope =
       "addr" ?: Text ->
       "port" ?: Int ->
       "port'max" ?: Int ->
-      "routes" ?: EdhValue ->
+      "routes" ?: PositionalArgs ->
+      "defaultMime" ?: Text ->
       EdhObjectAllocator
     serverAllocator
       (mandatoryArg -> !resource'modules)
       (defaultArg "127.0.0.1" -> !ctorAddr)
       (defaultArg 3780 -> !ctorPort)
       (optionalArg -> port'max)
-      (defaultArg (EdhArgsPack (ArgsPack [] odEmpty)) -> !routes)
+      (defaultArg (PositionalArgs []) -> PositionalArgs !routes)
+      (defaultArg "text/plain" -> !defMime)
       !ctorExit
       !etsCtor =
         if edh'in'tx etsCtor
@@ -140,37 +138,38 @@ createHttpServerClass !addrClass !clsOuterScope =
                 "invalid type for modus: "
                   <> edhTypeNameOf resource'modules
         where
-          withModules !modus = parseRoutes etsCtor routes $ \ !custRoutes -> do
-            servAddrs <- newEmptyTMVar
-            servEoL <- newEmptyTMVar
-            let !server =
-                  EdhHttpServer
-                    { edh'http'server'modus = modus,
-                      edh'http'custom'routes = custRoutes,
-                      edh'http'server'addr = ctorAddr,
-                      edh'http'server'port = fromIntegral ctorPort,
-                      edh'http'server'port'max =
-                        fromIntegral $
-                          fromMaybe ctorPort port'max,
-                      edh'http'serving'addrs = servAddrs,
-                      edh'http'server'eol = servEoL
-                    }
-            runEdhTx etsCtor $
-              edhContIO $ do
-                void $
-                  forkFinally
-                    (serverThread server)
-                    ( atomically
-                        . void
-                        . (
-                            -- fill empty addrs if the connection has ever
-                            -- failed
-                            tryPutTMVar servAddrs [] <*
-                          )
-                        -- mark server end-of-life anyway finally
-                        . tryPutTMVar servEoL
-                    )
-                atomically $ ctorExit Nothing $ HostStore (toDyn server)
+          withModules !modus = parseRoutes etsCtor routes defMime $
+            \ !custRoutes -> do
+              servAddrs <- newEmptyTMVar
+              servEoL <- newEmptyTMVar
+              let !server =
+                    EdhHttpServer
+                      { edh'http'server'modus = modus,
+                        edh'http'custom'routes = custRoutes,
+                        edh'http'server'addr = ctorAddr,
+                        edh'http'server'port = fromIntegral ctorPort,
+                        edh'http'server'port'max =
+                          fromIntegral $
+                            fromMaybe ctorPort port'max,
+                        edh'http'serving'addrs = servAddrs,
+                        edh'http'server'eol = servEoL
+                      }
+              runEdhTx etsCtor $
+                edhContIO $ do
+                  void $
+                    forkFinally
+                      (serverThread server)
+                      ( atomically
+                          . void
+                          . (
+                              -- fill empty addrs if the connection has ever
+                              -- failed
+                              tryPutTMVar servAddrs [] <*
+                            )
+                          -- mark server end-of-life anyway finally
+                          . tryPutTMVar servEoL
+                      )
+                  atomically $ ctorExit Nothing $ HostStore (toDyn server)
 
           serverThread :: EdhHttpServer -> IO ()
           serverThread
