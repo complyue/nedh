@@ -12,7 +12,6 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
 import Data.Dynamic
-import qualified Data.HashMap.Strict as Map
 import Data.List
 import Data.Maybe
 import Data.Text (Text)
@@ -29,9 +28,7 @@ import Prelude
 
 -- todo make this tunable
 mimeTypes :: Snap.MimeMap
-mimeTypes =
-  flip Map.union Snap.defaultMimeTypes $
-    Map.fromList [(".mjs", "text/javascript")]
+mimeTypes = Snap.defaultMimeTypes
 
 parseRoutes :: EdhThreadState -> [EdhValue] -> Text -> (Snap.Snap () -> STM ()) -> STM ()
 parseRoutes _ets [] _defMime !exit = exit Snap.pass
