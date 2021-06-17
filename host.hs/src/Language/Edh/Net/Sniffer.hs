@@ -194,7 +194,7 @@ createSnifferClass !addrClass !clsOuterScope =
                         tryReadTMVar snifEoL >>= \case
                           Nothing -> exitEdh ets exit $ EdhBool False
                           Just (Left !e) ->
-                            edh'exception'wrapper world e
+                            edh'exception'wrapper world (Just ets) e
                               >>= \ !exo -> exitEdh ets exit $ EdhObject exo
                           Just (Right ()) -> exitEdh ets exit $ EdhBool True
                       sniffProc :: Scope -> EdhHostProc
@@ -208,6 +208,7 @@ createSnifferClass !addrClass !clsOuterScope =
                             Left (Left !ex) ->
                               edh'exception'wrapper
                                 (edh'prog'world $ edh'thread'prog ets)
+                                (Just ets)
                                 ex
                                 >>= \ !exo -> edhThrow ets $ EdhObject exo
                             Right (!fromAddr, !payload) ->
@@ -317,7 +318,7 @@ createSnifferClass !addrClass !clsOuterScope =
       tryReadTMVar (edh'sniffing'eol sniffer) >>= \case
         Nothing -> exitEdh ets exit $ EdhBool False
         Just (Left !e) ->
-          edh'exception'wrapper world e
+          edh'exception'wrapper world (Just ets) e
             >>= \ !exo -> exitEdh ets exit $ EdhObject exo
         Just (Right ()) -> exitEdh ets exit $ EdhBool True
       where
@@ -327,8 +328,8 @@ createSnifferClass !addrClass !clsOuterScope =
     joinMth !exit !ets = withThisHostObj ets $ \ !sniffer ->
       readTMVar (edh'sniffing'eol sniffer) >>= \case
         Left !e ->
-          edh'exception'wrapper world e >>= \ !exo ->
-            edhThrow ets $ EdhObject exo
+          edh'exception'wrapper world (Just ets) e
+            >>= \ !exo -> edhThrow ets $ EdhObject exo
         Right () -> exitEdh ets exit nil
       where
         world = edh'prog'world $ edh'thread'prog ets

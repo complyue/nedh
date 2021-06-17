@@ -347,7 +347,7 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
       tryReadTMVar (edh'server'eol server) >>= \case
         Nothing -> exitEdh ets exit $ EdhBool False
         Just (Left !e) ->
-          edh'exception'wrapper world e
+          edh'exception'wrapper world (Just ets) e
             >>= \ !exo -> exitEdh ets exit $ EdhObject exo
         Just (Right ()) -> exitEdh ets exit $ EdhBool True
       where
@@ -357,7 +357,7 @@ createServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
     joinProc !exit !ets = withThisHostObj ets $ \ !server ->
       readTMVar (edh'server'eol server) >>= \case
         Left !e ->
-          edh'exception'wrapper world e
+          edh'exception'wrapper world (Just ets) e
             >>= \ !exo -> edhThrow ets $ EdhObject exo
         Right () -> exitEdh ets exit nil
       where

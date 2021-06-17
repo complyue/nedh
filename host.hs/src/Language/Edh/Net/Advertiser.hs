@@ -230,7 +230,7 @@ createAdvertiserClass !addrClass !clsOuterScope =
       tryReadTMVar (edh'advertising'eol advertiser) >>= \case
         Nothing -> exitEdh ets exit $ EdhBool False
         Just (Left !e) ->
-          edh'exception'wrapper world e
+          edh'exception'wrapper world (Just ets) e
             >>= \ !exo -> exitEdh ets exit $ EdhObject exo
         Just (Right ()) -> exitEdh ets exit $ EdhBool True
       where
@@ -240,7 +240,8 @@ createAdvertiserClass !addrClass !clsOuterScope =
     joinMth !exit !ets = withThisHostObj ets $ \ !advertiser ->
       readTMVar (edh'advertising'eol advertiser) >>= \case
         Left !e ->
-          edh'exception'wrapper world e >>= \ !exo -> edhThrow ets $ EdhObject exo
+          edh'exception'wrapper world (Just ets) e
+            >>= \ !exo -> edhThrow ets $ EdhObject exo
         Right () -> exitEdh ets exit nil
       where
         world = edh'prog'world $ edh'thread'prog ets
