@@ -146,8 +146,7 @@ createHttpServerClass !addrClass !clsOuterScope =
                         edh'http'server'addr = ctorAddr,
                         edh'http'server'port = fromIntegral ctorPort,
                         edh'http'server'port'max =
-                          fromIntegral $
-                            fromMaybe ctorPort port'max,
+                          fromIntegral $ fromMaybe ctorPort port'max,
                         edh'http'serving'addrs = servAddrs,
                         edh'http'server'eol = servEoL
                       }
@@ -208,29 +207,22 @@ createHttpServerClass !addrClass !clsOuterScope =
                                 )
                                   ++
                               )
-                    staticRoutes = serveStaticArtifacts mimeTypes wd resModus
-                    frontRoute =
+                    staticRoutes = do
                       Snap.getSafePath >>= \case
-                        "" -> do
+                        "" -> Snap.modifyRequest $ \r ->
+                          r {Snap.rqPathInfo = "front.html"}
+                        path | "/" `isSuffixOf` path ->
                           Snap.modifyRequest $ \r ->
                             r
-                              { Snap.rqPathInfo = "front.html"
+                              { Snap.rqPathInfo =
+                                  C.pack $ path <> "front.html"
                               }
-                          staticRoutes
-                        path ->
-                          if "/" `isSuffixOf` path
-                            then do
-                              Snap.modifyRequest $ \r ->
-                                r
-                                  { Snap.rqPathInfo =
-                                      C.pack $ path <> "front.html"
-                                  }
-                              staticRoutes
-                            else staticRoutes
+                        _ -> pure ()
+                      serveStaticArtifacts mimeTypes wd resModus
                     tryServ !cfg !port =
                       Snap.simpleHttpServe
                         (Snap.setPort (fromIntegral port) cfg)
-                        (custRoutes <|> frontRoute <|> staticRoutes)
+                        (custRoutes <|> staticRoutes)
                         `catch` \(e :: SomeException) ->
                           if port < portMax
                             then tryServ cfg (port + 1)
