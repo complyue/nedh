@@ -8,11 +8,14 @@ import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Control.Monad.Reader
+import Control.Monad.Trans.Control
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
 import Data.Dynamic
+import Data.Functor
 import Data.List
+import Data.Map.Strict as Map
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -47,7 +50,7 @@ parseRoutes !ets (Just (Dict _ !dsRoutes)) !defMime !exit =
            in edhValueStr ets mimeVal $ \ !mime ->
                 go ((TE.encodeUtf8 r, inMemRes payload mime) : rts) rest
         !handlerProc ->
-          go ((TE.encodeUtf8 r, edhHttpHandler handlerProc) : rts) rest
+          go ((TE.encodeUtf8 r, edhHandleHttp world handlerProc) : rts) rest
       _ -> edhValueDesc ets rv $ \ !badDesc ->
         throwEdh ets UsageError $ "bad snap route: " <> badDesc
 
@@ -59,16 +62,53 @@ parseRoutes !ets (Just (Dict _ !dsRoutes)) !defMime !exit =
       Snap.writeBS payload
 
     world = edh'prog'world $ edh'thread'prog ets
-    edhHttpHandler :: EdhValue -> Snap.Snap ()
-    edhHttpHandler !handlerProc =
-      liftIO
-        ( runEdhProgram' world $
-            edhMakeCall handlerProc (ArgsPack [] odEmpty) haltEdhProgram
-        )
-        >>= \case
-          EdhCaseOther -> Snap.pass
-          EdhFallthrough -> Snap.pass
-          _ -> return ()
+
+edhHandleHttp :: EdhWorld -> EdhValue -> Snap.Snap ()
+edhHandleHttp world !handlerProc = do
+  !req <- Snap.getRequest
+  let runEdhHandler runInBase = runEdhProgram' world $
+        pushEdhStack $ \ !etsHttpEffs -> do
+          let effsScope = contextScope $ edh'context etsHttpEffs
+          !writeBS <- mkHostProc effsScope EdhMethod "writeBS" $
+            wrapHostProc $ \ !payload !exit !ets ->
+              runEdhTx ets $
+                edhContIO $ do
+                  void $ runInBase $ Snap.writeBS payload
+                  atomically $ exitEdh ets exit nil
+          prepareEffStore etsHttpEffs (edh'scope'entity effsScope)
+            >>= iopdUpdate
+              [ ( AttrByName "rqPathInfo",
+                  EdhString $ TE.decodeUtf8 $ Snap.rqPathInfo req
+                ),
+                ( AttrByName "rqContextPath",
+                  EdhString $ TE.decodeUtf8 $ Snap.rqContextPath req
+                ),
+                ( AttrByName "rqParams",
+                  EdhArgsPack $ wrapParams (Snap.rqParams req)
+                ),
+                -- TODO more Snap API as effects
+                (AttrByName "writeBS", writeBS)
+              ]
+          runEdhTx etsHttpEffs $
+            pushEdhStack $
+              edhMakeCall handlerProc (ArgsPack [] odEmpty) haltEdhProgram
+  liftBaseWith runEdhHandler >>= \case
+    EdhCaseOther -> Snap.pass
+    EdhFallthrough -> Snap.pass
+    _ -> return ()
+  where
+    wrapParams :: Snap.Params -> ArgsPack
+    wrapParams params =
+      ArgsPack [] $
+        odFromList
+          [ (AttrByName $ TE.decodeUtf8 k, decodeVs vs)
+            | (k, vs) <- Map.toList params
+          ]
+    decodeVs :: [ByteString] -> EdhValue
+    decodeVs [] = edhNone
+    decodeVs [v] = EdhString $ TE.decodeUtf8 v
+    decodeVs vs =
+      EdhArgsPack $ flip ArgsPack odEmpty $ vs <&> EdhString . TE.decodeUtf8
 
 data EdhHttpServer = EdhHttpServer
   { -- the import spec of the modules to provide static resources
