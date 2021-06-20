@@ -26,10 +26,10 @@ export class WebRepl {
       # multiple modules providing static web resources, can stack up
       ( 'net/web/repl', 'net/web', 'web', ),
       this.addr, this.port, this.port'max, # network address to listen
-      routes= ( # routes by URI
+      routes= { # routes by URI
         # tell web browser our port of WebSocket at uri `/:`
-        ( ":", '' ++ wsAddr.port(), mime= 'text/plain', ),
-      ),
+        ":": (blob$str$ wsAddr.port(), mime= 'text/plain', ),
+      },
     )
     case this.http.addrs() of {
       { httpAddr :> _extraHttpAddrs } -> { pass }

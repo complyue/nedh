@@ -30,37 +30,45 @@ import Prelude
 mimeTypes :: Snap.MimeMap
 mimeTypes = Snap.defaultMimeTypes
 
-parseRoutes :: EdhThreadState -> [EdhValue] -> Text -> (Snap.Snap () -> STM ()) -> STM ()
-parseRoutes _ets [] _defMime !exit = exit Snap.pass
-parseRoutes !ets !routes !defMime !exit =
-  foldcontSTM Snap.pass (<|>) (parseRoute <$> routes) exit
+parseRoutes ::
+  EdhThreadState -> Maybe Dict -> Text -> (Snap.Snap () -> STM ()) -> STM ()
+parseRoutes _ets Nothing _defMime !exit = exit Snap.pass
+parseRoutes !ets (Just (Dict _ !dsRoutes)) !defMime !exit =
+  iopdToList dsRoutes >>= go []
   where
-    mimeArg :: KwArgs -> (Text -> STM ()) -> STM ()
-    mimeArg !kwargs !exit' =
-      case odLookup (AttrByName "mime") kwargs of
-        Nothing -> exit' defMime
-        Just (EdhString !mime) -> exit' mime
-        Just !badMime ->
-          throwEdh ets UsageError $ "invalid mime: " <> T.pack (show badMime)
-    inMemRoute :: Text -> Text -> ByteString -> Snap.Snap ()
-    inMemRoute !path !mime !payload = Snap.path (TE.encodeUtf8 path) $ do
+    go !rts [] = exit $ Snap.route $ reverse rts
+    go !rts ((rv, av) : rest) = case edhUltimate rv of
+      EdhString !r -> case edhUltimate av of
+        EdhBlob !payload ->
+          go ((TE.encodeUtf8 r, inMemRes payload defMime) : rts) rest
+        EdhArgsPack (ArgsPack [EdhBlob !payload] !kwargs) ->
+          let mimeVal =
+                odLookupDefault (EdhString defMime) (AttrByName "mime") kwargs
+           in edhValueStr ets mimeVal $ \ !mime ->
+                go ((TE.encodeUtf8 r, inMemRes payload mime) : rts) rest
+        !handlerProc ->
+          go ((TE.encodeUtf8 r, edhHttpHandler handlerProc) : rts) rest
+      _ -> edhValueDesc ets rv $ \ !badDesc ->
+        throwEdh ets UsageError $ "bad snap route: " <> badDesc
+
+    inMemRes :: ByteString -> Text -> Snap.Snap ()
+    inMemRes !payload !mime = do
       Snap.modifyResponse $
         Snap.setContentLength (fromIntegral $ B.length payload)
           . Snap.setContentType (TE.encodeUtf8 mime)
       Snap.writeBS payload
-    parseRoute :: EdhValue -> (Snap.Snap () -> STM ()) -> STM ()
-    parseRoute !route !exit' = case edhUltimate route of
-      EdhArgsPack (ArgsPack !args !kwargs) -> mimeArg kwargs $
-        \ !mime -> case args of
-          [EdhString !path, EdhBlob !payload] ->
-            exit' $ inMemRoute path mime payload
-          [EdhString !path, EdhString !content] ->
-            exit' $ inMemRoute path mime (TE.encodeUtf8 content)
-          badRoute ->
-            throwEdh ets UsageError $
-              "invalid route: " <> T.pack (show badRoute)
-      badRoute ->
-        throwEdh ets UsageError $ "invalid route: " <> T.pack (show badRoute)
+
+    world = edh'prog'world $ edh'thread'prog ets
+    edhHttpHandler :: EdhValue -> Snap.Snap ()
+    edhHttpHandler !handlerProc =
+      liftIO
+        ( runEdhProgram' world $
+            edhMakeCall handlerProc (ArgsPack [] odEmpty) haltEdhProgram
+        )
+        >>= \case
+          EdhCaseOther -> Snap.pass
+          EdhFallthrough -> Snap.pass
+          _ -> return ()
 
 data EdhHttpServer = EdhHttpServer
   { -- the import spec of the modules to provide static resources
@@ -101,7 +109,7 @@ createHttpServerClass !addrClass !clsOuterScope =
       "addr" ?: Text ->
       "port" ?: Int ->
       "port'max" ?: Int ->
-      "routes" ?: PositionalArgs ->
+      "routes" ?: Dict ->
       "defaultMime" ?: Text ->
       EdhObjectAllocator
     serverAllocator
@@ -109,7 +117,7 @@ createHttpServerClass !addrClass !clsOuterScope =
       (defaultArg "127.0.0.1" -> !ctorAddr)
       (defaultArg 3780 -> !ctorPort)
       (optionalArg -> port'max)
-      (defaultArg (PositionalArgs []) -> PositionalArgs !routes)
+      (optionalArg -> !maybeRoutes)
       (defaultArg "text/plain" -> !defMime)
       !ctorExit
       !etsCtor =
@@ -135,7 +143,7 @@ createHttpServerClass !addrClass !clsOuterScope =
                 "invalid type for modus: "
                   <> edhTypeNameOf resource'modules
         where
-          withModules !modus = parseRoutes etsCtor routes defMime $
+          withModules !modus = parseRoutes etsCtor maybeRoutes defMime $
             \ !custRoutes -> do
               servAddrs <- newEmptyTMVar
               servEoL <- newEmptyTMVar
