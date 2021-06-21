@@ -7,10 +7,10 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
-import Control.Monad.Reader
-import Control.Monad.Trans.Control
+import Control.Monad.IO.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import Data.ByteString.Builder (Builder, byteString)
 import qualified Data.ByteString.Char8 as C
 import Data.Dynamic
 import Data.Functor
@@ -27,6 +27,8 @@ import qualified Snap.Http.Server as Snap
 import qualified Snap.Util.FileServe as Snap
 import qualified System.Directory as D
 import System.FilePath
+import System.IO.Streams (OutputStream)
+import qualified System.IO.Streams as Streams
 import Prelude
 
 -- todo make this tunable
@@ -50,7 +52,11 @@ parseRoutes !ets (Just (Dict _ !dsRoutes)) !defMime !exit =
            in edhValueStr ets mimeVal $ \ !mime ->
                 go ((TE.encodeUtf8 r, inMemRes payload mime) : rts) rest
         !handlerProc ->
-          go ((TE.encodeUtf8 r, edhHandleHttp world handlerProc) : rts) rest
+          go
+            ( (TE.encodeUtf8 r, edhHandleHttp defMime world handlerProc) :
+              rts
+            )
+            rest
       _ -> edhValueDesc ets rv $ \ !badDesc ->
         throwEdh ets UsageError $ "bad snap route: " <> badDesc
 
@@ -63,18 +69,37 @@ parseRoutes !ets (Just (Dict _ !dsRoutes)) !defMime !exit =
 
     world = edh'prog'world $ edh'thread'prog ets
 
-edhHandleHttp :: EdhWorld -> EdhValue -> Snap.Snap ()
-edhHandleHttp world !handlerProc = do
+edhHandleHttp :: Text -> EdhWorld -> EdhValue -> Snap.Snap ()
+edhHandleHttp !defMime world !handlerProc = do
   !req <- Snap.getRequest
-  let runEdhHandler runInBase = runEdhProgram' world $
+  !rsp <-
+    liftIO $
+      newTVarIO $
+        Snap.setContentType (TE.encodeUtf8 defMime) Snap.emptyResponse
+  let rspAddToOutput ::
+        (OutputStream Builder -> IO (OutputStream Builder)) -> STM ()
+      rspAddToOutput enum = modifyTVar rsp $
+        Snap.modifyResponseBody $ \b out -> b out >>= enum
+      rspWriteBuilder b =
+        rspAddToOutput $ \str -> Streams.write (Just b) str >> return str
+      rspWriteBS = rspWriteBuilder . byteString
+      rspWriteText = rspWriteBS . TE.encodeUtf8
+
+      runEdhHandler = runEdhProgram' world $
         pushEdhStack $ \ !etsHttpEffs -> do
           let effsScope = contextScope $ edh'context etsHttpEffs
+          !setContentType <- mkHostProc effsScope EdhMethod "setContentType" $
+            wrapHostProc $ \ !mimeType !exit !ets -> do
+              modifyTVar' rsp $ Snap.setContentType $ TE.encodeUtf8 mimeType
+              exitEdh ets exit nil
+          !writeText <- mkHostProc effsScope EdhMethod "writeText" $
+            wrapHostProc $ \ !payload !exit !ets -> do
+              rspWriteText payload
+              exitEdh ets exit nil
           !writeBS <- mkHostProc effsScope EdhMethod "writeBS" $
-            wrapHostProc $ \ !payload !exit !ets ->
-              runEdhTx ets $
-                edhContIO $ do
-                  void $ runInBase $ Snap.writeBS payload
-                  atomically $ exitEdh ets exit nil
+            wrapHostProc $ \ !payload !exit !ets -> do
+              rspWriteBS payload
+              exitEdh ets exit nil
           prepareEffStore etsHttpEffs (edh'scope'entity effsScope)
             >>= iopdUpdate
               [ ( AttrByName "rqPathInfo",
@@ -86,16 +111,16 @@ edhHandleHttp world !handlerProc = do
                 ( AttrByName "rqParams",
                   EdhArgsPack $ wrapParams (Snap.rqParams req)
                 ),
+                (AttrByName "setContentType", setContentType),
+                (AttrByName "writeText", writeText),
                 -- TODO more Snap API as effects
                 (AttrByName "writeBS", writeBS)
               ]
-          runEdhTx etsHttpEffs $
-            pushEdhStack $
-              edhMakeCall handlerProc (ArgsPack [] odEmpty) haltEdhProgram
-  liftBaseWith runEdhHandler >>= \case
+          runEdhTx etsHttpEffs $ edhMakeCall handlerProc [] haltEdhProgram
+  liftIO runEdhHandler >>= \case
     EdhCaseOther -> Snap.pass
     EdhFallthrough -> Snap.pass
-    _ -> return ()
+    _ -> Snap.finishWith =<< liftIO (readTVarIO rsp)
   where
     wrapParams :: Snap.Params -> ArgsPack
     wrapParams params =

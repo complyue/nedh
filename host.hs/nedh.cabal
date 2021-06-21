@@ -63,6 +63,7 @@ library
     , edh
     , filepath
     , hashable
+    , io-streams
     , lossless-decimal
     , monad-control
     , mtl
