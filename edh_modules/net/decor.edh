@@ -1,0 +1,10 @@
+
+import * 'net/RT'
+
+export {
+
+  {## Decorate a service procedure for WebSocket serving #}
+  method wsServe(***apk) method withServiceProc(service)
+  return WsServer(service, ***apk)
+
+}

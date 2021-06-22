@@ -231,25 +231,13 @@ peer :: Peer
   {##
    # A network server listens and will serve incoming connections from clients
    #
-   # One instance of the specified service module is instantiated per client
-   # connection, the per-connection peer module initialization method if
-   # specified, will run in each such instance's scope before the module source
-   # get evaluated
-   #
-   # The following artifact(s) will be implanted into the module instance even
-   # before calling the module initialization method:
-```edh
-peer :: Peer
-```
-   #
    # The `WsServer` class specializes on WebSocket connections
    #}
   class WsServer {
 
     method __init__ (
-      service'module'name,
+      service,
       addr= '127.0.0.1', port= 3721, port'max= None,
-      init= None,
       clients= sink,
       useSandbox= true,
     ) pass

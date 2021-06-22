@@ -8,13 +8,11 @@ export class WebRepl {
     ws'port as this.ws'port = 2721, port'max as this.port'max = 2728,
     useSandbox as this.useSandbox = null( debug ),
   ) {
-    this.ws = WsServer(
-      'net/web/repl/ws', # facade module
+    let ws = wsServer(
       this.addr, this.ws'port, this.port'max, # network address to listen
       useSandbox= this.useSandbox,
-      init= ( modu ) => from this import * into modu,
-    )
-    case this.ws.addrs() of {
+    ) $ this.service
+    case ws.addrs() of {
       { wsAddr :> _extraWsAddrs } -> {
         console.info<| 'Đ (Edh) web REPL listening: ws://'
         ++ wsAddr.host() ++ ':' ++ wsAddr.port()
@@ -82,20 +80,6 @@ export class WebRepl {
   }
 
 
-  {##
-   # should be exposed to the ws service module, and meant to be called from
-   # there.
-   #
-   # note once this procedure returns, the ws connection is disconnected.
-   #}
-  export method hookToSession( peer, sessionId )
-  case this.sessions[ sessionId ] of {
-    { ReplSession() = session } -> {
-      session.runREPL( peer )
-    }
-    _ -> peer.postCommand( `No such session - ` ++ sessionId )
-  }
-
   method sprintSessions() case len( this.sessions ) of {
     0 -> 'no web REPL session atm - ' ++ this.httpUrlBase
     { scnt } -> {
@@ -109,6 +93,48 @@ export class WebRepl {
 
   method logSessions( logLevel= console.info ) {
     logLevel<| this.sprintSessions()
+  }
+
+
+  {##
+   # per-client service method to run as a dedicated Edh program
+   #
+   # note once this procedure returns, the ws connection is disconnected, all forkee threads spawn from this thread, together with this thread, will be terminated as well.
+   #}
+  method service() {
+
+    peer = perform @netPeer
+
+    console.debug<| 'REPL web client connected - ' ++ peer
+    defer {
+      console.debug<| 'REPL web client disconnecting ' ++ peer
+    }
+
+    case perform rqParams.s of {
+      { sessionId } -> { pass }
+      # return from the module procedure will disconnect the ws connection
+      # a string posted back will be shown directly on the web repl page
+      return void peer.postCommand(
+        'You need to include the session id in the url.'
+      )
+    }
+
+    {
+      case this.sessions[ sessionId ] of {
+        { ReplSession() = session } -> {
+          session.runREPL( peer )
+        }
+        _ -> peer.postCommand( `No such session - ` ++ sessionId )
+      }
+    } $=> { # Note that a former handler in a chain of multiple ($=>) handlers, still can't prevent `ThreadTerminate` from escalating to later handlers, as it's not catchable. So a handler block is used here to filter out `ThreadTerminate` from logging.
+      { ThreadTerminate() } -> { pass } # usually network reset. Though `ThreadTerminate` is not catchable, we branch out to avoid logging for it here.
+
+      { exc } -> {
+        console.error<| 'Exception by REPL web client ' ++ peer ++ ' error: '
+        ++ desc( exc )
+      }
+    }
+
   }
 
 }

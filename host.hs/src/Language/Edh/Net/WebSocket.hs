@@ -29,8 +29,10 @@ import qualified Snap.Core as Snap
 import Prelude
 
 data EdhWsServer = EdhWsServer
-  { -- the import spec of the module to run as the server
-    edh'ws'server'modu :: !Text,
+  { -- Edh procedure to run for the service
+    edh'ws'service'proc :: !EdhValue,
+    -- the world in which the service will run
+    edh'ws'service'world :: !EdhWorld,
     -- local network interface to bind
     edh'ws'server'addr :: !Text,
     -- local network port to bind
@@ -41,8 +43,6 @@ data EdhWsServer = EdhWsServer
     edh'ws'serving'addrs :: !(TMVar [AddrInfo]),
     -- end-of-life status
     edh'ws'server'eol :: !(TMVar (Either SomeException ())),
-    -- server module initializer, must callable if not nil
-    edh'ws'server'init :: !EdhValue,
     -- each connected peer is sunk into this
     edh'ws'serving'clients :: !EdhSink
   }
@@ -69,11 +69,10 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
       iopdUpdate mths $ edh'scope'entity clsScope
   where
     serverAllocator ::
-      "service" !: Text ->
+      "service" !: EdhValue ->
       "addr" ?: Text ->
       "port" ?: Int ->
       "port'max" ?: Int ->
-      "init" ?: EdhValue ->
       "clients" ?: EdhSink ->
       "useSandbox" ?: Bool ->
       EdhObjectAllocator
@@ -82,7 +81,6 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
       (defaultArg "127.0.0.1" -> !ctorAddr)
       (defaultArg 3721 -> !ctorPort)
       (optionalArg -> port'max)
-      (defaultArg nil -> !init_)
       (optionalArg -> maybeClients)
       (defaultArg True -> !useSandbox)
       !ctorExit
@@ -93,28 +91,21 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
               etsCtor
               UsageError
               "you don't create network objects within a transaction"
-          else case edhUltimate init_ of
-            EdhNil -> withInit nil
-            mth@(EdhProcedure EdhMethod {} _) -> withInit mth
-            mth@(EdhBoundProc EdhMethod {} _ _ _) -> withInit mth
-            !badInit -> edhValueDesc etsCtor badInit $ \ !badDesc ->
-              throwEdh etsCtor UsageError $ "invalid init: " <> badDesc
-        where
-          withInit !__modu_init__ = do
+          else do
             !servAddrs <- newEmptyTMVar
             !servEoL <- newEmptyTMVar
             !clients <- maybe newEdhSink return maybeClients
             let !server =
                   EdhWsServer
-                    { edh'ws'server'modu = service,
+                    { edh'ws'service'proc = service,
+                      edh'ws'service'world =
+                        edh'prog'world $ edh'thread'prog etsCtor,
                       edh'ws'server'addr = ctorAddr,
                       edh'ws'server'port = fromIntegral ctorPort,
                       edh'ws'server'port'max =
-                        fromIntegral $
-                          fromMaybe ctorPort port'max,
+                        fromIntegral $ fromMaybe ctorPort port'max,
                       edh'ws'serving'addrs = servAddrs,
                       edh'ws'server'eol = servEoL,
-                      edh'ws'server'init = __modu_init__,
                       edh'ws'serving'clients = clients
                     }
                 finalCleanup !result = atomically $ do
@@ -128,17 +119,17 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
               edhContIO $ do
                 void $ forkFinally (serverThread server) finalCleanup
                 atomically $ ctorExit Nothing $ HostStore (toDyn server)
-
+        where
           serverThread :: EdhWsServer -> IO ()
           serverThread
             ( EdhWsServer
-                !servModu
+                !servProc
+                !servWorld
                 !servAddr
                 !servPort
                 !portMax
                 !servAddrs
                 !servEoL
-                !__modu_init__
                 !clients
               ) =
               do
@@ -205,9 +196,7 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
                                   Right {} -> pure ()
                                   Left !err ->
                                     consoleWarn $
-                                      "Service module ["
-                                        <> servModu
-                                        <> "] incurred error:\n"
+                                      "WsServer incurred error:\n"
                                         <> T.pack (show err)
                       void $
                         forkFinally
@@ -444,19 +433,16 @@ createWsServerClass !consoleWarn !addrClass !peerClass !clsOuterScope =
     reprProc :: EdhHostProc
     reprProc !exit !ets =
       withThisHostObj ets $
-        \(EdhWsServer !modu !addr !port !port'max _ _ _ _) ->
+        \(EdhWsServer _proc _world !addr !port !port'max _ _ _) ->
           exitEdh ets exit $
             EdhString $
-              "WsServer("
-                <> T.pack (show modu)
-                <> ", "
+              "WsServer<"
                 <> T.pack (show addr)
                 <> ", "
                 <> T.pack (show port)
-                <> T.pack (show port)
                 <> ", port'max="
                 <> T.pack (show port'max)
-                <> ")"
+                <> ">"
 
     addrsProc :: EdhHostProc
     addrsProc !exit !ets = withThisHostObj ets $
