@@ -1,0 +1,102 @@
+
+import * './symbols'
+
+
+export {
+
+  # the top level tag script runner
+  interpreter runTag( callerScope, tagScript ) {
+
+    # output it on-the-fly at top level
+    effect method @tag'inner'frag(innerFrag) innerFrag()
+
+    # use void to shield against special (esp. flow ctrl) values from the script
+    void callerScope.eval$ tagScript
+
+  }
+
+
+  # %%
+
+  namespace html () {
+
+    # the generic tag templating procedure, usually "partially applied" with tag name and default stuff, and named after the actual tag name, as separate procedures
+    method tag(
+      @tag'name, @tag'prelude= None, @tag'no'content= false,
+      ** @tag'attrs,
+    ) {
+
+      let
+      , tagAttrs = scope$ namespace @tag'attrs (** @tag'attrs) pass
+      , fragments = []
+
+      return interpreter @( @tag'name ++ "'tag" ) (callerScope, tagBlockExpr) {
+
+        effect {
+
+          method @tag'attrs(tagAttrManiExpr) {
+            void tagAttrs.eval$ tagAttrManiExpr
+          }
+
+          method @tag'inner'frag(innerFrag) innerFrag :> fragments
+
+          method @tag'inner'text(text'frag) (
+            () => perform @ht'write'payload(text'frag)
+          ) :> fragments
+
+        }
+
+        # a block decorator shoud honor special flow control values as the result of the evaluation, and cooperate accordingly, like this:
+        case callerScope.eval$ tagBlockExpr of {
+          { continue } -> { return { continue } } # decorated body issued { continue }
+          { break } -> { return { break } } # decorated body issued { break }
+          { return nil } -> { return { return nil } } # decorated body issued { return nil }
+          { return rtn } -> { return { return rtn } } # decorated body issued { return xxx }
+        } @=> { # "finally" i.e. anyway, do these, even early returning
+          perform @tag'inner'frag$ () => {
+
+            do perform @ht'write'payload$ @tag'prelude
+            if @tag'prelude is not None
+
+            open = '<' ++ @tag'name ++ ' ' ++ ' '.join(
+              *()=<
+              do if avalue
+              then aname ++ '=' ++ (json$str$ avalue) # TODO proper html escape
+              else aname
+              for (aname, avalue) from tagAttrs.attrs()
+            )
+
+            ;| @tag'no'content -> {
+              assert$ null$ fragments # TODO proper err reporting
+              perform @ht'write'payload$ open ++ ' />'
+            }
+
+            perform @ht'write'payload$ open ++ '>'
+
+            for frag from fragments.reverse do frag()
+
+            perform @ht'write'payload$ '</' ++ @tag'name ++ '>'
+
+          }
+        }
+      }
+
+    }
+
+
+    # manually "currify" `tag()` to obtain lib methods named after actual tag name, and with meaningful defaults
+    # todo schematic validations, or even reform into structural APIs
+
+    method html (**attrs) tag('html', '<!DOCTYPE html>', **attrs)
+    method head (**attrs) tag('head', **attrs)
+    method title (**attrs) tag('title', **attrs)
+    method style (**attrs) tag('style', type= 'text/css', **attrs)
+    method body (**attrs) tag('body', **attrs)
+    method form (**attrs) tag('form', method= 'post', **attrs)
+    method input (**attrs) tag('input', @tag'no'content= true, **attrs)
+    method textarea (**attrs) tag('textarea', **attrs)
+    method p (**attrs) tag('p', **attrs)
+
+  }
+
+}

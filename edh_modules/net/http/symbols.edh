@@ -1,0 +1,33 @@
+
+export {
+
+  {## API Method Identifiers   #} {;
+
+    # API method to spit out payload at hyper-text transport layer
+    symbol @ht'write'payload
+
+    # API method to register inner tag output to the direct outer tag in effect
+    symbol @tag'inner'frag
+
+    # API method to register inner text output to the direct outer tag in effect
+    symbol @tag'inner'text
+
+    # API method to manipulate attributes of the direct outer tag in effect, with arbitrary expression
+    symbol @tag'attrs
+
+  }
+
+
+  {## Symbolic Attribute Names
+
+Used for lib procedure arguments, to avoid possible name clashes, including esp. those alphanumeric argument names for html attributes passed along
+
+   #} {;
+
+    symbol @tag'name
+    symbol @tag'prelude
+    symbol @tag'no'content
+
+  }
+
+}
