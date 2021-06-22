@@ -142,7 +142,10 @@ createPeerClass !clsOuterScope =
               ]
         ]
           ++ [ (AttrByName nm,) <$> mkHostProperty clsScope nm getter setter
-               | (nm, getter, setter) <- [("ident", identProc, Nothing)]
+               | (nm, getter, setter) <-
+                   [ ("ident", identProc, Nothing),
+                     ("sandbox", sandboxProc, Nothing)
+                   ]
              ]
     iopdUpdate mths $ edh'scope'entity clsScope
   where
@@ -256,6 +259,15 @@ createPeerClass !clsOuterScope =
     identProc !exit !ets =
       withThisHostObj' ets (exitEdh ets exit $ EdhString "<bogus-peer>") $
         \ !peer -> exitEdh ets exit $ EdhString $ edh'peer'ident peer
+
+    sandboxProc :: EdhHostProc
+    sandboxProc !exit !ets = withThisHostObj ets $
+      \ !peer -> case edh'peer'sandbox peer of
+        Nothing -> exitEdh ets exit nil
+        Just !sbScope ->
+          edh'scope'wrapper world sbScope >>= exitEdh ets exit . EdhObject
+      where
+        world = edh'prog'world $ edh'thread'prog ets
 
     reprProc :: EdhHostProc
     reprProc !exit !ets =

@@ -22,6 +22,12 @@ export {
    #}
   class Peer {
 
+    property$
+    method ident() '<identity>'
+
+    property$
+    method sandbox() nil or scope()
+
     eol :: () -> Bool
     {##
      # check whether this peer is at end-of-life

@@ -1,10 +1,9 @@
-
-{#
- # conventional effects implemented on top of the basic effectful resource
- # `@netPeer`
+{##
+ # conventional effects implemented on top of the basic effectful resource `@netPeer`
  #}
 
 import * './symbols'
+
 
 export method @sendConOut( d, *ds ) {
   peer = behave @netPeer
