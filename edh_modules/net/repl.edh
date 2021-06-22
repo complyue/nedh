@@ -8,7 +8,7 @@ export class WebRepl {
     ws'port as this.ws'port = 2721, port'max as this.port'max = 2728,
     useSandbox as this.useSandbox = null( debug ),
   ) {
-    let ws = wsServer(
+    let ws = wsServe(
       this.addr, this.ws'port, this.port'max, # network address to listen
       useSandbox= this.useSandbox,
     ) $ this.service

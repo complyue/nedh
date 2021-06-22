@@ -86,8 +86,8 @@ edhHandleHttp !defMime world !handlerProc = do
       rspWriteText = rspWriteBS . TE.encodeUtf8
 
       runEdhHandler = runEdhProgram' world $
-        pushEdhStack $ \ !etsHttpEffs -> do
-          let effsScope = contextScope $ edh'context etsHttpEffs
+        pushEdhStack $ \ !etsEffs -> do
+          let effsScope = contextScope $ edh'context etsEffs
           !setContentType <- mkHostProc effsScope EdhMethod "setContentType" $
             wrapHostProc $ \ !mimeType !exit !ets -> do
               modifyTVar' rsp $ Snap.setContentType $ TE.encodeUtf8 mimeType
@@ -100,7 +100,7 @@ edhHandleHttp !defMime world !handlerProc = do
             wrapHostProc $ \ !payload !exit !ets -> do
               rspWriteBS payload
               exitEdh ets exit nil
-          prepareEffStore etsHttpEffs (edh'scope'entity effsScope)
+          prepareEffStore etsEffs (edh'scope'entity effsScope)
             >>= iopdUpdate
               [ ( AttrByName "rqPathInfo",
                   EdhString $ TE.decodeUtf8 $ Snap.rqPathInfo req
@@ -116,7 +116,7 @@ edhHandleHttp !defMime world !handlerProc = do
                 -- TODO more Snap API as effects
                 (AttrByName "writeBS", writeBS)
               ]
-          runEdhTx etsHttpEffs $ edhMakeCall handlerProc [] haltEdhProgram
+          runEdhTx etsEffs $ edhMakeCall handlerProc [] haltEdhProgram
   liftIO runEdhHandler >>= \case
     EdhCaseOther -> Snap.pass
     EdhFallthrough -> Snap.pass
