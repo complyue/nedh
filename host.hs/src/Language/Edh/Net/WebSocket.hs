@@ -277,7 +277,7 @@ createWsServerClass
                         -- thrown, the cleanup action is usually in a finally block in this way
                         void $
                           forkFinally (runEdhProgram' servWorld edhHandler)
-                          -- anyway after the module code done:
+                          -- anyway after the service procedure done:
                           --   dispose of all dependent (channel or not) sinks
                           --   try mark client end-of-life with the result
                           $
