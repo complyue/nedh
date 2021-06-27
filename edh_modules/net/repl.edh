@@ -8,11 +8,12 @@ export class WebRepl {
     ws'port as this.ws'port = 2721, port'max as this.port'max = 2728,
     useSandbox as this.useSandbox = null( debug ),
   ) {
-    let ws = wsServe(
-      this.addr, this.ws'port, this.port'max, # network address to listen
+    this.ws = WsServer(
+      this.service,
+      addr= this.addr, port= this.ws'port, port'max= this.port'max,
       useSandbox= this.useSandbox,
-    ) $ this.service
-    case ws.addrs() of {
+    )
+    case this.ws.addrs() of {
       { wsAddr :> _extraWsAddrs } -> {
         console.info<| 'Đ (Edh) web REPL listening: ws://'
         ++ wsAddr.host() ++ ':' ++ wsAddr.port()
