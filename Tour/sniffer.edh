@@ -1,28 +1,27 @@
 
 import * 'net'
 
-# %%
-sniffer = Sniffer(
-
-  # sniffer module
-  'net/demo/sniffer',
-
-  # addr/port to sniff on
-  '0.0.0.0', 3721,
-
-  # sniffer module initializer
-  init= modu => {
-    modu.purpose = 'demo'
-  },
-
-)
-
-console.info<| 'Sniffing ...'
 
 # %%
+let sniffer = Sniffer( addr= '0.0.0.0', port= 3721,) $@ () => {
+  console.info<| 'Sniffing ...'
 
-# following line keeps the sniffer running when this file
-# is redirected as stdin to Nedh interpreter, if running
-# interactively, you'd better not paste following content
-# to the repl, or you can only Ctrl^C to kill the repl
+  # TODO define artifacts in hosting the execution of incoming
+  #      commands
+
+  # loop forever until eol on error, or stopped elsewhere
+  while perform eol() is false {
+
+    # note nil result from `sniff()` is silently ignored
+    case perform sniff() of { cmdVal } -> {
+      console.info<| 'Sniffed cmd:\n  ' ++ cmdVal
+    }
+
+  } $=> { exc } -> {
+    console.error<| 'Error sniffing: ' ++ desc( exc )
+  }
+}
+
+
+# %# following line keeps the sniffer running when this file is executed by "runnedh"
 sniffer.join()

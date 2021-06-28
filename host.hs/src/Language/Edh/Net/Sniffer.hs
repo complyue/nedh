@@ -36,8 +36,10 @@ type SniffPort = Int
 -- connecting to the source address, via TCP, for further service
 -- consuming and/or vending, as advertised.
 data EdhSniffer = EdhSniffer
-  { -- the import spec of the module to run as the sniffer
-    edh'sniffer'modu :: !Text,
+  { -- Edh procedure to run for the service
+    edh'sniffer'service :: !EdhValue,
+    -- the world in which the service will run
+    edh'sniffer'world :: !EdhWorld,
     -- local network addr to bind
     edh'sniffer'addr :: !SniffAddr,
     -- local network port to bind
@@ -48,9 +50,7 @@ data EdhSniffer = EdhSniffer
     -- actually bound network addresses
     edh'sniffing'addrs :: !(TMVar [AddrInfo]),
     -- end-of-life status
-    edh'sniffing'eol :: !(TMVar (Either SomeException ())),
-    -- sniffer module initializer, must callable if not nil
-    edh'sniffing'init :: !EdhValue
+    edh'sniffing'eol :: !(TMVar (Either SomeException ()))
   }
 
 createSnifferClass :: Object -> Scope -> STM Object
@@ -71,16 +71,14 @@ createSnifferClass !addrClass !clsOuterScope =
       iopdUpdate mths $ edh'scope'entity clsScope
   where
     snifferAllocator ::
-      "modu" !: Text ->
+      "service" !: EdhValue ->
       "addr" ?: Text ->
       "port" ?: Int ->
-      "init" ?: EdhValue ->
       EdhObjectAllocator
     snifferAllocator
-      (mandatoryArg -> !modu)
+      (mandatoryArg -> !service)
       (defaultArg "127.0.0.1" -> !ctorAddr)
       (defaultArg 3721 -> !ctorPort)
-      (defaultArg nil -> !init_)
       !ctorExit
       !etsCtor =
         if edh'in'tx etsCtor
@@ -89,24 +87,18 @@ createSnifferClass !addrClass !clsOuterScope =
               etsCtor
               UsageError
               "you don't create network objects within a transaction"
-          else case edhUltimate init_ of
-            EdhNil -> withInit nil
-            mth@(EdhProcedure EdhMethod {} _) -> withInit mth
-            mth@(EdhBoundProc EdhMethod {} _ _ _) -> withInit mth
-            !badInit -> edhValueDesc etsCtor badInit $ \ !badDesc ->
-              throwEdh etsCtor UsageError $ "invalid init: " <> badDesc
-        where
-          withInit !__modu_init__ = do
+          else do
             snifAddrs <- newEmptyTMVar
             snifEoL <- newEmptyTMVar
             let !sniffer =
                   EdhSniffer
-                    { edh'sniffer'modu = modu,
+                    { edh'sniffer'service = service,
+                      edh'sniffer'world =
+                        edh'prog'world $ edh'thread'prog etsCtor,
                       edh'sniffer'addr = ctorAddr,
                       edh'sniffer'port = ctorPort,
                       edh'sniffing'addrs = snifAddrs,
-                      edh'sniffing'eol = snifEoL,
-                      edh'sniffing'init = __modu_init__
+                      edh'sniffing'eol = snifEoL
                     }
             runEdhTx etsCtor $
               edhContIO $ do
@@ -120,16 +112,16 @@ createSnifferClass !addrClass !clsOuterScope =
                         . tryPutTMVar snifEoL
                     )
                 atomically $ ctorExit Nothing $ HostStore (toDyn sniffer)
-
+        where
           sniffThread :: EdhSniffer -> IO ()
           sniffThread
             ( EdhSniffer
-                !snifModu
+                !servProc
+                !servWorld
                 !snifAddr
                 !snifPort
                 !snifAddrs
                 !snifEoL
-                !__modu_init__
               ) =
               do
                 snifThId <- myThreadId
@@ -189,93 +181,81 @@ createSnifferClass !addrClass !clsOuterScope =
                 sniffFrom :: AddrInfo -> Socket -> IO ()
                 sniffFrom !onAddr !sock = do
                   pktSink <- newEmptyTMVarIO
+
                   let eolProc :: EdhHostProc
                       eolProc !exit !ets =
                         tryReadTMVar snifEoL >>= \case
                           Nothing -> exitEdh ets exit $ EdhBool False
-                          Just (Left !e) ->
-                            edh'exception'wrapper world (Just ets) e
-                              >>= \ !exo -> exitEdh ets exit $ EdhObject exo
+                          Just (Left !e) -> do
+                            !exo <- edh'exception'wrapper world (Just ets) e
+                            exitEdh ets exit $ EdhObject exo
                           Just (Right ()) -> exitEdh ets exit $ EdhBool True
                       sniffProc :: Scope -> EdhHostProc
                       sniffProc !sandbox !exit !ets =
                         (Right <$> takeTMVar pktSink)
-                          `orElse` (Left <$> readTMVar snifEoL)
-                          >>= \case
+                          `orElse` (Left <$> readTMVar snifEoL) >>= \case
                             -- reached normal end-of-stream
                             Left Right {} -> exitEdh ets exit nil
                             -- previously eol due to error
-                            Left (Left !ex) ->
-                              edh'exception'wrapper
-                                (edh'prog'world $ edh'thread'prog ets)
-                                (Just ets)
-                                ex
-                                >>= \ !exo -> edhThrow ets $ EdhObject exo
-                            Right (!fromAddr, !payload) ->
-                              edhCreateHostObj
-                                addrClass
-                                onAddr {addrAddress = fromAddr}
-                                >>= \ !addrObj -> do
-                                  -- provide the effectful sourceAddr
-                                  defineEffect
-                                    ets
-                                    (AttrByName "sourceAddr")
-                                    (EdhObject addrObj)
-                                  -- interpret the payload as command,
-                                  -- return as is
-                                  let !src = decodeUtf8 payload
-                                  runEdhInSandbox
-                                    ets
-                                    sandbox
-                                    ( evalEdh
-                                        (T.pack $ "sniff:" ++ show fromAddr)
-                                        src
-                                    )
-                                    exit
+                            Left (Left !ex) -> do
+                              !exo <-
+                                edh'exception'wrapper
+                                  (edh'prog'world $ edh'thread'prog ets)
+                                  (Just ets)
+                                  ex
+                              edhThrow ets $ EdhObject exo
+                            Right (!fromAddr, !payload) -> do
+                              !addrObj <-
+                                edhCreateHostObj
+                                  addrClass
+                                  onAddr {addrAddress = fromAddr}
+                              -- provide the effectful sourceAddr
+                              defineEffect
+                                ets
+                                (AttrByName "sourceAddr")
+                                (EdhObject addrObj)
+                              -- interpret the payload as command,
+                              -- return as is
+                              let !src = decodeUtf8 payload
+                              runEdhInSandbox
+                                ets
+                                sandbox
+                                ( evalEdh
+                                    (T.pack $ "sniff:" ++ show fromAddr)
+                                    src
+                                )
+                                exit
 
-                      prepSniffer :: EdhModulePreparation
-                      prepSniffer !etsModu !exit =
-                        mkObjSandbox etsModu moduObj $ \ !sandboxScope -> do
-                          -- define and implant procedures to the module being
-                          -- prepared
-                          !moduMths <-
-                            sequence
-                              [ (AttrByName nm,)
-                                  <$> mkHostProc moduScope vc nm hp
-                                | (nm, vc, hp) <-
-                                    [ ("eol", EdhMethod, wrapHostProc eolProc),
-                                      ( "sniff",
-                                        EdhMethod,
-                                        wrapHostProc $ sniffProc sandboxScope
-                                      )
-                                    ]
-                              ]
-                          iopdUpdate moduMths $ edh'scope'entity moduScope
+                      edhHandler = pushEdhStack $ \ !etsEffs ->
+                        -- prepare a dedicated scope atop world root scope, with els effects
+                        -- implanted, then call the configured service procedure from there
+                        let effsScope = contextScope $ edh'context etsEffs
+                         in mkScopeSandbox etsEffs effsScope $ \ !sandboxScope -> do
+                              !effMths <-
+                                sequence
+                                  [ (AttrByName nm,)
+                                      <$> mkHostProc effsScope vc nm hp
+                                    | (nm, vc, hp) <-
+                                        [ ("eol", EdhMethod, wrapHostProc eolProc),
+                                          ( "sniff",
+                                            EdhMethod,
+                                            wrapHostProc $ sniffProc sandboxScope
+                                          )
+                                        ]
+                                  ]
+                              !sbWrapper <- mkScopeWrapper etsEffs effsScope
+                              let !effArts =
+                                    (AttrByName "svcScope", EdhObject sbWrapper) : effMths
+                              prepareEffStore etsEffs (edh'scope'entity effsScope)
+                                >>= iopdUpdate effArts
 
-                          -- call the sniffer module initialization method in
-                          -- the module context (where both contextual
-                          -- this/that are the module object)
-                          if __modu_init__ == nil
-                            then exit
-                            else edhPrepareCall'
-                              etsModu
-                              __modu_init__
-                              ( ArgsPack
-                                  [EdhObject $ edh'scope'this moduScope]
-                                  odEmpty
-                              )
-                              $ \ !mkCall -> runEdhTx etsModu $
-                                mkCall $ \_result _ets -> exit
-                        where
-                          !moduScope = contextScope $ edh'context etsModu
-                          !moduObj = edh'scope'this moduScope
+                              runEdhTx etsEffs $ edhMakeCall servProc [] haltEdhProgram
 
-                  -- run the sniffer module as another program
+                  -- run the sniffer service procedure as another program
                   void $
-                    forkFinally
-                      (runEdhModule' world (T.unpack snifModu) prepSniffer)
+                    forkFinally (runEdhProgram' servWorld edhHandler) $
                       -- mark sniffer end-of-life with the result anyway
-                      $ void . atomically . tryPutTMVar snifEoL . void
+                      void . atomically . tryPutTMVar snifEoL . void
 
                   -- pump sniffed packets into the sniffer loop
                   let pumpPkts = do
@@ -291,16 +271,14 @@ createSnifferClass !addrClass !clsOuterScope =
     --
     reprProc :: EdhHostProc
     reprProc !exit !ets =
-      withThisHostObj ets $ \(EdhSniffer !modu !addr !port _ _ _) ->
+      withThisHostObj ets $ \(EdhSniffer _ _ !addr !port _ _) ->
         exitEdh ets exit $
           EdhString $
-            "Sniffer("
-              <> T.pack (show modu)
-              <> ", "
+            "Sniffer<addr= "
               <> T.pack (show addr)
-              <> ", "
+              <> ", port= "
               <> T.pack (show port)
-              <> ")"
+              <> ">"
 
     addrsMth :: EdhHostProc
     addrsMth !exit !ets = withThisHostObj ets $

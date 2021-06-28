@@ -427,32 +427,13 @@ peer :: Peer
   {##
    # A network sniffer sniffs network packets directed to its address(es)
    #
-   # An instance of the specified module is instantiated for the sniffing, the
-   # per-connection peer module initialization method if specified, will run in
-   # this instance's scope before the module source get evaluated
-   #
-   # The following artifacts will be implanted into the module instance even
-   # before calling the module initialization method:
-```edh
-peer :: Peer
-eol :: () -> bool
-sniff :: () -> Any
-```
-   #
-   # And the following artifact(s) will be implanted into the module instance,
-   # before the source code of an incoming command is evaluated:
-```edh
-sourceAddr :: Addr
-```
-   #
    # The `Sniffer` class specializes on UDP traffics
    #}
   class Sniffer {
 
     method __init__(
-      modu,
+      service,
       addr= '127.0.0.1', port= 3721,
-      init= None,
     ) pass
 
     addrs :: () -> [ Addr ]

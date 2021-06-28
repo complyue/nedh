@@ -276,11 +276,10 @@ createWsServerClass
                         -- mechanism, or exception handling, that expecting `ThreadTerminate` to be
                         -- thrown, the cleanup action is usually in a finally block in this way
                         void $
-                          forkFinally (runEdhProgram' servWorld edhHandler)
-                          -- anyway after the service procedure done:
-                          --   dispose of all dependent (channel or not) sinks
-                          --   try mark client end-of-life with the result
-                          $
+                          forkFinally (runEdhProgram' servWorld edhHandler) $
+                            -- anyway after the service procedure done:
+                            --   dispose of all dependent (channel or not) sinks
+                            --   try mark client end-of-life with the result
                             \ !result -> atomically $ do
                               !sinks2Dispose <- readTVar disposalsVar
                               sequence_ $
