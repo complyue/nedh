@@ -31,7 +31,7 @@ export class WebRepl {
       },
     )
     case this.http.addrs() of {
-      { httpAddr :> _extraHttpAddrs } -> { pass }
+      { httpAddr :> _extraHttpAddrs } -> pass
       error( 'Đ (Edh) web REPL failed serving HTTP.' )
     }
 
@@ -50,7 +50,7 @@ export class WebRepl {
 
   method replWith( scopeOrObj, prompt= None ) {
     case scopeOrObj of {
-      { scope() = inScope } -> { pass }
+      { scope() = inScope } -> pass
       ;| type(scopeOrObj) is "Object" -> inScope = scope(ofObj= scopeOrObj)
       _ -> error( 'Unexpected scope or object: ' ++ desc(scopeOrObj) )
     }
@@ -112,7 +112,7 @@ export class WebRepl {
     }
 
     case perform rqParams.s of {
-      { sessionId } -> { pass }
+      { sessionId } -> pass
       # return from the module procedure will disconnect the ws connection
       # a string posted back will be shown directly on the web repl page
       return void peer.postCommand(
@@ -128,7 +128,7 @@ export class WebRepl {
         _ -> peer.postCommand( `No such session - ` ++ sessionId )
       }
     } $=> { # Note that a former handler in a chain of multiple ($=>) handlers, still can't prevent `ThreadTerminate` from escalating to later handlers, as it's not catchable. So a handler block is used here to filter out `ThreadTerminate` from logging.
-      { ThreadTerminate() } -> { pass } # usually network reset. Though `ThreadTerminate` is not catchable, we branch out to avoid logging for it here.
+      { ThreadTerminate() } -> pass # usually network reset. Though `ThreadTerminate` is not catchable, we branch out to avoid logging for it here.
 
       { exc } -> {
         console.error<| 'Exception by REPL web client ' ++ peer ++ ' error: '
