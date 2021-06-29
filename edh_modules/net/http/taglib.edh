@@ -88,10 +88,15 @@ export {
     # todo schematic validations, or even reform into structural APIs
 
     method html (**attrs) tag('html', '<!DOCTYPE html>', **attrs)
+    method link (**attrs) tag('link', @tag'no'content= true, **attrs)
     method head (**attrs) tag('head', **attrs)
     method title (**attrs) tag('title', **attrs)
     method style (**attrs) tag('style', type= 'text/css', **attrs)
     method body (**attrs) tag('body', **attrs)
+    method section (**attrs) tag('section', **attrs)
+    method div (**attrs) tag('div', **attrs)
+    method a (**attrs) tag('a', **attrs)
+    method b (**attrs) tag('b', **attrs)
     method form (**attrs) tag('form', method= 'post', **attrs)
     method input (**attrs) tag('input', @tag'no'content= true, **attrs)
     method textarea (**attrs) tag('textarea', **attrs)
