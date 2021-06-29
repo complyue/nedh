@@ -41,7 +41,9 @@ export {
           method @tag'inner'frag(innerFrag) innerFrag :> fragments
 
           method @tag'inner'text(text'frag) (
-            () => perform @ht'write'payload(text'frag)
+            () => perform @ht'write'payload(
+              text'frag # TODO html encode the content
+            )
           ) :> fragments
 
         }
@@ -93,6 +95,7 @@ export {
     method title (**attrs) tag('title', **attrs)
     method style (**attrs) tag('style', type= 'text/css', **attrs)
     method body (**attrs) tag('body', **attrs)
+    method script (**attrs) tag('script', type= 'module', **attrs)
     method section (**attrs) tag('section', **attrs)
     method div (**attrs) tag('div', **attrs)
     method a (**attrs) tag('a', **attrs)
