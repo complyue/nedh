@@ -357,6 +357,13 @@ routes :: example!(
 
   }
 
+  {##
+   # Escape special chars (e.g. `&<>'"`) per HTML standard
+   #
+   # result will be a utf8 encoded Blob
+   #}
+  method htmlEscape(txt) blob(txt)
+
 
   {##
    # A network client connects to some service over the network and will

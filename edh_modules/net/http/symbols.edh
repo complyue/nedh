@@ -12,6 +12,9 @@ export {
     # API method to register inner text output to the direct outer tag in effect
     symbol @tag'inner'text
 
+    # API method to register inner html output to the direct outer tag in effect
+    symbol @tag'inner'html
+
     # API method to manipulate attributes of the direct outer tag in effect, with arbitrary expression
     symbol @tag'attrs
 

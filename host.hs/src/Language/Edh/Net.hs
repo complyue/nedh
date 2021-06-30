@@ -52,6 +52,9 @@ installNetBatteries !world =
                   esNetEffs
                   moduScope
               !httpServerClass <- createHttpServerClass addrClass moduScope
+              !htmlEscapeMth <-
+                mkHostProc moduScope EdhMethod "htmlEscape" $
+                  wrapHostProc htmlEscapeProc
 
               !snifferClass <- createSnifferClass addrClass moduScope
               !advertiserClass <- createAdvertiserClass addrClass moduScope
@@ -63,6 +66,7 @@ installNetBatteries !world =
                       (AttrByName "Client", EdhObject clientClass),
                       (AttrByName "WsServer", EdhObject wsServerClass),
                       (AttrByName "HttpServer", EdhObject httpServerClass),
+                      (AttrByName "htmlEscape", htmlEscapeMth),
                       (AttrByName "Sniffer", EdhObject snifferClass),
                       (AttrByName "Advertiser", EdhObject advertiserClass)
                     ]

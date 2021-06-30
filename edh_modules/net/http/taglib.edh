@@ -1,4 +1,6 @@
 
+import (htmlEscape, **) 'net/RT'
+
 import * './symbols'
 
 
@@ -42,8 +44,12 @@ export {
 
           method @tag'inner'text(text'frag) (
             () => perform @ht'write'payload(
-              text'frag # TODO html encode the content
+              htmlEscape$str$ text'frag
             )
+          ) :> fragments
+
+          method @tag'inner'html(html'frag) (
+            () => perform @ht'write'payload( html'frag )
           ) :> fragments
 
         }
@@ -63,7 +69,7 @@ export {
             open = '<' ++ @tag'name ++ ' ' ++ ' '.join(
               *()=<
               do if avalue
-              then aname ++ '=' ++ (json$str$ avalue) # TODO proper html escape
+              then aname ++ '="' ++ (htmlEscape$str$ avalue).utf8string ++ '"'
               else aname
               for (aname, avalue) from tagAttrs.attrs()
             )

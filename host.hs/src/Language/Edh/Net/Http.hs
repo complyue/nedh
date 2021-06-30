@@ -10,8 +10,10 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import Data.ByteString.Builder (Builder, byteString)
+import Data.ByteString.Builder
 import qualified Data.ByteString.Char8 as C
+import qualified Data.ByteString.Lazy as BL
+import Data.Char
 import Data.Dynamic
 import Data.Functor
 import Data.List
@@ -68,6 +70,34 @@ parseRoutes !ets (Just (Dict _ !dsRoutes)) !defMime !exit =
       Snap.writeBS payload
 
     world = edh'prog'world $ edh'thread'prog ets
+
+htmlEscapeProc :: Text -> EdhHostProc
+htmlEscapeProc !txt !exit =
+  exitEdhTx exit $
+    EdhBlob $ B.concat $ BL.toChunks $ toLazyByteString $ htmlEscape txt
+
+htmlEscape :: Text -> Builder
+htmlEscape "" = mempty
+htmlEscape t =
+  let (p, s) = T.break needEscape t
+      r = T.uncons s
+   in fromText p `mappend` case r of
+        Nothing -> mempty
+        Just (c, ss) -> entity c `mappend` htmlEscape ss
+  where
+    needEscape c = c < ' ' || c `elem` ("<>&\"'" :: String)
+
+    entity :: Char -> Builder
+    entity '&' = fromText "&amp;"
+    entity '<' = fromText "&lt;"
+    entity '>' = fromText "&gt;"
+    entity '\"' = fromText "&quot;"
+    entity '\'' = fromText "&apos;"
+    entity c =
+      fromText "&#"
+        `mappend` fromText (T.pack (show (ord c)))
+        `mappend` fromText ";"
+    fromText = byteString . TE.encodeUtf8
 
 edhHandleHttp :: Text -> EdhWorld -> EdhValue -> Snap.Snap ()
 edhHandleHttp !defMime world !handlerProc = do
