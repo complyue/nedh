@@ -118,6 +118,10 @@ edhHandleHttp !defMime world !handlerProc = do
       runEdhHandler = runEdhProgram' world $
         pushEdhStack $ \ !etsEffs -> do
           let effsScope = contextScope $ edh'context etsEffs
+          !setResponseCode <- mkHostProc effsScope EdhMethod "setResponseCode" $
+            wrapHostProc $ \ !stCode !exit !ets -> do
+              modifyTVar' rsp $ Snap.setResponseCode stCode
+              exitEdh ets exit nil
           !setContentType <- mkHostProc effsScope EdhMethod "setContentType" $
             wrapHostProc $ \ !mimeType !exit !ets -> do
               modifyTVar' rsp $ Snap.setContentType $ TE.encodeUtf8 mimeType
@@ -141,6 +145,7 @@ edhHandleHttp !defMime world !handlerProc = do
                 ( AttrByName "rqParams",
                   EdhArgsPack $ wrapParams (Snap.rqParams req)
                 ),
+                (AttrByName "setResponseCode", setResponseCode),
                 (AttrByName "setContentType", setContentType),
                 (AttrByName "writeText", writeText),
                 -- TODO more Snap API as effects

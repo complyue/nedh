@@ -289,26 +289,42 @@ peer :: Peer
 
 
   {##
-   # An instance of `HttpServer` serves static resources for web browsers
-   #
-   # A list of the name of Edh modules must be specified, those providing
-   # overlaid static web resources, while a list of routing specification can
-   # be optionally specified
-   #
-   # Currently supported routing specification format is:
+   # An instance of `HttpServer` serves static and dynamic resources over http
+
+A list of the name of Edh modules must be specified, those providing overlaid static web resources, while a dict as `routes` for routing specification can be optionally specified, mapping every entry path to some static content or handling procedure, according to:
+
+  https://hackage.haskell.org/package/snap-core/docs/Snap-Core.html#v:route
+
+Some exemplified specification:
+
 ```edh
-routes :: example!(
-  (path1!String, payload!Blob, mime!String= "application/zip"),
-  (path2!String, content!String),
-  *(),
-  (pathN!String, content!String, mime!String= "text/javascript"),
-  mime!String= "text/plain",
-)
+routes :: example!{
+  path1!String: (payload!Blob, mime!String= "application/zip"),
+  path2!String: content!String,
+  path3!String: content'procedure1!Method(),
+  **{},
+  pathN!String: (content!String, mime!String= "text/javascript"),
+}
 ```
-   #
-   # note dynamic routes are not supported for now, while in the future, the
-   # routing specification may be extended to allow procedures as for dynamic
-   # (possibly streaming) contents
+
+While each "content procedure" should be a niladic procedure, it'll be executed per http request, with some Snap APIs available as effectful artifacts. E.g. `perform rqParams` in such a procedure can get an apk populated according to:
+
+  https://hackage.haskell.org/package/snap-core/docs/Snap-Core.html#v:rqParams
+
+Other effectful artifacts including:
+
+  https://hackage.haskell.org/package/snap-core/docs/Snap-Core.html#v:rqPathInfo
+  https://hackage.haskell.org/package/snap-core/docs/Snap-Core.html#v:rqContextPath
+
+And for response generation, including status and content. E.g. `perform setResponseCode(404)` can be used to indicate non-existence of the requested resource.
+
+  https://hackage.haskell.org/package/snap-core/docs/Snap-Core.html#v:setResponseCode
+  https://hackage.haskell.org/package/snap-core/docs/Snap-Core.html#v:setContentType
+  https://hackage.haskell.org/package/snap-core/docs/Snap-Core.html#v:writeText
+  https://hackage.haskell.org/package/snap-core/docs/Snap-Core.html#v:writeBS
+
+TODO formalize/elaborate the specification.
+
    #}
   class HttpServer {
 
