@@ -6,8 +6,18 @@ import * 'net'
 let sniffer = Sniffer( addr= '0.0.0.0', port= 3721,) $@ () => {
   console.info<| 'Sniffing ...'
 
-  # TODO define artifacts in hosting the execution of incoming
-  #      commands
+  # define artifacts in hosting the execution of incoming commands
+  from namespace service'methods() {
+
+    export method foo( x ) {
+      return 'foo @ ' ++ x
+    }
+
+    export method bar( y ) {
+      return foo( y * 3 )
+    }
+
+  } import * into perform svcScope
 
   # loop forever until eol on error, or stopped elsewhere
   while perform eol() is false {
