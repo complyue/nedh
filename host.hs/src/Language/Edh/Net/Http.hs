@@ -39,29 +39,39 @@ mimeTypes :: Snap.MimeMap
 mimeTypes = Snap.defaultMimeTypes
 
 parseRoutes ::
-  EdhThreadState -> Maybe Dict -> Text -> (Snap.Snap () -> STM ()) -> STM ()
-parseRoutes _ets Nothing _defMime !exit = exit Snap.pass
-parseRoutes !ets (Just (Dict _ !dsRoutes)) !defMime !exit =
-  iopdToList dsRoutes >>= go []
+  EdhThreadState ->
+  Maybe Dict ->
+  Maybe EdhValue ->
+  Text ->
+  (Snap.Snap () -> STM ()) ->
+  STM ()
+parseRoutes !ets !maybeRoutes !maybeFront !defMime !exit = case maybeRoutes of
+  Nothing -> withFront exit
+  (Just (Dict _ !dsRoutes)) -> iopdToList dsRoutes >>= go []
   where
-    go !rts [] = exit $ Snap.route $ reverse rts
-    go !rts ((rv, av) : rest) = case edhUltimate rv of
-      EdhString !r -> case edhUltimate av of
-        EdhBlob !payload ->
-          go ((TE.encodeUtf8 r, inMemRes payload defMime) : rts) rest
-        EdhArgsPack (ArgsPack [EdhBlob !payload] !kwargs) ->
-          let mimeVal =
-                odLookupDefault (EdhString defMime) (AttrByName "mime") kwargs
-           in edhValueStr ets mimeVal $ \ !mime ->
-                go ((TE.encodeUtf8 r, inMemRes payload mime) : rts) rest
-        !handlerProc ->
-          go
-            ( (TE.encodeUtf8 r, edhHandleHttp defMime world handlerProc) :
-              rts
-            )
-            rest
-      _ -> edhValueDesc ets rv $ \ !badDesc ->
+    withFront exit' = case maybeFront of
+      Nothing -> exit' Snap.pass
+      Just !frontHndlr -> edhValueNull ets frontHndlr $ \case
+        True -> exit' Snap.pass
+        False -> parseRoute frontHndlr $ \ !front -> exit' $ Snap.ifTop front
+    go !rts [] =
+      withFront $
+        \ !front -> exit $ front <|> Snap.route (reverse rts)
+    go !rts ((pv, hv) : rest) = case edhUltimate pv of
+      EdhString !p -> parseRoute hv $ \ !r ->
+        go ((TE.encodeUtf8 p, r) : rts) rest
+      _ -> edhValueDesc ets pv $ \ !badDesc ->
         throwEdh ets UsageError $ "bad snap route: " <> badDesc
+
+    parseRoute :: EdhValue -> (Snap.Snap () -> STM ()) -> STM ()
+    parseRoute !hv !exit' = case edhUltimate hv of
+      EdhBlob !payload -> exit' $ inMemRes payload defMime
+      EdhArgsPack (ArgsPack [EdhBlob !payload] !kwargs) ->
+        let mimeVal =
+              odLookupDefault (EdhString defMime) (AttrByName "mime") kwargs
+         in edhValueStr ets mimeVal $ \ !mime ->
+              exit' $ inMemRes payload mime
+      !handlerProc -> exit' $ edhHandleHttp defMime world handlerProc
 
     inMemRes :: ByteString -> Text -> Snap.Snap ()
     inMemRes !payload !mime = do
@@ -209,6 +219,7 @@ createHttpServerClass !addrClass !clsOuterScope =
       "port" ?: Int ->
       "port'max" ?: Int ->
       "routes" ?: Dict ->
+      "front" ?: EdhValue ->
       "defaultMime" ?: Text ->
       EdhObjectAllocator
     serverAllocator
@@ -217,6 +228,7 @@ createHttpServerClass !addrClass !clsOuterScope =
       (defaultArg 3780 -> !ctorPort)
       (optionalArg -> port'max)
       (optionalArg -> !maybeRoutes)
+      (optionalArg -> !maybeFront)
       (defaultArg "text/plain" -> !defMime)
       !ctorExit
       !etsCtor =
@@ -242,37 +254,38 @@ createHttpServerClass !addrClass !clsOuterScope =
                 "invalid type for modus: "
                   <> edhTypeNameOf resource'modules
         where
-          withModules !modus = parseRoutes etsCtor maybeRoutes defMime $
-            \ !custRoutes -> do
-              servAddrs <- newEmptyTMVar
-              servEoL <- newEmptyTMVar
-              let !server =
-                    EdhHttpServer
-                      { edh'http'server'modus = modus,
-                        edh'http'custom'routes = custRoutes,
-                        edh'http'server'addr = ctorAddr,
-                        edh'http'server'port = fromIntegral ctorPort,
-                        edh'http'server'port'max =
-                          fromIntegral $ fromMaybe ctorPort port'max,
-                        edh'http'serving'addrs = servAddrs,
-                        edh'http'server'eol = servEoL
-                      }
-              runEdhTx etsCtor $
-                edhContIO $ do
-                  void $
-                    forkFinally
-                      (serverThread server)
-                      ( atomically
-                          . void
-                          . (
-                              -- fill empty addrs if the connection has ever
-                              -- failed
-                              tryPutTMVar servAddrs [] <*
-                            )
-                          -- mark server end-of-life anyway finally
-                          . tryPutTMVar servEoL
-                      )
-                  atomically $ ctorExit Nothing $ HostStore (toDyn server)
+          withModules !modus =
+            parseRoutes etsCtor maybeRoutes maybeFront defMime $
+              \ !custRoutes -> do
+                servAddrs <- newEmptyTMVar
+                servEoL <- newEmptyTMVar
+                let !server =
+                      EdhHttpServer
+                        { edh'http'server'modus = modus,
+                          edh'http'custom'routes = custRoutes,
+                          edh'http'server'addr = ctorAddr,
+                          edh'http'server'port = fromIntegral ctorPort,
+                          edh'http'server'port'max =
+                            fromIntegral $ fromMaybe ctorPort port'max,
+                          edh'http'serving'addrs = servAddrs,
+                          edh'http'server'eol = servEoL
+                        }
+                runEdhTx etsCtor $
+                  edhContIO $ do
+                    void $
+                      forkFinally
+                        (serverThread server)
+                        ( atomically
+                            . void
+                            . (
+                                -- fill empty addrs if the connection has ever
+                                -- failed
+                                tryPutTMVar servAddrs [] <*
+                              )
+                            -- mark server end-of-life anyway finally
+                            . tryPutTMVar servEoL
+                        )
+                    atomically $ ctorExit Nothing $ HostStore (toDyn server)
 
           serverThread :: EdhHttpServer -> IO ()
           serverThread

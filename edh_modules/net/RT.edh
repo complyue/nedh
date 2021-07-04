@@ -323,6 +323,8 @@ And for response generation, including status and content. E.g. `perform setResp
   https://hackage.haskell.org/package/snap-core/docs/Snap-Core.html#v:writeText
   https://hackage.haskell.org/package/snap-core/docs/Snap-Core.html#v:writeBS
 
+As noted in https://stackoverflow.com/a/21370008/6394508 , the "/" handler matches everything, so you need to specify the route as `front`, if only the site root is intended for it to handle
+
 TODO formalize/elaborate the specification.
 
    #}
@@ -331,7 +333,7 @@ TODO formalize/elaborate the specification.
     method __init__ (
       resource'modules,
       addr= '127.0.0.1', port= 3780, port'max= None,
-      routes= {}, defaultMime= 'text/plain',
+      routes= {}, front= None, defaultMime= 'text/plain',
     ) pass
 
     addrs :: () -> [ Addr ]
