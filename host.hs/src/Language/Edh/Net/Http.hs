@@ -300,7 +300,9 @@ createHttpServerClass !addrClass !clsOuterScope =
                         Snap.setStartupHook httpListening $
                           Snap.setVerbose False $
                             Snap.setAccessLog Snap.ConfigNoLog $
-                              Snap.setErrorLog Snap.ConfigNoLog mempty
+                              Snap.setErrorLog
+                                (Snap.ConfigIoLog logSnapError)
+                                mempty
                     httpListening !httpInfo = do
                       listenAddrs <-
                         sequence
@@ -348,6 +350,12 @@ createHttpServerClass !addrClass !clsOuterScope =
                       (Just $ T.unpack servAddr)
                       (Just (show servPort))
                   return addr
+
+          world = edh'prog'world $ edh'thread'prog etsCtor
+          logger = consoleLogger $ edh'world'console world
+          logSnapError :: ByteString -> IO ()
+          logSnapError payload =
+            atomically $ logger 40 (Just "snap-http") (TE.decodeUtf8 payload)
 
     reprProc :: EdhHostProc
     reprProc !exit !ets =
