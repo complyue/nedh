@@ -69,7 +69,7 @@ export {
             open = '<' ++ @tag'name ++ ' ' ++ ' '.join(
               *()=<
               do if avalue
-              then aname ++ '="' ++ (htmlEscape$str$ avalue).utf8string ++ '"'
+              then aname ++ '="' ++ (htmlEscape$str$ avalue) ++ '"'
               else aname
               for (aname, avalue) from tagAttrs.attrs()
             )

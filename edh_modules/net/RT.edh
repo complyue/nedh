@@ -375,10 +375,8 @@ TODO formalize/elaborate the specification.
 
   {##
    # Escape special chars (e.g. `&<>'"`) per HTML standard
-   #
-   # result will be a utf8 encoded Blob
    #}
-  method htmlEscape(txt) blob(txt)
+  method htmlEscape(txt) txt
 
 
   {##

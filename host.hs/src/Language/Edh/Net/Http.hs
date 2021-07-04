@@ -10,9 +10,8 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import Data.ByteString.Builder
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Char8 as C
-import qualified Data.ByteString.Lazy as BL
 import Data.Char
 import Data.Dynamic
 import Data.Functor
@@ -22,6 +21,8 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Lazy as TL
+import Data.Text.Lazy.Builder
 import Language.Edh.EHI
 import Network.Socket
 import qualified Snap.Core as Snap
@@ -73,8 +74,7 @@ parseRoutes !ets (Just (Dict _ !dsRoutes)) !defMime !exit =
 
 htmlEscapeProc :: Text -> EdhHostProc
 htmlEscapeProc !txt !exit =
-  exitEdhTx exit $
-    EdhBlob $ B.concat $ BL.toChunks $ toLazyByteString $ htmlEscape txt
+  exitEdhTx exit $ EdhString $ TL.toStrict $ toLazyText $ htmlEscape txt
 
 htmlEscape :: Text -> Builder
 htmlEscape "" = mempty
@@ -97,7 +97,6 @@ htmlEscape t =
       fromText "&#"
         `mappend` fromText (T.pack (show (ord c)))
         `mappend` fromText ";"
-    fromText = byteString . TE.encodeUtf8
 
 edhHandleHttp :: Text -> EdhWorld -> EdhValue -> Snap.Snap ()
 edhHandleHttp !defMime world !handlerProc = do
@@ -107,12 +106,12 @@ edhHandleHttp !defMime world !handlerProc = do
       newTVarIO $
         Snap.setContentType (TE.encodeUtf8 defMime) Snap.emptyResponse
   let rspAddToOutput ::
-        (OutputStream Builder -> IO (OutputStream Builder)) -> STM ()
+        (OutputStream BB.Builder -> IO (OutputStream BB.Builder)) -> STM ()
       rspAddToOutput enum = modifyTVar rsp $
         Snap.modifyResponseBody $ \b out -> b out >>= enum
       rspWriteBuilder b =
         rspAddToOutput $ \str -> Streams.write (Just b) str >> return str
-      rspWriteBS = rspWriteBuilder . byteString
+      rspWriteBS = rspWriteBuilder . BB.byteString
       rspWriteText = rspWriteBS . TE.encodeUtf8
 
       runEdhHandler = runEdhProgram' world $
