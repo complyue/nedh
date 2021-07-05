@@ -24,7 +24,7 @@ export {
 
     # the generic tag templating procedure, usually "partially applied" with tag name and default stuff, and named after the actual tag name, as separate procedures
     method tag(
-      @tag'name, @tag'prelude= None, @tag'no'content= false,
+      @tag'name, @tag'prelude= None,
       ** @tag'attrs,
     ) {
 
@@ -55,12 +55,18 @@ export {
         }
 
         # a block decorator shoud honor special flow control values as the result of the evaluation, and cooperate accordingly, like this:
-        case callerScope.eval$ tagBlockExpr of {
+        case callerScope.eval$ tagBlockExpr of {@
           { continue } -> { return { continue } } # decorated body issued { continue }
           { break } -> { return { break } } # decorated body issued { break }
           { return nil } -> { return { return nil } } # decorated body issued { return nil }
           { return rtn } -> { return { return rtn } } # decorated body issued { return xxx }
-        } @=> { # "finally" i.e. anyway, do these, even early returning
+          { txt } | type(txt) is 'String' -> (
+            () => perform @ht'write'payload(
+              htmlEscape$str$ txt
+            )
+          ) :> fragments
+
+        @} @=> { # "finally" i.e. anyway, do these, even early returning
           perform @tag'inner'frag$ () => {
 
             do perform @ht'write'payload$ @tag'prelude
@@ -73,11 +79,6 @@ export {
               else aname
               for (aname, avalue) from tagAttrs.attrs()
             )
-
-            ;| @tag'no'content -> {
-              assert$ null$ fragments # TODO proper err reporting
-              perform @ht'write'payload$ open ++ ' />'
-            }
 
             perform @ht'write'payload$ open ++ '>'
 
@@ -92,11 +93,23 @@ export {
     }
 
 
+    method empty'tag(@tag'name, **attrs) { perform @tag'inner'frag$ () => {
+        perform @ht'write'payload$ '<' ++ @tag'name ++ ' ' ++ ' '.join(
+          *()=<
+          do if avalue
+          then aname ++ '="' ++ (htmlEscape$str$ avalue) ++ '"'
+          else aname
+          for (aname, avalue) from attrs
+        ) ++ '>'
+    } }
+
+
     # manually "currify" `tag()` to obtain lib methods named after actual tag name, and with meaningful defaults
     # todo schematic validations, or even reform into structural APIs
 
     method html (**attrs) tag('html', '<!DOCTYPE html>', **attrs)
-    method link (**attrs) tag('link', @tag'no'content= true, **attrs)
+    method meta (**attrs) empty'tag('meta', **attrs)
+    method link (**attrs) empty'tag('link', **attrs)
     method head (**attrs) tag('head', **attrs)
     method title (**attrs) tag('title', **attrs)
     method style (**attrs) tag('style', type= 'text/css', **attrs)
@@ -107,9 +120,27 @@ export {
     method a (**attrs) tag('a', **attrs)
     method b (**attrs) tag('b', **attrs)
     method form (**attrs) tag('form', method= 'post', **attrs)
-    method input (**attrs) tag('input', @tag'no'content= true, **attrs)
+    method input (**attrs) empty'tag('input', **attrs)
     method textarea (**attrs) tag('textarea', **attrs)
     method p (**attrs) tag('p', **attrs)
+
+    method h1 (**attrs) tag('h1', **attrs)
+    method h2 (**attrs) tag('h2', **attrs)
+    method h3 (**attrs) tag('h3', **attrs)
+    method h4 (**attrs) tag('h4', **attrs)
+    method h5 (**attrs) tag('h5', **attrs)
+
+    method table (**attrs) tag('table', **attrs)
+    method thead (**attrs) tag('thead', **attrs)
+    method tbody (**attrs) tag('tbody', **attrs)
+    method tr (**attrs) tag('tr', **attrs)
+    method th (**attrs) tag('th', **attrs)
+    method td (**attrs) tag('td', **attrs)
+
+    method br (**attrs) empty'tag('br', **attrs)
+    method hr (**attrs) empty'tag('hr', **attrs)
+    method img (**attrs) empty'tag('img', **attrs)
+
 
   }
 

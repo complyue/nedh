@@ -29,7 +29,6 @@ Used for lib procedure arguments, to avoid possible name clashes, including esp.
 
     symbol @tag'name
     symbol @tag'prelude
-    symbol @tag'no'content
 
   }
 
