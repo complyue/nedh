@@ -23,6 +23,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import Data.Text.Lazy.Builder
+import qualified Data.Text.Lazy.Encoding as TLE
 import Language.Edh.EHI
 import Network.Socket
 import qualified Snap.Core as Snap
@@ -111,6 +112,7 @@ htmlEscape t =
 edhHandleHttp :: Text -> EdhWorld -> EdhValue -> Snap.Snap ()
 edhHandleHttp !defMime world !handlerProc = do
   !req <- Snap.getRequest
+  !reqBody <- Snap.readRequestBody $ 10 * 1024 * 1024
   !rsp <-
     liftIO $
       newTVarIO $
@@ -127,40 +129,56 @@ edhHandleHttp !defMime world !handlerProc = do
       runEdhHandler = runEdhProgram' world $
         pushEdhStack $ \ !etsEffs -> do
           let effsScope = contextScope $ edh'context etsEffs
-          !setResponseCode <- mkHostProc effsScope EdhMethod "setResponseCode" $
-            wrapHostProc $ \ !stCode !exit !ets -> do
-              modifyTVar' rsp $ Snap.setResponseCode stCode
-              exitEdh ets exit nil
-          !setContentType <- mkHostProc effsScope EdhMethod "setContentType" $
-            wrapHostProc $ \ !mimeType !exit !ets -> do
-              modifyTVar' rsp $ Snap.setContentType $ TE.encodeUtf8 mimeType
-              exitEdh ets exit nil
-          !writeText <- mkHostProc effsScope EdhMethod "writeText" $
-            wrapHostProc $ \ !payload !exit !ets -> do
-              rspWriteText payload
-              exitEdh ets exit nil
-          !writeBS <- mkHostProc effsScope EdhMethod "writeBS" $
-            wrapHostProc $ \ !payload !exit !ets -> do
-              rspWriteBS payload
-              exitEdh ets exit nil
-          prepareEffStore etsEffs (edh'scope'entity effsScope)
-            >>= iopdUpdate
-              [ ( AttrByName "rqPathInfo",
-                  EdhString $ TE.decodeUtf8 $ Snap.rqPathInfo req
-                ),
-                ( AttrByName "rqContextPath",
-                  EdhString $ TE.decodeUtf8 $ Snap.rqContextPath req
-                ),
-                ( AttrByName "rqParams",
-                  EdhArgsPack $ wrapParams (Snap.rqParams req)
-                ),
-                (AttrByName "setResponseCode", setResponseCode),
-                (AttrByName "setContentType", setContentType),
-                (AttrByName "writeText", writeText),
-                -- TODO more Snap API as effects
-                (AttrByName "writeBS", writeBS)
-              ]
-          runEdhTx etsEffs $ edhMakeCall handlerProc [] haltEdhProgram
+          mkScopeSandbox etsEffs effsScope $ \ !sbScope -> do
+            !readCommand <- mkHostProc effsScope EdhMethod "readCommand" $
+              wrapHostProc $ \ !exit !ets -> do
+                let !src = TL.toStrict $ TLE.decodeUtf8 reqBody
+                    !srcName =
+                      TE.decodeUtf8 $
+                        Snap.rqClientAddr req <> " @>@ " <> Snap.rqURI req
+                runEdhInSandbox
+                  ets
+                  sbScope
+                  (evalEdh srcName src)
+                  exit
+            !setResponseCode <-
+              mkHostProc effsScope EdhMethod "setResponseCode" $
+                wrapHostProc $ \ !stCode !exit !ets -> do
+                  modifyTVar' rsp $ Snap.setResponseCode stCode
+                  exitEdh ets exit nil
+            !setContentType <-
+              mkHostProc effsScope EdhMethod "setContentType" $
+                wrapHostProc $ \ !mimeType !exit !ets -> do
+                  modifyTVar' rsp $
+                    Snap.setContentType $ TE.encodeUtf8 mimeType
+                  exitEdh ets exit nil
+            !writeText <- mkHostProc effsScope EdhMethod "writeText" $
+              wrapHostProc $ \ !payload !exit !ets -> do
+                rspWriteText payload
+                exitEdh ets exit nil
+            !writeBS <- mkHostProc effsScope EdhMethod "writeBS" $
+              wrapHostProc $ \ !payload !exit !ets -> do
+                rspWriteBS payload
+                exitEdh ets exit nil
+            prepareEffStore etsEffs (edh'scope'entity effsScope)
+              >>= iopdUpdate
+                [ ( AttrByName "rqPathInfo",
+                    EdhString $ TE.decodeUtf8 $ Snap.rqPathInfo req
+                  ),
+                  ( AttrByName "rqContextPath",
+                    EdhString $ TE.decodeUtf8 $ Snap.rqContextPath req
+                  ),
+                  ( AttrByName "rqParams",
+                    EdhArgsPack $ wrapParams (Snap.rqParams req)
+                  ),
+                  (AttrByName "readCommand", readCommand),
+                  (AttrByName "setResponseCode", setResponseCode),
+                  (AttrByName "setContentType", setContentType),
+                  (AttrByName "writeText", writeText),
+                  -- TODO more Snap API as effects
+                  (AttrByName "writeBS", writeBS)
+                ]
+            runEdhTx etsEffs $ edhMakeCall handlerProc [] haltEdhProgram
   liftIO runEdhHandler >>= \case
     EdhCaseOther -> Snap.pass
     EdhFallthrough -> Snap.pass
