@@ -127,6 +127,7 @@ export {
     method a (**attrs) tag('a', **attrs)
     method b (**attrs) tag('b', **attrs)
     method form (**attrs) tag('form', method= 'post', **attrs)
+    method label (**attrs) tag('label', **attrs)
     method input (**attrs) empty'tag('input', **attrs)
     method button (**attrs) tag('button', **attrs)
     method textarea (**attrs) tag('textarea', **attrs)
