@@ -55,18 +55,20 @@ export {
         }
 
         # a block decorator shoud honor special flow control values as the result of the evaluation, and cooperate accordingly, like this:
-        case callerScope.eval$ tagBlockExpr of {@
+        case callerScope.eval$ tagBlockExpr of {
+
           { continue } -> { return { continue } } # decorated body issued { continue }
           { break } -> { return { break } } # decorated body issued { break }
           { return nil } -> { return { return nil } } # decorated body issued { return nil }
           { return rtn } -> { return { return rtn } } # decorated body issued { return xxx }
+
           { txt } | type(txt) is 'String' -> (
             () => perform @ht'write'payload(
               htmlEscape$str$ txt
             )
           ) :> fragments
 
-        @} @=> { # "finally" i.e. anyway, do these, even early returning
+        } @=> { # "finally" i.e. anyway, do these, even early returning
           perform @tag'inner'frag$ () => {
 
             do perform @ht'write'payload$ @tag'prelude
@@ -109,8 +111,7 @@ export {
     } }
 
 
-    # manually "currify" `tag()` to obtain lib methods named after actual tag name, and with meaningful defaults
-    # todo schematic validations, or even reform into structural APIs
+    # todo allow only valid attributes, more validations, etc.
 
     method html (**attrs) tag('html', '<!DOCTYPE html>', **attrs)
     method meta (**attrs) empty'tag('meta', **attrs)
