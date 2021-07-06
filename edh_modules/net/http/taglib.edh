@@ -104,6 +104,11 @@ export {
     } }
 
 
+    method literal(ht) { perform @tag'inner'frag$ () => {
+        perform @ht'write'payload$ ht
+    } }
+
+
     # manually "currify" `tag()` to obtain lib methods named after actual tag name, and with meaningful defaults
     # todo schematic validations, or even reform into structural APIs
 
@@ -117,10 +122,12 @@ export {
     method script (**attrs) tag('script', type= 'module', **attrs)
     method section (**attrs) tag('section', **attrs)
     method div (**attrs) tag('div', **attrs)
+    method span (**attrs) tag('span', **attrs)
     method a (**attrs) tag('a', **attrs)
     method b (**attrs) tag('b', **attrs)
     method form (**attrs) tag('form', method= 'post', **attrs)
     method input (**attrs) empty'tag('input', **attrs)
+    method button (**attrs) tag('button', **attrs)
     method textarea (**attrs) tag('textarea', **attrs)
     method p (**attrs) tag('p', **attrs)
 
@@ -141,6 +148,7 @@ export {
     method hr (**attrs) empty'tag('hr', **attrs)
     method img (**attrs) empty'tag('img', **attrs)
 
+    method nbsp() literal('&nbsp;')
 
   }
 
