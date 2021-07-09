@@ -22,8 +22,8 @@ wl = WebRepl(
   # some security risks are mitigated at the cost of some debuggabilities
   # sacrificed, and vice versa.
   useSandbox= null$debug,
-  # debug will be `false` in normal case, but will be set to the debug module,
-  # when the env var is set EDH_LOG_LEVEL=DEBUG
+  # debug will be `false` in normal case, but will be set to true,
+  # when the log level is at least DEBUG, e.g. env var EDH_LOG_LEVEL=DEBUG
 )
 
 
