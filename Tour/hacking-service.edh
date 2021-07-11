@@ -1,32 +1,31 @@
 
-import * 'net/demo/hack'
+import * 'net/util/hack'
 
 # it is expected that the demo service to be there, e.g.
 #   cabal v2-run nedh < Tour/service-simple.edh
-cmdLineTo( '127.0.0.1', 3721, )
+cmdLineTo( addrSpec= '127.0.0.1', port= 3721, ) $@ namespace reacts() {
+
+  # an example procedure can be called via rpc by peer
+  export method ack( msg ) {
+    console.info<| 'You are informed by the service that:\n  ' ++ msg
+  }
+
+}
 
 
-# `cmdLineTo()` waits until disconnected from service, following
-# lines will be read by the cli loop as cli commands, then
-# each posted to the service as peer command, if not nil.
+# %# `cmdLineTo()` waits until disconnected from service, following lines will be read by the cli loop as cli commands, then each posted to the service as peer command, if not nil.
 
 # %%
-# the demo service acts as a remote expression evaluator, post
-# it some expression and it'll post back the eval result into
-# our conout, and the 'net/demo/hack' stdio loop takes care
-# of proper waiting it before reading next cli command.
+# the demo service acts as a remote expression evaluator, post it some expression and it'll post back the eval result into our conout, and the 'net/demo/hack' stdio loop takes care of proper waiting it before reading next cli command.
 expr 3*7
 
 # %%
-# and the expression can be as any complex as the remote environment
-# supports
+# and the expression can be as any complex as the remote environment supports
 expr service?calc and calc( 5, 11 ) or 'no `calc()` service'
 
 # %%
 {
-  # enclose multiple statements within this block, so they're not
-  # interpreted as multiple cli commands, but the last statement
-  # will be.
+  # enclose multiple statements within this block, so they're not interpreted as multiple cli commands, but the last statement will be.
 
   console.info<| 'Doing rpc directly - calling the police ...'
 
@@ -36,11 +35,10 @@ expr service?calc and calc( 5, 11 ) or 'no `calc()` service'
   peer.postCommand( expr # expr literal is the sane way,
     # to compose rpc commands.
 
-    # interpolation within the expr literal is the idiomatic way,
-    # to bake local information into the rpc programmatically, e.g.
-    #
+    # interpolation within the expr literal is the idiomatic way, to bake local information into the rpc programmatically, e.g.
+
     #   `{$ someLocalProcedure( ***someLocalArgs ) $}`
-    #
+
     callThePolice( telno = {$ policeTelNo $} )
 
   )
@@ -50,8 +48,7 @@ expr service?calc and calc( 5, 11 ) or 'no `calc()` service'
 
 # %%
 {
-  # expression is 1st class citizen in Edh, so we can ask the
-  # remote peer to return some expr to be eval'ed here again
+  # expression is 1st class citizen in Edh, so we can ask the remote peer to return some expr to be eval'ed here again
   expr ( expr {
       ack( 'Some levels of inception actually works!' )
 

@@ -40,8 +40,22 @@ installNetBatteries !world =
               !peerClass <- createPeerClass moduScope
               !addrClass <- createAddrClass moduScope
 
-              !serverClass <- createServerClass consoleWarn addrClass peerClass moduScope
-              !clientClass <- createClientClass consoleWarn addrClass peerClass moduScope
+              !serverClass <-
+                createServerClass
+                  consoleWarn
+                  addrClass
+                  peerClass
+                  symNetPeer
+                  esNetEffs
+                  moduScope
+              !clientClass <-
+                createClientClass
+                  consoleWarn
+                  addrClass
+                  peerClass
+                  symNetPeer
+                  esNetEffs
+                  moduScope
 
               !wsServerClass <-
                 createWsServerClass

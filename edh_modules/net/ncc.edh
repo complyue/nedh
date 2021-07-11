@@ -1,25 +1,159 @@
-
-{#
+{##
  # networked client to remote console
  #}
 
 import * 'net'
 
-# here we use case-of + wild capture pattern to avoid the
-# transaction imposed by assignment, that's to say:
-#   client = Client ()
-# won't work as the assignment transaction will prevent the
-# necessary IO action to be performed during construction of
-# the client instance.
 
 export method consoleTo(
-  addr= '127.0.0.1', # remote addr to connect
+  reacts, # reactive methods to be triggered by the console server
+  addrSpec= '127.0.0.1', # remote addr to connect
   port= 3720, # remote port to connect
-  consumer= 'net/ncc', # the peer module
-  init= None, # peer module initialization
+  **kwargs,
 ) {
 
-  clnt = Client( consumer, addr, port=port, init=init, )
+  let clnt = Client( addrSpec= addrSpec, port= port, **kwargs ) $@ () => {
+
+    # obtain effectful arts per TCP consumer context
+    peer = perform @netPeer
+    peer =: Peer()
+
+    effect { # define conventional artifacts in effect
+      # note in assignments to symbolic attributes, semicolon before `@` is likely necessary, to disambiguate the `@` from an infix operator, in case there are any expressions before it
+
+      # local receiving end of the standard data channel
+      ; @dataSink = peer.armChannel( dataChan ?:= 'data' )
+
+    }
+
+    # some handling of the consumer scope, in which context that incoming commands from the console server will be landed
+    case peer.sandbox of {
+      { csmrScope } -> {
+        # the consumer is sandboxed. in this case, the sandbox scope, which is the lexical context used to land incoming commands from the console server, is rather minimal
+        # we at least make Nedh symbols available there, for the console server to use them
+        from 'net/symbols' import * into csmrScope
+
+        # expose specified consumer methods
+        from reacts import * into csmrScope
+      }
+      # the consumer is not sandboxed, current scope will be used to land incoming commands from console clients, all Nedh artifacts, beside many other artifacts are already available here
+      csmrScope = scope()
+
+      # expose specified consumer methods
+      import * reacts
+    }
+
+
+    chConOut = peer.armChannel( conout ?:= 1 )
+
+    # by default, show peer's identity as part of the console prompt
+    cinArgs = (
+      ps1 = '<' ++peer.ident ++ '> Đ: ',
+    )
+
+    # land commands from the console server asynchronously, without any
+    # obtacle in the flow of incoming commands
+    go {
+      # also, run net console io perceivers in this thread, so they don't
+      # get blocked during reading from stdio console as by outer thread
+
+      defer {
+        console.debug<| 'No more commands from console server - ' ++ peer
+      }
+
+      # channel 0 is named `conin` by convention, commands through it are
+      # interpreted as command prompt change requests from the connected
+      # service for this consumer client
+      perceive peer.armChannel( conin ?:= 0 ) {
+        { ( ps1, ps2 ) } -> {
+          cinArgs = ( ***cinArgs, ps1= ps1, ps2= ps2, )
+        }
+        { ps1 } -> {
+          ; | type( ps1 ) is "ArgsPack" -> {
+            cinArgs = ( ***cinArgs, ***ps1, )
+          }
+          cinArgs = ( ***cinArgs, ps1= ps1, )
+        }
+      }
+
+      # channel 1 is named `conout` by convention, commands through it are
+      # directed to `console.print()`
+      # CAVEAT: the outputting is hung up during reading of console commands
+      perceive chConOut { conOut } -> {
+        if type( conOut ) is "ArgsPack"
+        then console.print( ***conOut )
+        else console.print( conOut )
+      }
+
+      # channel 2 is named `conmsg` by convention, commands through it are
+      # directed to logging at `info` level
+      perceive peer.armChannel( conmsg ?:= 2 ) { conMsg } -> {
+        console.info<| conMsg
+      }
+
+      # channel 'err' is named `errChan` by convention, errors occurred on
+      # one site are passed to its peer through this channel
+      perceive peer.armChannel( errChan ?:= 'err' ) {
+        { { PeerError: peerErr } } -> { throw peerErr }
+        { peerErrMsg } -> { throw PeerError( peerErrMsg ) }
+      }
+
+      # trip a msg to our local conout, content of the msg doesn't need to
+      # be very useful (yet better to be), the successful delivery of this
+      # msg is a thing worth to validate in the first place. and then we are
+      # waiting 1st conout cmd before starting read of local stdio console
+      # (see below), so if the server does set some command prompt on
+      # connection, we'll use it to read the 1st command from local stdio.
+      #
+      # note (+) is used in the rpc cmd for string concat, so as to
+      #      universally work with peers speaking different languages (e.g.
+      #      Python instead of Edh), while the more Haskellish (++) would be
+      #      better used otherwise.
+      peer.postCommand( expr perform @netPeer.p2c( 1, expr
+          "You're seen as " + {$ repr( perform @netPeer ) $} + " at the server."
+      ) )
+
+      while peer.eol() is false {
+        case peer.readCommand() of {
+          # todo interpret any specially expected command here
+
+          { cmdVal } -> {
+            console.info<| 'Unexpected command from console server '
+            ++ peer ++ '\n  ' ++ cmdVal
+          }
+
+          # note a command resulting in nil is normal, just pass by here
+        }
+      }
+    }
+
+    # wait the 1st cmd to our conout, whether the server will issue one
+    # on connection on its own, we will post one (see above), so this
+    # won't dead lock
+    chConOut.latest
+
+    # pump commands from local stdio console to the console server
+    while peer.eol() is false {
+      case console.readSource( ***cinArgs ) of {
+        # the local cmd we'd interpret textually
+        ":quit" -> { break }
+
+        { cmdSrc } -> {
+          # expect a subsequent console out event after submitted the cmd,
+          # don't continue reading from local stdin, bcoz the read will prevent
+          # the actual output to local stdout from being printed
+          for _ from ( outlet= chConOut.subseq )|() =>* {
+            peer.postCommand( cmdSrc )
+          } do break
+        }
+
+        # note nil as cmd value is ignored here, so a nil is effectively nop
+      }
+    }
+
+  }
+
+  clnt =: Client() # prototype it
 
   case clnt.addrs() of {
     { addr :>_ } -> console.info<| 'Connected to console server at: ' ++ addr

@@ -289,8 +289,7 @@ createWsServerClass
                         -- pump commands in,
                         -- making this thread the only one reading the handle
                         --
-                        -- note this won't return, will be asynchronously killed
-                        -- on eol
+                        -- note this won't return, will be asynchronously killed on eol
                         !incomingDir <- newIORef ("" :: Text)
                         let settlePkt !payload = do
                               !dir <- readIORef incomingDir
@@ -345,8 +344,7 @@ createWsServerClass
                                                     <> " and reason ["
                                                     <> show closeReason
                                                     <> "]"
-                                    -- yet still try to receive ctrl msg back from
-                                    -- peer
+                                    -- yet still try to receive ctrl msg back from peer
                                     unmask pumpPkts
                               WS.ConnectionClosed ->
                                 atomically $
@@ -412,13 +410,14 @@ createWsServerClass
           \(EdhWsServer _proc _world !addr !port !port'max _ _ _) ->
             exitEdh ets exit $
               EdhString $
-                "WsServer<"
-                  <> T.pack (show addr)
-                  <> ", "
-                  <> T.pack (show port)
-                  <> ", port'max="
-                  <> T.pack (show port'max)
-                  <> ">"
+                T.pack $
+                  "WsServer<"
+                    <> show addr
+                    <> ", "
+                    <> show port
+                    <> ", port'max="
+                    <> show port'max
+                    <> ">"
 
       addrsProc :: EdhHostProc
       addrsProc !exit !ets = withThisHostObj ets $

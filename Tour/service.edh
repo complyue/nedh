@@ -1,13 +1,11 @@
-
-{#
- # this is a demo service module to be provided over network, via Nedh
+{##
+ # a demo service module containing service methods to be exposed over network, via Nedh
  #}
 
 import * 'net/symbols'
 
 
-# this is an example of asynchronously responsive procedure to be
-# called remotely
+{## an example of asynchronously responsive procedure to be called remotely #}
 export method callThePolice ( telno ) {
   # some real alarm should be alerted here, but we just log some msg to the
   # server's stdio console as a demo

@@ -1,18 +1,87 @@
 
 import * 'net'
 
-{
-  server = Server(
-    'net/demo/service', # the service module
-    '127.0.0.1', # local addr to bind
-    3721, # local port to bind
-  )
+import * as service './service'
 
-  # this waits the server to start listening and returns actual addresses
-  case server.addrs() of { addr :> extraAddrs }
-  -> console.info<| 'Demo service listening: ' ++ addr
 
-  # this waits the server to be stopped, or rethrows any failure
-  # the server encountered
-  server.join()
+# %%
+let server = Server( addr= '127.0.0.1', port= 3721, ) $@ () => {
+
+  # obtain effectful arts per TCP service context
+  peer = perform @netPeer
+  peer =: Peer()
+
+  console.info<| 'Serving demo client - ' ++ peer
+  defer {
+    console.info<| 'Disconnecting demo client ' ++ peer
+  }
+
+  # some handling of the service scope, in which context that incoming commands from service clients will be landed
+  case peer.sandbox of {
+    { svcScope } -> {
+      # the service is sandboxed. in this case, the sandbox scope, which is the lexical context used to land incoming commands from service clients, is rather minimal
+      # we at least make Nedh symbols available there, for service clients to use them
+      from 'net/symbols' import * into svcScope
+
+      # make service methods directly available there
+      from service import * into svcScope
+      # make available the service method collecton (kw-only-apk) too, so a service client can check what service methods are available through it, via rpc
+      svcScope.put(service= service)
+    }
+    # the service is not sandboxed, current scope will be used to land incoming commands from service clients
+    # the `service` method collection (kw-only-apk) is already availabel here, a service client can check what service methods are available through it, via rpc
+    svcScope = scope()
+    # make all service methods directly available from here
+    import * service
+  }
+
+  {
+
+    peer.p2c(
+      2, # direct to channel `conmsg := 2`
+      # we use the interpolated expr form to compose the remote command,
+      # and here we use operator (+) instead of the more idiomatic (++)
+      # (in Edh) for string concatenation, in case the client is not
+      # speaking Edh, or at least it does not support (++) as string
+      # concat op, e.g. a Python client
+      expr "Good day, " + {$ repr( peer ) $},
+    )
+
+    while peer.eol() is false case peer.readCommand() of {@
+      # note this is a scoped block, so attributes assigned within this block will be discarded on leaving this block scope, not affecting the outer, module scope at all.
+
+      { cmdVal } -> {
+        # serving as a simple expression evaluator, post the result
+        # back as client's console output, i.e. `conout := 1`
+        console.debug<| 'Got cmd from ' ++ peer ++ '\n  ' ++ cmdVal
+        peer.p2c(
+          1, # direct to channel conout := 1
+          repr( cmdVal ),
+        )
+      }
+
+      # note a command resulting in nil is ignored here
+    @}
+
+  } $=> { exc } -> {
+    console.error<| 'Exception by demo client ' ++ peer
+    ++ ' error: ' ++ desc( exc )
+  }
+
 }
+
+server =: Server() # prototype it for IntelliSense
+
+# this waits the server to start listening and returns actual addresses
+case server.addrs() of {
+  { addr :> extraAddrs }
+  -> console.info<| 'Demo service listening: ' ++ addr
+  server.join() # this usually throws
+  # in case join() didn't throw, report this error
+  error( 'Demo service failed listening.' )
+}
+
+
+# %#
+# this waits the server to be stopped, or rethrows any failure the server encountered
+server.join()

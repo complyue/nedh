@@ -3,17 +3,21 @@ import * 'net'
 import * 'net/ncs'
 
 
-# `server = consoleOn( ... )` won't work,
-# the assignment transaction will prevent necessary IO
-# actions `net.Server()` constructor has to perform
+# %%
+let server = consoleOn( servAddr= '127.0.0.1', servPort= 3720, )
+$@ namespace services() {
 
+  export method startTheFire() {
 
-# following is the only line you really need to paste
-# into an repl to start a working console server
-server = consoleOn( 'net/demo/console', '127.0.0.1', 3720, )
+    console.fatal<| 'The world is on fire!'
 
+    # use expression to invoke sth at the client side
+    return expr banner("You've light everything up!")
 
-# following line helps to keep the server live if this
-# file is redirected as stdin.
-# be aware it's no good to be pasted into an repl
+  }
+
+}
+
+# %#
+# keep the server process running
 server.join()
