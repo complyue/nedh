@@ -130,7 +130,7 @@ edhHandleHttp !defMime world !handlerProc = do
         pushEdhStack $ \ !etsEffs -> do
           let effsScope = contextScope $ edh'context etsEffs
           mkScopeSandbox etsEffs effsScope $ \ !sbScope -> do
-            !readCommand <- mkHostProc effsScope EdhMethod "readCommand" $
+            !readCommand <- mkHostProc effsScope EdhIntrpr "readCommand" $
               wrapHostProc $ \ !exit !ets -> do
                 let !src = TL.toStrict $ TLE.decodeUtf8 reqBody
                     !srcName =
