@@ -134,8 +134,8 @@ createPeerClass !clsOuterScope =
                 ("armedChannel", EdhMethod, wrapHostProc armedChannelProc),
                 ("armChannel", EdhMethod, wrapHostProc armChannelProc),
                 ("dispose", EdhMethod, wrapHostProc disposeProc),
-                ("readSource", EdhMethod, wrapHostProc readPeerSrcProc),
-                ("readCommand", EdhMethod, wrapHostProc readPeerCmdProc),
+                ("readSource", EdhIntrpr, wrapHostProc readPeerSrcProc),
+                ("readCommand", EdhIntrpr, wrapHostProc readPeerCmdProc),
                 ("p2c", EdhMethod, wrapHostProc p2cProc),
                 ("postCommand", EdhMethod, wrapHostProc postPeerCmdProc),
                 ("__repr__", EdhMethod, wrapHostProc reprProc)
