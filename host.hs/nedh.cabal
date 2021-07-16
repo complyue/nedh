@@ -65,7 +65,6 @@ library
     , hashable
     , io-streams
     , lossless-decimal
-    , monad-control
     , mtl
     , network               >=3.1.1
     , snap-core
