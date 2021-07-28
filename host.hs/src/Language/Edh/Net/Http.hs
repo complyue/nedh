@@ -249,28 +249,21 @@ createHttpServerClass !addrClass !clsOuterScope =
       (optionalArg -> !maybeFront)
       (defaultArg "text/plain" -> !defMime)
       !ctorExit
-      !etsCtor =
-        if edh'in'tx etsCtor
-          then
-            throwEdh
-              etsCtor
-              UsageError
-              "you don't create network objects within a transaction"
-          else case edhUltimate resource'modules of
-            EdhString !modu -> withModules [modu]
-            EdhArgsPack (ArgsPack !args _kwargs) ->
-              seqcontSTM
-                ( flip fmap args $ \ !moduVal !exit' -> case moduVal of
-                    EdhString !modu -> exit' modu
-                    !v ->
-                      throwEdh etsCtor UsageError $
-                        "invalid type for modu: " <> edhTypeNameOf v
-                )
-                withModules
-            _ ->
-              throwEdh etsCtor UsageError $
-                "invalid type for modus: "
-                  <> edhTypeNameOf resource'modules
+      !etsCtor = case edhUltimate resource'modules of
+        EdhString !modu -> withModules [modu]
+        EdhArgsPack (ArgsPack !args _kwargs) ->
+          seqcontSTM
+            ( flip fmap args $ \ !moduVal !exit' -> case moduVal of
+                EdhString !modu -> exit' modu
+                !v ->
+                  throwEdh etsCtor UsageError $
+                    "invalid type for modu: " <> edhTypeNameOf v
+            )
+            withModules
+        _ ->
+          throwEdh etsCtor UsageError $
+            "invalid type for modus: "
+              <> edhTypeNameOf resource'modules
         where
           withModules !modus =
             parseRoutes etsCtor maybeRoutes maybeFront defMime $

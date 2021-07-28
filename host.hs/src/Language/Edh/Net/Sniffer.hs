@@ -80,38 +80,31 @@ createSnifferClass !addrClass !clsOuterScope =
       (defaultArg "127.0.0.1" -> !ctorAddr)
       (defaultArg 3721 -> !ctorPort)
       !ctorExit
-      !etsCtor =
-        if edh'in'tx etsCtor
-          then
-            throwEdh
-              etsCtor
-              UsageError
-              "you don't create network objects within a transaction"
-          else do
-            snifAddrs <- newEmptyTMVar
-            snifEoL <- newEmptyTMVar
-            let !sniffer =
-                  EdhSniffer
-                    { edh'sniffer'service = service,
-                      edh'sniffer'world =
-                        edh'prog'world $ edh'thread'prog etsCtor,
-                      edh'sniffer'addr = ctorAddr,
-                      edh'sniffer'port = ctorPort,
-                      edh'sniffing'addrs = snifAddrs,
-                      edh'sniffing'eol = snifEoL
-                    }
-            runEdhTx etsCtor $
-              edhContIO $ do
-                void $
-                  forkFinally
-                    (sniffThread sniffer)
-                    ( atomically
-                        -- fill empty addrs if the sniffing has ever failed
-                        . ((void $ tryPutTMVar snifAddrs []) <*)
-                        -- mark end-of-life anyway finally
-                        . tryPutTMVar snifEoL
-                    )
-                atomically $ ctorExit Nothing $ HostStore (toDyn sniffer)
+      !etsCtor = do
+        snifAddrs <- newEmptyTMVar
+        snifEoL <- newEmptyTMVar
+        let !sniffer =
+              EdhSniffer
+                { edh'sniffer'service = service,
+                  edh'sniffer'world =
+                    edh'prog'world $ edh'thread'prog etsCtor,
+                  edh'sniffer'addr = ctorAddr,
+                  edh'sniffer'port = ctorPort,
+                  edh'sniffing'addrs = snifAddrs,
+                  edh'sniffing'eol = snifEoL
+                }
+        runEdhTx etsCtor $
+          edhContIO $ do
+            void $
+              forkFinally
+                (sniffThread sniffer)
+                ( atomically
+                    -- fill empty addrs if the sniffing has ever failed
+                    . ((void $ tryPutTMVar snifAddrs []) <*)
+                    -- mark end-of-life anyway finally
+                    . tryPutTMVar snifEoL
+                )
+            atomically $ ctorExit Nothing $ HostStore (toDyn sniffer)
         where
           sniffThread :: EdhSniffer -> IO ()
           sniffThread

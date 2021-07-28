@@ -97,41 +97,34 @@ createWsServerClass
         (optionalArg -> maybeClients)
         (defaultArg True -> !useSandbox)
         !ctorExit
-        !etsCtor =
-          if edh'in'tx etsCtor
-            then
-              throwEdh
-                etsCtor
-                UsageError
-                "you don't create network objects within a transaction"
-            else do
-              !servAddrs <- newEmptyTMVar
-              !servEoL <- newEmptyTMVar
-              !clients <- maybe newEdhSink return maybeClients
-              let !server =
-                    EdhWsServer
-                      { edh'ws'service'proc = service,
-                        edh'ws'service'world =
-                          edh'prog'world $ edh'thread'prog etsCtor,
-                        edh'ws'server'addr = ctorAddr,
-                        edh'ws'server'port = fromIntegral ctorPort,
-                        edh'ws'server'port'max =
-                          fromIntegral $ fromMaybe ctorPort port'max,
-                        edh'ws'serving'addrs = servAddrs,
-                        edh'ws'server'eol = servEoL,
-                        edh'ws'serving'clients = clients
-                      }
-                  finalCleanup !result = atomically $ do
-                    -- fill empty addrs if the listening has ever failed
-                    void $ tryPutTMVar servAddrs []
-                    -- mark server end-of-life anyway finally
-                    void $ tryPutTMVar servEoL result
-                    -- mark eos for clients sink anyway finally
-                    void $ postEvent clients nil
-              runEdhTx etsCtor $
-                edhContIO $ do
-                  void $ forkFinally (serverThread server) finalCleanup
-                  atomically $ ctorExit Nothing $ HostStore (toDyn server)
+        !etsCtor = do
+          !servAddrs <- newEmptyTMVar
+          !servEoL <- newEmptyTMVar
+          !clients <- maybe newEdhSink return maybeClients
+          let !server =
+                EdhWsServer
+                  { edh'ws'service'proc = service,
+                    edh'ws'service'world =
+                      edh'prog'world $ edh'thread'prog etsCtor,
+                    edh'ws'server'addr = ctorAddr,
+                    edh'ws'server'port = fromIntegral ctorPort,
+                    edh'ws'server'port'max =
+                      fromIntegral $ fromMaybe ctorPort port'max,
+                    edh'ws'serving'addrs = servAddrs,
+                    edh'ws'server'eol = servEoL,
+                    edh'ws'serving'clients = clients
+                  }
+              finalCleanup !result = atomically $ do
+                -- fill empty addrs if the listening has ever failed
+                void $ tryPutTMVar servAddrs []
+                -- mark server end-of-life anyway finally
+                void $ tryPutTMVar servEoL result
+                -- mark eos for clients sink anyway finally
+                void $ postEvent clients nil
+          runEdhTx etsCtor $
+            edhContIO $ do
+              void $ forkFinally (serverThread server) finalCleanup
+              atomically $ ctorExit Nothing $ HostStore (toDyn server)
           where
             serverThread :: EdhWsServer -> IO ()
             serverThread

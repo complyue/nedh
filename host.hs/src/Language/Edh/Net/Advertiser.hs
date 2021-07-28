@@ -72,22 +72,15 @@ createAdvertiserClass !addrClass !clsOuterScope =
       (defaultArg 3721 -> !ctorPort)
       (optionalArg -> !maybeFromAddr)
       !ctorExit
-      !etsCtor =
-        if edh'in'tx etsCtor
-          then
-            throwEdh
-              etsCtor
-              UsageError
-              "you don't create network objects within a transaction"
-          else case maybeFromAddr of
-            Just !fromAddrObj ->
-              castObjectStore fromAddrObj >>= \case
-                Nothing ->
-                  edhValueDesc etsCtor (EdhObject fromAddrObj) $ \ !badDesc ->
-                    throwEdh etsCtor UsageError $ "bad addr object: " <> badDesc
-                Just (_, fromAddr :: AddrInfo) ->
-                  go ctorAddr ctorPort (Just fromAddr)
-            _ -> go ctorAddr ctorPort Nothing
+      !etsCtor = case maybeFromAddr of
+        Just !fromAddrObj ->
+          castObjectStore fromAddrObj >>= \case
+            Nothing ->
+              edhValueDesc etsCtor (EdhObject fromAddrObj) $ \ !badDesc ->
+                throwEdh etsCtor UsageError $ "bad addr object: " <> badDesc
+            Just (_, fromAddr :: AddrInfo) ->
+              go ctorAddr ctorPort (Just fromAddr)
+        _ -> go ctorAddr ctorPort Nothing
         where
           go addr port fromAddr = do
             adSrc <- newEmptyTMVar

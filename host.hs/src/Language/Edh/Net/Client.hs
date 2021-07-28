@@ -103,21 +103,14 @@ createClientClass
         (defaultArg 3721 -> !ctorPort)
         (defaultArg True -> !useSandbox)
         !ctorExit
-        !etsCtor =
-          if edh'in'tx etsCtor
-            then
-              throwEdh
-                etsCtor
-                UsageError
-                "you don't create network objects within a transaction"
-            else case addrSpec of
-              EdhObject !addrObj ->
-                serviceAddressFrom etsCtor addrObj $
-                  {- HLINT ignore "Use uncurry" -}
-                  \(addr, port) -> go addr port
-              EdhString !addr -> go addr ctorPort
-              !badSpec -> edhValueDesc etsCtor badSpec $ \ !badDesc ->
-                throwEdh etsCtor UsageError $ "bad address: " <> badDesc
+        !etsCtor = case addrSpec of
+          EdhObject !addrObj ->
+            serviceAddressFrom etsCtor addrObj $
+              {- HLINT ignore "Use uncurry" -}
+              \(addr, port) -> go addr port
+          EdhString !addr -> go addr ctorPort
+          !badSpec -> edhValueDesc etsCtor badSpec $ \ !badDesc ->
+            throwEdh etsCtor UsageError $ "bad address: " <> badDesc
           where
             go !addr !port = do
               !serviceAddrs <- newEmptyTMVar
