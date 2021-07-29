@@ -89,8 +89,8 @@ export method cmdLineTo(
 
       # channel 'err' is named `errChan` by convention, errors occurred on one site are passed to its peer through this channel
       perceive peer.armChannel( errChan ) {
-        { { PeerError: peerErr } } -> { throw peerErr }
-        { peerErrMsg } -> { throw PeerError( peerErrMsg ) }
+        { { PeerError: peerErr } } -> throw peerErr
+        { peerErrMsg } -> throw PeerError( peerErrMsg )
       }
 
       # trip a msg to our local conout, content of the msg doesn't need to be very useful (yet better to be), the successful delivery of this msg is a thing worth to validate in the first place. and then we are waiting 1st conout cmd before starting read of local stdio console (see below), so if the server does set some command prompt on connection, we'll use it to read the 1st command from local stdio.
@@ -124,7 +124,7 @@ export method cmdLineTo(
     # pump commands from local stdio console to the service
     while peer.eol() is false {
       case console.readCommand(*** cinArgs ) of {
-        batteries.quit -> { break }
+        batteries.quit -> break
 
         { cmdVal } -> {
           # expect a subsequent console out event after submitted the cmd, don't continue reading from local stdin, bcoz the read will prevent the actual output to local stdout from being printed

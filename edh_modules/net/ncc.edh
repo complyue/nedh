@@ -94,8 +94,8 @@ export method consoleTo(
       # channel 'err' is named `errChan` by convention, errors occurred on
       # one site are passed to its peer through this channel
       perceive peer.armChannel( errChan ?:= 'err' ) {
-        { { PeerError: peerErr } } -> { throw peerErr }
-        { peerErrMsg } -> { throw PeerError( peerErrMsg ) }
+        { { PeerError: peerErr } } -> throw peerErr
+        { peerErrMsg } -> throw PeerError( peerErrMsg )
       }
 
       # trip a msg to our local conout, content of the msg doesn't need to
@@ -136,7 +136,7 @@ export method consoleTo(
     while peer.eol() is false {
       case console.readSource( ***cinArgs ) of {
         # the local cmd we'd interpret textually
-        ":quit" -> { break }
+        ":quit" -> break
 
         { cmdSrc } -> {
           # expect a subsequent console out event after submitted the cmd,

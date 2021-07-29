@@ -57,10 +57,10 @@ export {
         # a block decorator shoud honor special flow control values as the result of the evaluation, and cooperate accordingly, like this:
         case callerScope.eval$ tagBlockExpr of {
 
-          { continue } -> { return { continue } } # decorated body issued { continue }
-          { break } -> { return { break } } # decorated body issued { break }
-          { return nil } -> { return { return nil } } # decorated body issued { return nil }
-          { return rtn } -> { return { return rtn } } # decorated body issued { return xxx }
+          { continue } -> return { continue } # decorated body issued { continue }
+          { break } -> return { break } # decorated body issued { break }
+          { return nil } -> return { return nil } # decorated body issued { return nil }
+          { return rtn } -> return { return rtn } # decorated body issued { return xxx }
 
           { txt } | type(txt) is 'String' -> (
             () => perform @ht'write'payload(
