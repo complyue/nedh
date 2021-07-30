@@ -20,9 +20,7 @@ from .peer import *
 logger = log.get_logger(__name__)
 
 
-async def takeEdhFd(
-    wsc_fd: int, net_opts: Optional[Dict] = None,
-):
+async def takeEdhFd(wsc_fd: int, net_opts: Optional[Dict] = None):
     loop = asyncio.get_running_loop()
 
     # prepare the peer object
@@ -38,7 +36,7 @@ async def takeEdhFd(
     # bounded queue
     hoq = asyncio.Queue(maxsize=1)
 
-    peer = Peer(ident=ident, eol=eol, posting=poq.put, hosting=hoq.get,)
+    peer = Peer(ident=ident, eol=eol, posting=poq.put, hosting=hoq.get)
 
     # mark end-of-life anyway finally
     def client_cleanup(clnt_fut):
@@ -60,7 +58,10 @@ async def takeEdhFd(
 
             # take over the network connection
             sock = socket.socket(fileno=wsc_fd)
-            intake, outlet = await asyncio.open_connection(sock=sock, **net_opts or {},)
+            intake, outlet = await asyncio.open_connection(
+                sock=sock,
+                **net_opts or {},
+            )
 
             async def pumpCmdsOut():
                 # this task is the only one writing the socket
@@ -80,7 +81,7 @@ async def takeEdhFd(
             # pump commands in,
             # this task is the only one reading the socket
             await receivePacketStream(
-                peer_site=ident, intake=intake, pkt_sink=hoq.put, eos=eol,
+                peer_site=ident, intake=intake, pkt_sink=hoq.put, eos=eol
             )
 
         except Exception as exc:
@@ -88,6 +89,8 @@ async def takeEdhFd(
             if not eol.done():
                 eol.set_exception(exc)
         finally:
+            if not eol.done():
+                eol.set_result(None)
             if outlet is not None:
                 # todo post err (if any) to peer
                 outlet.write_eof()
@@ -98,4 +101,3 @@ async def takeEdhFd(
     asyncio.create_task(_consumer_thread()).add_done_callback(client_cleanup)
 
     return peer
-

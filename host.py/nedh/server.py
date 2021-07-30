@@ -21,8 +21,7 @@ logger = log.get_logger(__name__)
 
 
 class EdhServer:
-    """
-    """
+    """ """
 
     def __init__(
         self,
@@ -116,7 +115,7 @@ class EdhServer:
                 return
 
     async def _serv_client(
-        self, intake: asyncio.StreamReader, outlet: asyncio.StreamWriter,
+        self, intake: asyncio.StreamReader, outlet: asyncio.StreamWriter
     ):
         loop = asyncio.get_running_loop()
         eol = loop.create_future()
@@ -133,7 +132,7 @@ class EdhServer:
             # bounded queue
             hoq = asyncio.Queue(maxsize=1)
 
-            peer = Peer(ident=ident, eol=eol, posting=poq.put, hosting=hoq.get,)
+            peer = Peer(ident=ident, eol=eol, posting=poq.put, hosting=hoq.get)
 
             # per-connection peer module preparation
             modu = {"peer": peer}
@@ -144,9 +143,7 @@ class EdhServer:
                     await maybe_async
             # launch the peer module, it normally forks a concurrent task to
             # run a command landing loop
-            runpy.run_module(
-                self.service_modu, modu,
-            )
+            runpy.run_module(self.service_modu, modu)
             logger.debug(f"Nedh client peer module {self.service_modu} initialized")
 
             async def pumpCmdsOut():
@@ -161,6 +158,14 @@ class EdhServer:
                     logger.error("Nedh client caused error.", exc_info=True)
                     if not eol.done():
                         eol.set_exception(exc)
+                finally:
+                    if not eol.done():
+                        eol.set_result(None)
+                    # todo post err (if any) to peer
+                    outlet.write_eof()
+                    outlet.close()
+                    # don't do this to workaround https://bugs.python.org/issue39758
+                    # await outlet.wait_closed()
 
             asyncio.create_task(pumpCmdsOut())
 
@@ -169,7 +174,7 @@ class EdhServer:
             # pump commands in,
             # this task is the only one reading the socket
             await receivePacketStream(
-                peer_site=ident, intake=intake, pkt_sink=hoq.put, eos=eol,
+                peer_site=ident, intake=intake, pkt_sink=hoq.put, eos=eol
             )
         except asyncio.CancelledError:
             pass
@@ -178,13 +183,3 @@ class EdhServer:
             logger.error("Nedh client caused error.", exc_info=True)
             if not eol.done():
                 eol.set_exception(exc)
-
-        finally:
-            if not eol.done():
-                eol.set_result(None)
-            # todo post err (if any) to peer
-            outlet.write_eof()
-            outlet.close()
-            # don't do this to workaround https://bugs.python.org/issue39758
-            # await outlet.wait_closed()
-
