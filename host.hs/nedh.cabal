@@ -49,6 +49,7 @@ library
     ScopedTypeVariables
     TupleSections
     TypeApplications
+    AllowAmbiguousTypes
     TypeOperators
     ViewPatterns
 
@@ -95,6 +96,7 @@ executable nedh
     ScopedTypeVariables
     TupleSections
     TypeApplications
+    AllowAmbiguousTypes
     TypeOperators
     ViewPatterns
 
@@ -140,6 +142,7 @@ executable runnedh
     ScopedTypeVariables
     TupleSections
     TypeApplications
+    AllowAmbiguousTypes
     TypeOperators
     ViewPatterns
 
