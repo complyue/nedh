@@ -109,7 +109,7 @@ createClientClass
               {- HLINT ignore "Use uncurry" -}
               \(addr, port) -> go addr port
           EdhString !addr -> go addr ctorPort
-          !badSpec -> edhValueDesc etsCtor badSpec $ \ !badDesc ->
+          !badSpec -> edhSimpleDesc etsCtor badSpec $ \ !badDesc ->
             throwEdh etsCtor UsageError $ "bad address: " <> badDesc
           where
             go !addr !port = do

@@ -61,7 +61,7 @@ parseRoutes !ets !maybeRoutes !maybeFront !defMime !exit = case maybeRoutes of
     go !rts ((pv, hv) : rest) = case edhUltimate pv of
       EdhString !p -> parseRoute hv $ \ !r ->
         go ((TE.encodeUtf8 p, r) : rts) rest
-      _ -> edhValueDesc ets pv $ \ !badDesc ->
+      _ -> edhSimpleDesc ets pv $ \ !badDesc ->
         throwEdh ets UsageError $ "bad snap route: " <> badDesc
 
     parseRoute :: EdhValue -> (Snap.Snap () -> STM ()) -> STM ()

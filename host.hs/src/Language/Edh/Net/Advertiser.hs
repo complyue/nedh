@@ -76,7 +76,7 @@ createAdvertiserClass !addrClass !clsOuterScope =
         Just !fromAddrObj ->
           castObjectStore fromAddrObj >>= \case
             Nothing ->
-              edhValueDesc etsCtor (EdhObject fromAddrObj) $ \ !badDesc ->
+              edhSimpleDesc etsCtor (EdhObject fromAddrObj) $ \ !badDesc ->
                 throwEdh etsCtor UsageError $ "bad addr object: " <> badDesc
             Just (_, fromAddr :: AddrInfo) ->
               go ctorAddr ctorPort (Just fromAddr)
