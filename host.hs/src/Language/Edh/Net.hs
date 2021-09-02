@@ -15,7 +15,7 @@ where
 -- import           Debug.Trace
 
 import Control.Monad
-import Language.Edh.EHI
+import Language.Edh.CHI
 import Language.Edh.Net.Addr
 import Language.Edh.Net.Advertiser
 import Language.Edh.Net.Client

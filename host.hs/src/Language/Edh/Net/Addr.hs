@@ -7,7 +7,7 @@ import Data.Dynamic
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Conc (unsafeIOToSTM)
-import Language.Edh.EHI
+import Language.Edh.CHI
 import Network.Socket
 import Prelude
 

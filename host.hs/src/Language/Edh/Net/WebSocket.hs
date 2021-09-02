@@ -20,7 +20,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLE
-import Language.Edh.EHI
+import Language.Edh.CHI
 import Language.Edh.Net.Addr
 import Language.Edh.Net.MicroProto
 import Language.Edh.Net.Peer

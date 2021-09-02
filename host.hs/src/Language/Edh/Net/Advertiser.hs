@@ -11,7 +11,7 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
-import Language.Edh.EHI
+import Language.Edh.CHI
 import Language.Edh.Net.Addr
 import Language.Edh.Net.Sniffer
 import Network.Socket
