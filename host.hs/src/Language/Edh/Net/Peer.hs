@@ -230,7 +230,7 @@ createPeerClass !clsOuterScope =
             !chLctr -> edhValueRepr ets chLctr $ \ !lctr -> exit' lctr
       withDir $ \ !dir -> case cmdVal of
         EdhString !src -> postPeerCommand ets peer (textPacket dir src) exit
-        EdhExpr _ _ _ !src ->
+        EdhExpr _ !src ->
           if src == ""
             then
               throwEdh
