@@ -28,10 +28,10 @@ data Peer = Peer
     -- | intake for incoming packets
     edh'peer'hosting :: !(STM Packet),
     -- | sinks to be cut-off (i.e. marked eos) on eol of this peer
-    edh'peer'disposals :: !(TVar (Set.HashSet EdhSink)),
+    edh'peer'disposals :: !(TVar (Set.HashSet Sink)),
     -- | registry of comm channels associated with this peer,
     -- identified by arbitrary Edh values
-    edh'peer'channels :: !(TVar (Map.HashMap EdhValue EdhSink))
+    edh'peer'channels :: !(TVar (Map.HashMap EdhValue Sink))
   }
 
 postPeerCommand :: EdhThreadState -> Peer -> Packet -> EdhTxExit () -> STM ()
@@ -185,11 +185,11 @@ createPeerClass !clsOuterScope =
         {- HLINT ignore "Redundant <$>" -}
         Map.lookup chLctr <$> readTVar (edh'peer'channels peer) >>= \case
           Nothing -> exitEdh ets exit nil
-          Just !chSink -> exitEdh ets exit $ EdhEvs chSink
+          Just !chSink -> exitEdh ets exit $ EdhSink chSink
 
     armChannelProc ::
       "chLctr" !: EdhValue ->
-      "chSink" ?: EdhSink ->
+      "chSink" ?: Sink ->
       "dispose" ?: Bool ->
       EdhHostProc
     armChannelProc
@@ -199,20 +199,20 @@ createPeerClass !clsOuterScope =
       !exit
       !ets =
         withThisHostObj ets $ \ !peer -> do
-          !chSink <- maybe newEdhSink return maybeSink
+          !chSink <- maybe newSink return maybeSink
           modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
           when dispose $
             modifyTVar' (edh'peer'disposals peer) $ Set.insert chSink
-          exitEdh ets exit $ EdhEvs chSink
+          exitEdh ets exit $ EdhSink chSink
 
-    disposeProc :: "dependentSink" !: EdhSink -> EdhHostProc
+    disposeProc :: "dependentSink" !: Sink -> EdhHostProc
     disposeProc (mandatoryArg -> !sink) !exit !ets =
       withThisHostObj ets $ \ !peer -> do
         modifyTVar' (edh'peer'disposals peer) $ Set.insert sink
         tryReadTMVar (edh'peer'eol peer) >>= \case
           Just {} -> void $ postEvent sink EdhNil -- already eol, mark eos now
           _ -> pure ()
-        exitEdh ets exit $ EdhEvs sink
+        exitEdh ets exit $ EdhSink sink
 
     readPeerSrcProc :: EdhHostProc
     readPeerSrcProc !exit !ets =

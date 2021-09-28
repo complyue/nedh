@@ -35,7 +35,7 @@ data EdhServer = EdhServer
     -- end-of-life status
     edh'server'eol :: !(TMVar (Either SomeException ())),
     -- each connected peer is sunk into this
-    edh'serving'clients :: !EdhSink
+    edh'serving'clients :: !Sink
   }
 
 createServerClass ::
@@ -76,7 +76,7 @@ createServerClass
         "addr" ?: Text ->
         "port" ?: Int ->
         "port'max" ?: Int ->
-        "clients" ?: EdhSink ->
+        "clients" ?: Sink ->
         "useSandbox" ?: Bool ->
         EdhObjectAllocator
       serverAllocator
@@ -90,7 +90,7 @@ createServerClass
         !etsCtor = do
           !servAddrs <- newEmptyTMVar
           !servEoL <- newEmptyTMVar
-          !clients <- maybe newEdhSink return maybeClients
+          !clients <- maybe newSink return maybeClients
           let !server =
                 EdhServer
                   { edh'service'proc = service,
@@ -286,7 +286,7 @@ createServerClass
 
       clientsProc :: EdhHostProc
       clientsProc !exit !ets = withThisHostObj ets $
-        \ !server -> exitEdh ets exit $ EdhEvs $ edh'serving'clients server
+        \ !server -> exitEdh ets exit $ EdhSink $ edh'serving'clients server
 
       reprProc :: EdhHostProc
       reprProc !exit !ets =
