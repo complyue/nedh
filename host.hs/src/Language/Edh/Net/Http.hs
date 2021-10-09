@@ -12,6 +12,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Char8 as C
+import qualified Data.ByteString.Lazy as BL
 import Data.Char
 import Data.Dynamic
 import Data.Functor
@@ -130,6 +131,13 @@ edhHandleHttp !defMime world !handlerProc = do
         pushEdhStack $ \ !etsEffs -> do
           let effsScope = contextScope $ edh'context etsEffs
           mkScopeSandbox etsEffs effsScope $ \ !sbScope -> do
+            !readBlob <- mkHostProc effsScope EdhMethod "readBlob" $
+              wrapHostProc $ \ !exit ->
+                exitEdhTx exit $ EdhBlob $ BL.toStrict reqBody
+            !readSource <- mkHostProc effsScope EdhMethod "readSource" $
+              wrapHostProc $ \ !exit -> do
+                let !src = TL.toStrict $ TLE.decodeUtf8 reqBody
+                exitEdhTx exit $ EdhString src
             !readCommand <- mkHostProc effsScope EdhIntrpr "readCommand" $
               wrapHostProc $ \ !exit !ets -> do
                 let !src = TL.toStrict $ TLE.decodeUtf8 reqBody
@@ -171,6 +179,8 @@ edhHandleHttp !defMime world !handlerProc = do
                   ( AttrByName "rqParams",
                     EdhArgsPack $ wrapParams (Snap.rqParams req)
                   ),
+                  (AttrByName "readBlob", readBlob),
+                  (AttrByName "readSource", readSource),
                   (AttrByName "readCommand", readCommand),
                   (AttrByName "setResponseCode", setResponseCode),
                   (AttrByName "setContentType", setContentType),
