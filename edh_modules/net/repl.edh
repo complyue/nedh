@@ -44,8 +44,8 @@ export class WebRepl {
   method __repr__() '<web ' ++ this.httpUrlBase ++ ' REPL>'
 
 
-  interpreter replHere( callerScope, prompt= None ) {
-    this.replWith( callerScope, prompt and callerScope.eval( prompt ) )
+  interpreter replHere( callerScope: scope, prompt= None ) {
+    this.replWith( callerScope: scope, prompt and callerScope.eval( prompt ) )
   }
 
   method replWith( scopeOrObj, prompt= None ) {
@@ -86,7 +86,7 @@ export class WebRepl {
     { scnt } -> {
       scnt ++ ' web REPL session(s) atm:\n' ++
       '\n'.join(
-        *() =< for ( sid, session ) from this.sessions
+        *() =< for ( sid: UUID, session: ReplSession ) from this.sessions
         do ' *** ' ++ session.location ++ '\n  *  ' ++ session.url
       )
     }
@@ -105,6 +105,7 @@ export class WebRepl {
   method service() {
 
     peer = perform @netPeer
+    peer =: Peer()
 
     console.debug<| 'REPL web client connected - ' ++ peer
     defer {
@@ -142,7 +143,7 @@ export class WebRepl {
 
 
 data ReplSession (
-  baseUrl, inScope,
+  baseUrl, inScope: scope(),
   prompt= None,
   sid= str$ UUID(),
   cmdIn= sink,
@@ -193,7 +194,7 @@ data ReplSession (
   }
 
 
-  method runREPL( peer ) {
+  method runREPL( peer: Peer ) {
 
     peer.postCommand( this.prompt or ( '''  ***
 You are in a REPL at ''' ++ this.inScope.lexiLoc ++ '''

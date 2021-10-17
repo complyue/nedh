@@ -7,7 +7,7 @@ import * './symbols'
 export {
 
   # the top level tag script runner
-  interpreter runTag( callerScope, tagScript ) {
+  interpreter runTag( callerScope: scope, tagScript ) {
 
     # output it on-the-fly at top level
     effect method @tag'inner'frag(innerFrag) innerFrag()
@@ -29,7 +29,7 @@ export {
     ) {
 
       let
-      , tagAttrs = scope$ namespace @tag'attrs (** @tag'attrs) pass
+      , tagAttrs = scope( namespace @tag'attrs (** @tag'attrs) pass )
       , fragments = []
 
       return interpreter @( @tag'name ++ "'tag" ) (callerScope, tagBlockExpr) {
