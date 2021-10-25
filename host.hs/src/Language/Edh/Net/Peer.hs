@@ -12,7 +12,7 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Language.Edh.CHI
+import Language.Edh.MHI
 import Language.Edh.Net.MicroProto
 import Prelude
 
@@ -34,243 +34,226 @@ data Peer = Peer
     edh'peer'channels :: !(TVar (Map.HashMap EdhValue Sink))
   }
 
-postPeerCommand :: EdhThreadState -> Peer -> Packet -> EdhTxExit () -> STM ()
-postPeerCommand !ets !peer !pkt !exit =
+postPeerCommand :: EdhThreadState -> Peer -> Packet -> STM ()
+postPeerCommand !ets !peer !pkt =
   tryReadTMVar (edh'peer'eol peer) >>= \case
-    Just _ -> throwEdh ets EvalError "posting to a peer already end-of-life"
-    Nothing -> do
-      edh'peer'posting peer pkt
-      exitEdh ets exit ()
+    Just _ -> throwEdhSTM ets EvalError "posting to a peer already end-of-life"
+    Nothing -> edh'peer'posting peer pkt
 
-readPeerSource :: EdhThreadState -> Peer -> EdhTxExit EdhValue -> STM ()
-readPeerSource !ets peer@(Peer _ _ !eol _ !ho _ _) !exit =
-  ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) >>= \case
+readPeerSource :: Peer -> Edh EdhValue
+readPeerSource peer@(Peer _ _ !eol _ !ho _ _) =
+  inlineSTM ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) >>= \case
     -- reached normal end-of-stream
-    Left (Right _) -> exitEdh ets exit nil
+    Left (Right _) -> return nil
     -- previously eol due to error
-    Left (Left !ex) ->
-      edh'exception'wrapper (edh'prog'world $ edh'thread'prog ets) (Just ets) ex
-        >>= \ !exo -> edhThrow ets $ EdhObject exo
+    Left (Left !ex) -> throwHostM ex
     -- got next command source incoming
     Right pkt@(Packet !dir !payload) -> case dir of
-      "" -> exitEdh ets exit $ EdhString $ TE.decodeUtf8 payload
-      _ -> landPeerCmd peer pkt ets exit
+      "" -> return $ EdhString $ TE.decodeUtf8 payload
+      _ -> landPeerCmd peer pkt
 
 -- | Read next command from peer
 --
 -- Note a command may target a specific channel, thus get posted to that
 --      channel's sink, and nil will be returned from here for it.
-readPeerCommand :: EdhThreadState -> Peer -> EdhTxExit EdhValue -> STM ()
-readPeerCommand !ets peer@(Peer _ _ !eol _ !ho _ _) !exit =
-  ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) >>= \case
+readPeerCommand :: Peer -> Edh EdhValue
+readPeerCommand peer@(Peer _ _ !eol _ !ho _ _) =
+  inlineSTM ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) >>= \case
     -- reached normal end-of-stream
-    Left (Right _) -> exitEdh ets exit nil
+    Left (Right _) -> return nil
     -- previously eol due to error
-    Left (Left !ex) ->
-      edh'exception'wrapper (edh'prog'world $ edh'thread'prog ets) (Just ets) ex
-        >>= \ !exo -> edhThrow ets $ EdhObject exo
+    Left (Left !ex) -> throwHostM ex
     -- got next command incoming
-    Right !pkt -> landPeerCmd peer pkt ets exit
+    Right !pkt -> landPeerCmd peer pkt
 
-landPeerCmd :: Peer -> Packet -> EdhThreadState -> EdhTxExit EdhValue -> STM ()
+landPeerCmd :: Peer -> Packet -> Edh EdhValue
 landPeerCmd
   (Peer !ident !maybeSandbox _ _ _ _ !chdVar)
-  (Packet !dir !payload)
-  !ets
-  !exit =
+  (Packet !dir !payload) =
     case T.stripPrefix "blob:" dir of
-      Just !chLctr -> runEdhTx ets $ landValue chLctr $ EdhBlob payload
+      Just !chLctr -> landValue chLctr $ EdhBlob payload
       Nothing -> case maybeSandbox of
-        Nothing ->
-          runEdhTx ets $
-            evalEdh srcName (TE.decodeUtf8 payload) $ \ !cmdVal ->
-              landValue dir cmdVal
-        Just !sandbox ->
-          runEdhInSandbox
-            ets
-            sandbox
-            (evalEdh srcName (TE.decodeUtf8 payload))
-            $ \ !cmdVal -> landValue dir cmdVal
+        Nothing -> do
+          !cmdVal <- evalSrcM srcName (TE.decodeUtf8 payload)
+          landValue dir cmdVal
+        Just !sandbox -> do
+          !cmdVal <-
+            runInSandboxM sandbox (evalSrcM srcName (TE.decodeUtf8 payload))
+          landValue dir cmdVal
     where
       !srcName = "peer:" <> ident
+
+      landValue :: Text -> EdhValue -> Edh EdhValue
       landValue !chLctr !val =
         if T.null chLctr
-          then -- to the default channel, which yields as direct result of
-          -- `peer.readCommand()`
-            exitEdhTx exit val
-          else -- to a specific channel, which should be located by the directive
-          case maybeSandbox of
-            Nothing -> evalEdh srcName chLctr (postToChan val)
-            Just !sandbox ->
-              runEdhTxInSandbox
-                sandbox
-                (evalEdh srcName chLctr)
-                (postToChan val)
-      postToChan :: EdhValue -> EdhValue -> EdhTx
-      postToChan !val !lctr _ets = do
-        !chd <- readTVar chdVar
+          then -- to the default channel,
+          -- which yields as direct result of `peer.readCommand()`
+            return val
+          else case maybeSandbox of -- to a specific channel,
+          -- which should be located by the directive
+            Nothing -> do
+              evalSrcM srcName chLctr >>= postToChan val
+              return nil
+            Just !sandbox -> do
+              runInSandboxM sandbox (evalSrcM srcName chLctr) >>= postToChan val
+              return nil
+
+      postToChan :: EdhValue -> EdhValue -> Edh ()
+      postToChan !val !lctr = do
+        !chd <- inlineSTM $ readTVar chdVar
         case Map.lookup lctr chd of
           Nothing ->
-            throwEdh ets UsageError $
-              "missing command channel: "
-                <> T.pack
-                  (show lctr)
+            throwEdhM UsageError $
+              "missing command channel: " <> T.pack (show lctr)
           Just !chSink -> do
             -- post the cmd to channel, but evals to nil as for
             -- `peer.readCommand()` wrt this cmd packet
-            void $ postEvent chSink val
-            exitEdh ets exit nil
+            void $ inlineSTM $ postEvent chSink val
 
-createPeerClass :: Scope -> STM Object
-createPeerClass !clsOuterScope =
-  mkHostClass clsOuterScope "Peer" peerAllocator [] $ \ !clsScope -> do
+createPeerClass :: Edh Object
+createPeerClass =
+  mkEdhClass "Peer" peerAllocator [] $ do
     !mths <-
       sequence $
-        [ (AttrByName nm,) <$> mkHostProc clsScope vc nm hp
+        [ (AttrByName nm,) <$> mkEdhProc vc nm hp
           | (nm, vc, hp) <-
-              [ ("eol", EdhMethod, wrapHostProc eolProc),
-                ("join", EdhMethod, wrapHostProc joinProc),
-                ("stop", EdhMethod, wrapHostProc stopProc),
-                ("armedChannel", EdhMethod, wrapHostProc armedChannelProc),
-                ("armChannel", EdhMethod, wrapHostProc armChannelProc),
-                ("dispose", EdhMethod, wrapHostProc disposeProc),
-                ("readSource", EdhIntrpr, wrapHostProc readPeerSrcProc),
-                ("readCommand", EdhIntrpr, wrapHostProc readPeerCmdProc),
-                ("p2c", EdhMethod, wrapHostProc p2cProc),
-                ("postCommand", EdhMethod, wrapHostProc postPeerCmdProc),
-                ("__repr__", EdhMethod, wrapHostProc reprProc)
+              [ ("eol", EdhMethod, wrapEdhProc eolProc),
+                ("join", EdhMethod, wrapEdhProc joinProc),
+                ("stop", EdhMethod, wrapEdhProc stopProc),
+                ("armedChannel", EdhMethod, wrapEdhProc armedChannelProc),
+                ("armChannel", EdhMethod, wrapEdhProc armChannelProc),
+                ("dispose", EdhMethod, wrapEdhProc disposeProc),
+                ("readSource", EdhIntrpr, wrapEdhProc readPeerSrcProc),
+                ("readCommand", EdhIntrpr, wrapEdhProc readPeerCmdProc),
+                ("p2c", EdhMethod, wrapEdhProc p2cProc),
+                ("postCommand", EdhMethod, wrapEdhProc postPeerCmdProc),
+                ("__repr__", EdhMethod, wrapEdhProc reprProc)
               ]
         ]
-          ++ [ (AttrByName nm,) <$> mkHostProperty clsScope nm getter setter
+          ++ [ (AttrByName nm,) <$> mkEdhProperty nm getter setter
                | (nm, getter, setter) <-
                    [ ("ident", identProc, Nothing),
                      ("sandbox", sandboxProc, Nothing)
                    ]
              ]
-    iopdUpdate mths $ edh'scope'entity clsScope
+
+    !clsScope <- contextScope . edh'context <$> edhThreadState
+    iopdUpdateEdh mths $ edh'scope'entity clsScope
   where
-    peerAllocator :: ArgsPack -> EdhObjectAllocator
+    peerAllocator :: ArgsPack -> Edh (Maybe Unique, ObjectStore)
     -- not really constructable from Edh code, this only creates bogus peer obj
-    peerAllocator _ !ctorExit _ = ctorExit Nothing $ HostStore (toDyn nil)
+    peerAllocator _ = return (Nothing, HostStore (toDyn nil))
 
-    eolProc :: EdhHostProc
-    eolProc !exit !ets = withThisHostObj ets $ \ !peer ->
-      tryReadTMVar (edh'peer'eol peer) >>= \case
-        Nothing -> exitEdh ets exit $ EdhBool False
-        Just (Left !e) ->
-          edh'exception'wrapper world (Just ets) e
-            >>= \ !exo -> exitEdh ets exit $ EdhObject exo
-        Just (Right ()) -> exitEdh ets exit $ EdhBool True
-      where
-        world = edh'prog'world $ edh'thread'prog ets
+    withThisPeer :: forall r. (Object -> Peer -> Edh r) -> Edh r
+    withThisPeer withPeer = do
+      !this <- edh'scope'this . contextScope . edh'context <$> edhThreadState
+      case fromDynamic =<< dynamicHostData this of
+        Nothing -> throwEdhM EvalError "bug: this is not an Peer"
+        Just !col -> withPeer this col
 
-    joinProc :: EdhHostProc
-    joinProc !exit !ets = withThisHostObj ets $ \ !peer ->
-      readTMVar (edh'peer'eol peer) >>= \case
-        Left !e ->
-          edh'exception'wrapper world (Just ets) e
-            >>= \ !exo -> edhThrow ets $ EdhObject exo
-        Right () -> exitEdh ets exit nil
-      where
-        world = edh'prog'world $ edh'thread'prog ets
+    eolProc :: Edh EdhValue
+    eolProc = withThisPeer $ \_this !peer ->
+      inlineSTM (tryReadTMVar $ edh'peer'eol peer) >>= \case
+        Nothing -> return $ EdhBool False
+        Just (Left !e) -> throwHostM e
+        Just (Right ()) -> return $ EdhBool True
 
-    stopProc :: EdhHostProc
-    stopProc !exit !ets = withThisHostObj ets $ \ !peer -> do
-      !stopped <- tryPutTMVar (edh'peer'eol peer) $ Right ()
-      exitEdh ets exit $ EdhBool stopped
+    joinProc :: Edh EdhValue
+    joinProc = withThisPeer $ \_this !peer ->
+      inlineSTM (readTMVar $ edh'peer'eol peer) >>= \case
+        Left !e -> throwHostM e
+        Right () -> return nil
 
-    armedChannelProc :: "chLctr" !: EdhValue -> EdhHostProc
-    armedChannelProc (mandatoryArg -> !chLctr) !exit !ets =
-      withThisHostObj ets $ \ !peer ->
-        {- HLINT ignore "Redundant <$>" -}
-        Map.lookup chLctr <$> readTVar (edh'peer'channels peer) >>= \case
-          Nothing -> exitEdh ets exit nil
-          Just !chSink -> exitEdh ets exit $ EdhSink chSink
+    stopProc :: Edh EdhValue
+    stopProc = withThisPeer $ \_this !peer -> do
+      !stopped <- inlineSTM $ tryPutTMVar (edh'peer'eol peer) $ Right ()
+      return $ EdhBool stopped
+
+    armedChannelProc :: "chLctr" !: EdhValue -> Edh EdhValue
+    armedChannelProc (mandatoryArg -> !chLctr) = withThisPeer $ \_this !peer ->
+      {- HLINT ignore "Redundant <$>" -}
+      inlineSTM (Map.lookup chLctr <$> readTVar (edh'peer'channels peer))
+        >>= \case
+          Nothing -> return nil
+          Just !chSink -> return $ EdhSink chSink
 
     armChannelProc ::
       "chLctr" !: EdhValue ->
       "chSink" ?: Sink ->
       "dispose" ?: Bool ->
-      EdhHostProc
+      Edh EdhValue
     armChannelProc
       (mandatoryArg -> !chLctr)
       (optionalArg -> !maybeSink)
-      (defaultArg True -> !dispose)
-      !exit
-      !ets =
-        withThisHostObj ets $ \ !peer -> do
+      (defaultArg True -> !dispose) =
+        withThisPeer $ \_this !peer -> inlineSTM $ do
           !chSink <- maybe newSink return maybeSink
           modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
           when dispose $
             modifyTVar' (edh'peer'disposals peer) $ Set.insert chSink
-          exitEdh ets exit $ EdhSink chSink
+          return $ EdhSink chSink
 
-    disposeProc :: "dependentSink" !: Sink -> EdhHostProc
-    disposeProc (mandatoryArg -> !sink) !exit !ets =
-      withThisHostObj ets $ \ !peer -> do
+    disposeProc :: "dependentSink" !: Sink -> Edh EdhValue
+    disposeProc (mandatoryArg -> !sink) =
+      withThisPeer $ \_this !peer -> inlineSTM $ do
         modifyTVar' (edh'peer'disposals peer) $ Set.insert sink
         tryReadTMVar (edh'peer'eol peer) >>= \case
           Just {} -> void $ postEvent sink EdhNil -- already eol, mark eos now
           _ -> pure ()
-        exitEdh ets exit $ EdhSink sink
+        return $ EdhSink sink
 
-    readPeerSrcProc :: EdhHostProc
-    readPeerSrcProc !exit !ets =
-      withThisHostObj ets $ \ !peer -> readPeerSource ets peer exit
+    readPeerSrcProc :: Edh EdhValue
+    readPeerSrcProc = withThisPeer $ \_this !peer -> readPeerSource peer
 
-    readPeerCmdProc :: EdhHostProc
-    readPeerCmdProc !exit !ets =
-      withThisHostObj ets $ \ !peer -> readPeerCommand ets peer exit
+    readPeerCmdProc :: Edh EdhValue
+    readPeerCmdProc = withThisPeer $ \_this !peer -> readPeerCommand peer
 
-    postCmd :: EdhValue -> EdhValue -> EdhTxExit () -> EdhTx
-    postCmd !dirVal !cmdVal !exit !ets = withThisHostObj ets $ \ !peer -> do
-      let withDir :: (PacketDirective -> STM ()) -> STM ()
-          withDir !exit' = case edhUltimate dirVal of
-            EdhNil -> exit' ""
-            !chLctr -> edhValueRepr ets chLctr $ \ !lctr -> exit' lctr
-      withDir $ \ !dir -> case cmdVal of
-        EdhString !src -> postPeerCommand ets peer (textPacket dir src) exit
+    postCmd :: EdhValue -> EdhValue -> Edh ()
+    postCmd !dirVal !cmdVal = withThisPeer $ \_this !peer -> do
+      !ets <- edhThreadState
+      !dir <- case edhUltimate dirVal of
+        EdhNil -> return ""
+        !chLctr -> edhValueReprM chLctr
+      case cmdVal of
+        EdhString !src ->
+          inlineSTM $ postPeerCommand ets peer (textPacket dir src)
         EdhExpr _ !src ->
           if src == ""
             then
-              throwEdh
-                ets
+              throwEdhM
                 UsageError
                 "missing source from the expr as command"
-            else postPeerCommand ets peer (textPacket dir src) exit
+            else inlineSTM $ postPeerCommand ets peer (textPacket dir src)
         EdhBlob !payload ->
-          postPeerCommand ets peer (Packet ("blob:" <> dir) payload) exit
+          inlineSTM $
+            postPeerCommand ets peer (Packet ("blob:" <> dir) payload)
         _ ->
-          throwEdh ets UsageError $
+          throwEdhM UsageError $
             "unsupported command type: " <> edhTypeNameOf cmdVal
 
-    p2cProc :: "dir" ?: EdhValue -> "cmd" ?: EdhValue -> EdhHostProc
-    p2cProc (defaultArg nil -> !dirVal) (defaultArg nil -> !cmdVal) !exit =
-      postCmd dirVal cmdVal $ \() -> exitEdhTx exit nil
+    p2cProc :: "dir" ?: EdhValue -> "cmd" ?: EdhValue -> Edh EdhValue
+    p2cProc (defaultArg nil -> !dirVal) (defaultArg nil -> !cmdVal) = do
+      postCmd dirVal cmdVal
+      return nil
 
-    postPeerCmdProc :: "cmd" ?: EdhValue -> "dir" ?: EdhValue -> EdhHostProc
-    postPeerCmdProc
-      (defaultArg nil -> !cmdVal)
-      (defaultArg nil -> !dirVal)
-      !exit =
-        postCmd dirVal cmdVal $ \() -> exitEdhTx exit nil
+    postPeerCmdProc :: "cmd" ?: EdhValue -> "dir" ?: EdhValue -> Edh EdhValue
+    postPeerCmdProc (defaultArg nil -> !cmdVal) (defaultArg nil -> !dirVal) =
+      do
+        postCmd dirVal cmdVal
+        return nil
 
-    identProc :: EdhHostProc
-    identProc !exit !ets =
-      withThisHostObj' ets (exitEdh ets exit $ EdhString "<bogus-peer>") $
-        \ !peer -> exitEdh ets exit $ EdhString $ edh'peer'ident peer
+    identProc :: Edh EdhValue
+    identProc = withThisPeer $ \_this !peer ->
+      return $ EdhString $ edh'peer'ident peer
 
-    sandboxProc :: EdhHostProc
-    sandboxProc !exit !ets = withThisHostObj ets $
-      \ !peer -> case edh'peer'sandbox peer of
-        Nothing -> exitEdh ets exit nil
-        Just !sbScope ->
-          edh'scope'wrapper world sbScope >>= exitEdh ets exit . EdhObject
-      where
-        world = edh'prog'world $ edh'thread'prog ets
+    sandboxProc :: Edh EdhValue
+    sandboxProc = withThisPeer $ \_this !peer -> case edh'peer'sandbox peer of
+      Nothing -> return nil
+      Just !sbScope -> do
+        ets <- edhThreadState
+        let world = edh'prog'world $ edh'thread'prog ets
+        inlineSTM $ EdhObject <$> edh'scope'wrapper world sbScope
 
-    reprProc :: EdhHostProc
-    reprProc !exit !ets =
-      withThisHostObj' ets (exitEdh ets exit $ EdhString "peer:<bogus>") $
-        \ !peer ->
-          exitEdh ets exit $ EdhString $ "peer:<" <> edh'peer'ident peer <> ">"
+    reprProc :: Edh EdhValue
+    reprProc = withThisPeer $ \_this !peer ->
+      return $ EdhString $ "peer:<" <> edh'peer'ident peer <> ">"

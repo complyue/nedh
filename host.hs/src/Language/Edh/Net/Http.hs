@@ -25,7 +25,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import Data.Text.Lazy.Builder
 import qualified Data.Text.Lazy.Encoding as TLE
-import Language.Edh.CHI
+import Language.Edh.MHI
 import Network.Socket
 import qualified Snap.Core as Snap
 import qualified Snap.Http.Server as Snap
@@ -41,39 +41,43 @@ mimeTypes :: Snap.MimeMap
 mimeTypes = Snap.defaultMimeTypes
 
 parseRoutes ::
-  EdhThreadState ->
   Maybe Dict ->
   Maybe EdhValue ->
   Text ->
-  (Snap.Snap () -> STM ()) ->
-  STM ()
-parseRoutes !ets !maybeRoutes !maybeFront !defMime !exit = case maybeRoutes of
-  Nothing -> withFront exit
-  (Just (Dict _ !dsRoutes)) -> iopdToList dsRoutes >>= go []
+  Edh (Snap.Snap ())
+parseRoutes !maybeRoutes !maybeFront !defMime = case maybeRoutes of
+  Nothing -> withFront
+  (Just (Dict _ !dsRoutes)) -> iopdToListEdh dsRoutes >>= go []
   where
-    withFront exit' = case maybeFront of
-      Nothing -> exit' Snap.pass
-      Just !frontHndlr -> edhValueNull ets frontHndlr $ \case
-        True -> exit' Snap.pass
-        False -> parseRoute frontHndlr $ \ !front -> exit' $ Snap.ifTop front
+    withFront = case maybeFront of
+      Nothing -> return Snap.pass
+      Just !frontHndlr ->
+        edhValueNullM frontHndlr >>= \case
+          True -> return Snap.pass
+          False ->
+            parseRoute frontHndlr >>= \ !front -> return $ Snap.ifTop front
     go !rts [] =
-      withFront $
-        \ !front -> exit $ front <|> Snap.route (reverse rts)
+      withFront
+        >>= \ !front -> return $ front <|> Snap.route (reverse rts)
     go !rts ((pv, hv) : rest) = case edhUltimate pv of
-      EdhString !p -> parseRoute hv $ \ !r ->
-        go ((TE.encodeUtf8 p, r) : rts) rest
-      _ -> edhSimpleDesc ets pv $ \ !badDesc ->
-        throwEdh ets UsageError $ "bad snap route: " <> badDesc
+      EdhString !p ->
+        parseRoute hv >>= \ !r ->
+          go ((TE.encodeUtf8 p, r) : rts) rest
+      _ ->
+        edhSimpleDescM pv >>= \ !badDesc ->
+          throwEdhM UsageError $ "bad snap route: " <> badDesc
 
-    parseRoute :: EdhValue -> (Snap.Snap () -> STM ()) -> STM ()
-    parseRoute !hv !exit' = case edhUltimate hv of
-      EdhBlob !payload -> exit' $ inMemRes payload defMime
+    parseRoute :: EdhValue -> Edh (Snap.Snap ())
+    parseRoute !hv = case edhUltimate hv of
+      EdhBlob !payload -> return $ inMemRes payload defMime
       EdhArgsPack (ArgsPack [EdhBlob !payload] !kwargs) ->
         let mimeVal =
               odLookupDefault (EdhString defMime) (AttrByName "mime") kwargs
-         in edhValueStr ets mimeVal $ \ !mime ->
-              exit' $ inMemRes payload mime
-      !handlerProc -> exit' $ edhHandleHttp defMime world handlerProc
+         in edhValueStrM mimeVal >>= \ !mime ->
+              return $ inMemRes payload mime
+      !handlerProc -> do
+        !world <- edh'prog'world <$> edhProgramState
+        return $ edhHandleHttp defMime world handlerProc
 
     inMemRes :: ByteString -> Text -> Snap.Snap ()
     inMemRes !payload !mime = do
@@ -82,11 +86,9 @@ parseRoutes !ets !maybeRoutes !maybeFront !defMime !exit = case maybeRoutes of
           . Snap.setContentType (TE.encodeUtf8 mime)
       Snap.writeBS payload
 
-    world = edh'prog'world $ edh'thread'prog ets
-
-htmlEscapeProc :: Text -> EdhHostProc
-htmlEscapeProc !txt !exit =
-  exitEdhTx exit $ EdhString $ TL.toStrict $ toLazyText $ htmlEscape txt
+htmlEscapeProc :: Text -> Edh EdhValue
+htmlEscapeProc !txt =
+  return $ EdhString $ TL.toStrict $ toLazyText $ htmlEscape txt
 
 htmlEscape :: Text -> Builder
 htmlEscape "" = mempty
@@ -119,57 +121,55 @@ edhHandleHttp !defMime world !handlerProc = do
       newTVarIO $
         Snap.setContentType (TE.encodeUtf8 defMime) Snap.emptyResponse
   let rspAddToOutput ::
-        (OutputStream BB.Builder -> IO (OutputStream BB.Builder)) -> STM ()
-      rspAddToOutput enum = modifyTVar rsp $
+        (OutputStream BB.Builder -> IO (OutputStream BB.Builder)) -> Edh ()
+      rspAddToOutput enum = modifyTVarEdh' rsp $
         Snap.modifyResponseBody $ \b out -> b out >>= enum
       rspWriteBuilder b =
         rspAddToOutput $ \str -> Streams.write (Just b) str >> return str
       rspWriteBS = rspWriteBuilder . BB.byteString
       rspWriteText = rspWriteBS . TE.encodeUtf8
 
-      runEdhHandler = runEdhProgram' world $
-        pushEdhStack $ \ !etsEffs -> do
-          let effsScope = contextScope $ edh'context etsEffs
-          mkScopeSandbox etsEffs effsScope $ \ !sbScope -> do
-            !readBlob <- mkHostProc effsScope EdhMethod "readBlob" $
-              wrapHostProc $ \ !exit ->
-                exitEdhTx exit $ EdhBlob $ BL.toStrict reqBody
-            !readSource <- mkHostProc effsScope EdhMethod "readSource" $
-              wrapHostProc $ \ !exit -> do
-                let !src = TL.toStrict $ TLE.decodeUtf8 reqBody
-                exitEdhTx exit $ EdhString src
-            !readCommand <- mkHostProc effsScope EdhIntrpr "readCommand" $
-              wrapHostProc $ \ !exit !ets -> do
-                let !src = TL.toStrict $ TLE.decodeUtf8 reqBody
-                    !srcName =
-                      TE.decodeUtf8 $
-                        Snap.rqClientAddr req <> " @>@ " <> Snap.rqURI req
-                runEdhInSandbox
-                  ets
-                  sbScope
-                  (evalEdh srcName src)
-                  exit
-            !setResponseCode <-
-              mkHostProc effsScope EdhMethod "setResponseCode" $
-                wrapHostProc $ \ !stCode !exit !ets -> do
-                  modifyTVar' rsp $ Snap.setResponseCode stCode
-                  exitEdh ets exit nil
-            !setContentType <-
-              mkHostProc effsScope EdhMethod "setContentType" $
-                wrapHostProc $ \ !mimeType !exit !ets -> do
-                  modifyTVar' rsp $
-                    Snap.setContentType $ TE.encodeUtf8 mimeType
-                  exitEdh ets exit nil
-            !writeText <- mkHostProc effsScope EdhMethod "writeText" $
-              wrapHostProc $ \ !payload !exit !ets -> do
-                rspWriteText payload
-                exitEdh ets exit nil
-            !writeBS <- mkHostProc effsScope EdhMethod "writeBS" $
-              wrapHostProc $ \ !payload !exit !ets -> do
-                rspWriteBS payload
-                exitEdh ets exit nil
-            prepareEffStore etsEffs (edh'scope'entity effsScope)
-              >>= iopdUpdate
+      returnEdh :: EdhValue -> Edh EdhValue
+      returnEdh = return
+
+      runEdhHandler = runProgramM' world $
+        pushStackM $ do
+          !effsScope <- contextScope . edh'context <$> edhThreadState
+          !sbScope <- mkSandboxM effsScope
+          !readBlob <-
+            mkEdhProc EdhMethod "readBlob" $
+              wrapEdhProc $ returnEdh $ EdhBlob $ BL.toStrict reqBody
+          !readSource <- mkEdhProc EdhMethod "readSource" $
+            wrapEdhProc $ do
+              let !src = TL.toStrict $ TLE.decodeUtf8 reqBody
+              returnEdh $ EdhString src
+          !readCommand <- mkEdhProc EdhIntrpr "readCommand" $
+            wrapEdhProc $ do
+              let !src = TL.toStrict $ TLE.decodeUtf8 reqBody
+                  !srcName =
+                    TE.decodeUtf8 $
+                      Snap.rqClientAddr req <> " @>@ " <> Snap.rqURI req
+              runInSandboxM sbScope (evalSrcM srcName src)
+          !setResponseCode <-
+            mkEdhProc EdhMethod "setResponseCode" $
+              wrapEdhProc $ \ !stCode -> do
+                modifyTVarEdh' rsp $ Snap.setResponseCode stCode
+                returnEdh nil
+          !setContentType <-
+            mkEdhProc EdhMethod "setContentType" $
+              wrapEdhProc $ \ !mimeType -> do
+                modifyTVarEdh' rsp $
+                  Snap.setContentType $ TE.encodeUtf8 mimeType
+                returnEdh nil
+          !writeText <- mkEdhProc EdhMethod "writeText" $
+            wrapEdhProc $ \ !payload -> do
+              rspWriteText payload
+              returnEdh nil
+          !writeBS <- mkEdhProc EdhMethod "writeBS" $
+            wrapEdhProc $ \ !payload -> do
+              rspWriteBS payload
+              returnEdh nil
+          let effArts =
                 [ ( AttrByName "rqPathInfo",
                     EdhString $ TE.decodeUtf8 $ Snap.rqPathInfo req
                   ),
@@ -188,7 +188,8 @@ edhHandleHttp !defMime world !handlerProc = do
                   -- TODO more Snap API as effects
                   (AttrByName "writeBS", writeBS)
                 ]
-            runEdhTx etsEffs $ edhMakeCall handlerProc [] haltEdhProgram
+          prepareEffStoreM >>= iopdUpdateEdh effArts
+          callM handlerProc []
   liftIO runEdhHandler >>= \case
     EdhCaseOther -> Snap.pass
     EdhFallthrough -> Snap.pass
@@ -224,22 +225,23 @@ data EdhHttpServer = EdhHttpServer
     edh'http'server'eol :: !(TMVar (Either SomeException ()))
   }
 
-createHttpServerClass :: Object -> Scope -> STM Object
-createHttpServerClass !addrClass !clsOuterScope =
-  mkHostClass clsOuterScope "HttpServer" (allocEdhObj serverAllocator) [] $
-    \ !clsScope -> do
-      !mths <-
-        sequence
-          [ (AttrByName nm,) <$> mkHostProc clsScope vc nm hp
-            | (nm, vc, hp) <-
-                [ ("addrs", EdhMethod, wrapHostProc addrsProc),
-                  ("eol", EdhMethod, wrapHostProc eolProc),
-                  ("join", EdhMethod, wrapHostProc joinProc),
-                  ("stop", EdhMethod, wrapHostProc stopProc),
-                  ("__repr__", EdhMethod, wrapHostProc reprProc)
-                ]
-          ]
-      iopdUpdate mths $ edh'scope'entity clsScope
+createHttpServerClass :: Object -> Edh Object
+createHttpServerClass !addrClass =
+  mkEdhClass "HttpServer" (allocObjM serverAllocator) [] $ do
+    !mths <-
+      sequence
+        [ (AttrByName nm,) <$> mkEdhProc vc nm hp
+          | (nm, vc, hp) <-
+              [ ("addrs", EdhMethod, wrapEdhProc addrsProc),
+                ("eol", EdhMethod, wrapEdhProc eolProc),
+                ("join", EdhMethod, wrapEdhProc joinProc),
+                ("stop", EdhMethod, wrapEdhProc stopProc),
+                ("__repr__", EdhMethod, wrapEdhProc reprProc)
+              ]
+        ]
+
+    !clsScope <- contextScope . edh'context <$> edhThreadState
+    iopdUpdateEdh mths $ edh'scope'entity clsScope
   where
     serverAllocator ::
       "resource'modules" !: EdhValue ->
@@ -249,7 +251,7 @@ createHttpServerClass !addrClass !clsOuterScope =
       "routes" ?: Dict ->
       "front" ?: EdhValue ->
       "defaultMime" ?: Text ->
-      EdhObjectAllocator
+      Edh (Maybe Unique, ObjectStore)
     serverAllocator
       (mandatoryArg -> !resource'modules)
       (defaultArg "127.0.0.1" -> !ctorAddr)
@@ -257,59 +259,56 @@ createHttpServerClass !addrClass !clsOuterScope =
       (optionalArg -> port'max)
       (optionalArg -> !maybeRoutes)
       (optionalArg -> !maybeFront)
-      (defaultArg "text/plain" -> !defMime)
-      !ctorExit
-      !etsCtor = case edhUltimate resource'modules of
-        EdhString !modu -> withModules [modu]
-        EdhArgsPack (ArgsPack !args _kwargs) ->
-          seqcontSTM
-            ( flip fmap args $ \ !moduVal !exit' -> case moduVal of
-                EdhString !modu -> exit' modu
-                !v ->
-                  throwEdh etsCtor UsageError $
-                    "invalid type for modu: " <> edhTypeNameOf v
-            )
-            withModules
-        _ ->
-          throwEdh etsCtor UsageError $
-            "invalid type for modus: "
-              <> edhTypeNameOf resource'modules
+      (defaultArg "text/plain" -> !defMime) =
+        case edhUltimate resource'modules of
+          EdhString !modu -> withModules [modu]
+          EdhArgsPack (ArgsPack !args _kwargs) -> do
+            !modus <- forM args $ \case
+              EdhString !modu -> return modu
+              !v ->
+                edhSimpleDescM v >>= \ !badDesc ->
+                  throwEdhM UsageError $
+                    "invalid modu: " <> badDesc
+            withModules modus
+          _ ->
+            throwEdhM UsageError $
+              "invalid type for modus: " <> edhTypeNameOf resource'modules
         where
-          withModules !modus =
-            parseRoutes etsCtor maybeRoutes maybeFront defMime $
-              \ !custRoutes -> do
-                servAddrs <- newEmptyTMVar
-                servEoL <- newEmptyTMVar
-                let !server =
-                      EdhHttpServer
-                        { edh'http'server'modus = modus,
-                          edh'http'custom'routes = custRoutes,
-                          edh'http'server'addr = ctorAddr,
-                          edh'http'server'port = fromIntegral ctorPort,
-                          edh'http'server'port'max =
-                            fromIntegral $ fromMaybe ctorPort port'max,
-                          edh'http'serving'addrs = servAddrs,
-                          edh'http'server'eol = servEoL
-                        }
-                runEdhTx etsCtor $
-                  edhContIO $ do
-                    void $
-                      forkFinally
-                        (serverThread server)
-                        ( atomically
-                            . void
-                            . (
-                                -- fill empty addrs if the connection has ever
-                                -- failed
-                                tryPutTMVar servAddrs [] <*
-                              )
-                            -- mark server end-of-life anyway finally
-                            . tryPutTMVar servEoL
+          withModules !modus = do
+            !world <- edh'prog'world <$> edhProgramState
+            !custRoutes <- parseRoutes maybeRoutes maybeFront defMime
+            !server <- inlineSTM $ do
+              servAddrs <- newEmptyTMVar
+              servEoL <- newEmptyTMVar
+              return
+                EdhHttpServer
+                  { edh'http'server'modus = modus,
+                    edh'http'custom'routes = custRoutes,
+                    edh'http'server'addr = ctorAddr,
+                    edh'http'server'port = fromIntegral ctorPort,
+                    edh'http'server'port'max =
+                      fromIntegral $ fromMaybe ctorPort port'max,
+                    edh'http'serving'addrs = servAddrs,
+                    edh'http'server'eol = servEoL
+                  }
+            afterTxIO $ do
+              void $
+                forkFinally
+                  (serverThread world server)
+                  ( atomically
+                      . void
+                      . (
+                          -- fill empty addrs if the connection has ever failed
+                          tryPutTMVar (edh'http'serving'addrs server) [] <*
                         )
-                    atomically $ ctorExit Nothing $ HostStore (toDyn server)
+                      -- mark server end-of-life anyway finally
+                      . tryPutTMVar (edh'http'server'eol server)
+                  )
+            return (Nothing, HostStore (toDyn server))
 
-          serverThread :: EdhHttpServer -> IO ()
+          serverThread :: EdhWorld -> EdhHttpServer -> IO ()
           serverThread
+            !world
             ( EdhHttpServer
                 !resModus
                 !custRoutes
@@ -385,64 +384,62 @@ createHttpServerClass !addrClass !clsOuterScope =
                       (Just (show servPort))
                   return addr
 
-          world = edh'prog'world $ edh'thread'prog etsCtor
-          logger = consoleLogger $ edh'world'console world
-          logSnapError :: ByteString -> IO ()
-          logSnapError payload =
-            atomically $ logger 40 (Just "snap-http") (TE.decodeUtf8 payload)
+                logger = consoleLogger $ edh'world'console world
+                logSnapError :: ByteString -> IO ()
+                logSnapError payload =
+                  atomically $ logger 40 (Just "snap-http") (TE.decodeUtf8 payload)
 
-    reprProc :: EdhHostProc
-    reprProc !exit !ets =
-      withThisHostObj ets $
-        \(EdhHttpServer !modus _ !addr !port !port'max _ _) ->
-          exitEdh ets exit $
-            EdhString $
-              "HttpServer("
-                <> T.pack (show modus)
-                <> ", "
-                <> T.pack (show addr)
-                <> ", "
-                <> T.pack (show port)
-                <> ", port'max="
-                <> T.pack (show port'max)
-                <> ")"
+    withThisServer :: forall r. (Object -> EdhHttpServer -> Edh r) -> Edh r
+    withThisServer withServer = do
+      !this <- edh'scope'this . contextScope . edh'context <$> edhThreadState
+      case fromDynamic =<< dynamicHostData this of
+        Nothing -> throwEdhM EvalError "bug: this is not an Server"
+        Just !col -> withServer this col
 
-    addrsProc :: EdhHostProc
-    addrsProc !exit !ets = withThisHostObj ets $
-      \ !server -> readTMVar (edh'http'serving'addrs server) >>= wrapAddrs []
+    reprProc :: Edh EdhValue
+    reprProc = withThisServer $
+      \_this (EdhHttpServer !modus _ !addr !port !port'max _ _) ->
+        return $
+          EdhString $
+            "HttpServer("
+              <> T.pack (show modus)
+              <> ", "
+              <> T.pack (show addr)
+              <> ", "
+              <> T.pack (show port)
+              <> ", port'max="
+              <> T.pack (show port'max)
+              <> ")"
+
+    addrsProc :: Edh EdhValue
+    addrsProc = withThisServer $ \_this !server ->
+      inlineSTM (readTMVar $ edh'http'serving'addrs server) >>= wrapAddrs []
       where
-        wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
+        wrapAddrs :: [EdhValue] -> [AddrInfo] -> Edh EdhValue
         wrapAddrs addrs [] =
-          exitEdh ets exit $ EdhArgsPack $ ArgsPack addrs odEmpty
+          return $ EdhArgsPack $ ArgsPack addrs odEmpty
         wrapAddrs !addrs (addr : rest) =
-          edhCreateHostObj addrClass addr
+          createHostObjectM addrClass addr
             >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
-    eolProc :: EdhHostProc
-    eolProc !exit !ets = withThisHostObj ets $ \ !server ->
-      tryReadTMVar (edh'http'server'eol server) >>= \case
-        Nothing -> exitEdh ets exit $ EdhBool False
-        Just (Left !e) ->
-          edh'exception'wrapper world (Just ets) e
-            >>= \ !exo -> exitEdh ets exit $ EdhObject exo
-        Just (Right ()) -> exitEdh ets exit $ EdhBool True
-      where
-        world = edh'prog'world $ edh'thread'prog ets
+    eolProc :: Edh EdhValue
+    eolProc = withThisServer $ \_this !server ->
+      inlineSTM (tryReadTMVar $ edh'http'server'eol server) >>= \case
+        Nothing -> return $ EdhBool False
+        Just (Left !e) -> throwHostM e
+        Just (Right ()) -> return $ EdhBool True
 
-    joinProc :: EdhHostProc
-    joinProc !exit !ets = withThisHostObj ets $ \ !server ->
-      readTMVar (edh'http'server'eol server) >>= \case
-        Left !e ->
-          edh'exception'wrapper world (Just ets) e
-            >>= \ !exo -> edhThrow ets $ EdhObject exo
-        Right () -> exitEdh ets exit nil
-      where
-        world = edh'prog'world $ edh'thread'prog ets
+    joinProc :: Edh EdhValue
+    joinProc = withThisServer $ \_this !server ->
+      inlineSTM (readTMVar $ edh'http'server'eol server) >>= \case
+        Left !e -> throwHostM e
+        Right () -> return nil
 
-    stopProc :: EdhHostProc
-    stopProc !exit !ets = withThisHostObj ets $ \ !server -> do
-      stopped <- tryPutTMVar (edh'http'server'eol server) $ Right ()
-      exitEdh ets exit $ EdhBool stopped
+    stopProc :: Edh EdhValue
+    stopProc = withThisServer $ \_this !server ->
+      inlineSTM $
+        fmap EdhBool $
+          tryPutTMVar (edh'http'server'eol server) $ Right ()
 
 serveStaticArtifacts ::
   Snap.MonadSnap m => Snap.MimeMap -> FilePath -> [Text] -> m ()

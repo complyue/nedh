@@ -11,40 +11,37 @@ import qualified Data.HashSet as Set
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
-import Language.Edh.CHI
+import Language.Edh.MHI
 import Language.Edh.Net.MicroProto
 import Language.Edh.Net.Peer
 import Network.Socket
 import Network.Socket.ByteString
 import Prelude
 
-serviceAddressFrom ::
-  EdhThreadState -> Object -> ((Text, Int) -> STM ()) -> STM ()
-serviceAddressFrom !ets !addrObj !exit =
-  castObjectStore addrObj >>= \case
-    Nothing -> throwEdh ets UsageError "unsupported addr object"
-    Just (_, !addr) -> case addr of
-      (AddrInfo _ _ _ _ (SockAddrInet !port !host) _) ->
-        case hostAddressToTuple host of
-          (n1, n2, n3, n4) ->
-            exit
-              ( T.pack $
-                  show n1
-                    <> "."
-                    <> show n2
-                    <> "."
-                    <> show n3
-                    <> "."
-                    <> show n4,
-                fromIntegral port
-              )
-      (AddrInfo _ _ _ _ (SockAddrInet6 !port _ (n1, n2, n3, n4) _) _) ->
-        exit
-          ( T.pack $
-              show n1 <> ":" <> show n2 <> ":" <> show n3 <> "::" <> show n4,
-            fromIntegral port
-          )
-      _ -> throwEdh ets UsageError "unsupported addr object"
+serviceAddressFrom :: Object -> Edh (Text, Int)
+serviceAddressFrom !addrObj =
+  hostObjectOf addrObj >>= \case
+    (_, AddrInfo _ _ _ _ (SockAddrInet !port !host) _) ->
+      case hostAddressToTuple host of
+        (n1, n2, n3, n4) ->
+          return
+            ( T.pack $
+                show n1
+                  <> "."
+                  <> show n2
+                  <> "."
+                  <> show n3
+                  <> "."
+                  <> show n4,
+              fromIntegral port
+            )
+    (_, AddrInfo _ _ _ _ (SockAddrInet6 !port _ (n1, n2, n3, n4) _) _) ->
+      return
+        ( T.pack $
+            show n1 <> ":" <> show n2 <> ":" <> show n3 <> "::" <> show n4,
+          fromIntegral port
+        )
+    _ -> naM "unsupported addr object"
 
 data EdhClient = EdhClient
   { -- Edh procedure to run as the consumer
@@ -67,71 +64,70 @@ createClientClass ::
   Object ->
   Symbol ->
   EntityStore ->
-  Scope ->
-  STM Object
+  Edh Object
 createClientClass
   !consoleWarn
   !addrClass
   !peerClass
   !symNetPeer
-  !esNetEffs
-  !clsOuterScope =
-    mkHostClass clsOuterScope "Client" (allocEdhObj clientAllocator) [] $
-      \ !clsScope -> do
-        !mths <-
-          sequence
-            [ (AttrByName nm,) <$> mkHostProc clsScope vc nm hp
-              | (nm, vc, hp) <-
-                  [ ("addrs", EdhMethod, wrapHostProc addrsProc),
-                    ("eol", EdhMethod, wrapHostProc eolProc),
-                    ("join", EdhMethod, wrapHostProc joinProc),
-                    ("stop", EdhMethod, wrapHostProc stopProc),
-                    ("__repr__", EdhMethod, wrapHostProc reprProc)
-                  ]
-            ]
-        iopdUpdate mths $ edh'scope'entity clsScope
+  !esNetEffs =
+    mkEdhClass "Client" (allocObjM clientAllocator) [] $ do
+      !mths <-
+        sequence
+          [ (AttrByName nm,) <$> mkEdhProc vc nm hp
+            | (nm, vc, hp) <-
+                [ ("addrs", EdhMethod, wrapEdhProc addrsProc),
+                  ("eol", EdhMethod, wrapEdhProc eolProc),
+                  ("join", EdhMethod, wrapEdhProc joinProc),
+                  ("stop", EdhMethod, wrapEdhProc stopProc),
+                  ("__repr__", EdhMethod, wrapEdhProc reprProc)
+                ]
+          ]
+
+      !clsScope <- contextScope . edh'context <$> edhThreadState
+      iopdUpdateEdh mths $ edh'scope'entity clsScope
     where
       clientAllocator ::
         "consumer" !: EdhValue ->
         "addrSpec" ?: EdhValue ->
         "port" ?: Int ->
         "useSandbox" ?: Bool ->
-        EdhObjectAllocator
+        Edh (Maybe Unique, ObjectStore)
       clientAllocator
         (mandatoryArg -> !consumer)
         (defaultArg (EdhString "127.0.0.1") -> !addrSpec)
         (defaultArg 3721 -> !ctorPort)
-        (defaultArg True -> !useSandbox)
-        !ctorExit
-        !etsCtor = case addrSpec of
-          EdhObject !addrObj ->
-            serviceAddressFrom etsCtor addrObj $
-              {- HLINT ignore "Use uncurry" -}
-              \(addr, port) -> go addr port
-          EdhString !addr -> go addr ctorPort
-          !badSpec -> edhSimpleDesc etsCtor badSpec $ \ !badDesc ->
-            throwEdh etsCtor UsageError $ "bad address: " <> badDesc
+        (defaultArg True -> !useSandbox) = case addrSpec of
+          EdhObject !addrObj -> do
+            (addr, port) <- serviceAddressFrom addrObj
+            go addr port
+          EdhString !addr ->
+            go addr ctorPort
+          !badSpec -> do
+            !badDesc <- edhSimpleDescM badSpec
+            throwEdhM UsageError $ "bad address: " <> badDesc
           where
             go !addr !port = do
-              !serviceAddrs <- newEmptyTMVar
-              !cnsmrEoL <- newEmptyTMVar
-              let !client =
-                    EdhClient
-                      { edh'consumer'proc = consumer,
-                        edh'consumer'world =
-                          edh'prog'world $ edh'thread'prog etsCtor,
-                        edh'service'addr = addr,
-                        edh'service'port = fromIntegral port,
-                        edh'service'addrs = serviceAddrs,
-                        edh'consumer'eol = cnsmrEoL
-                      }
-                  cleanupConsumer :: Either SomeException () -> IO ()
+              !world <- edh'prog'world <$> edhProgramState
+              !client <- inlineSTM $ do
+                !serviceAddrs <- newEmptyTMVar
+                !cnsmrEoL <- newEmptyTMVar
+                return
+                  EdhClient
+                    { edh'consumer'proc = consumer,
+                      edh'consumer'world = world,
+                      edh'service'addr = addr,
+                      edh'service'port = fromIntegral port,
+                      edh'service'addrs = serviceAddrs,
+                      edh'consumer'eol = cnsmrEoL
+                    }
+              let cleanupConsumer :: Either SomeException () -> IO ()
                   cleanupConsumer !result = atomically $ do
                     -- fill empty addrs if the connection has ever failed
-                    void $ tryPutTMVar serviceAddrs []
+                    void $ tryPutTMVar (edh'service'addrs client) []
                     -- mark consumer end-of-life anyway finally
-                    void $ tryPutTMVar cnsmrEoL result
-                    readTMVar cnsmrEoL >>= \case
+                    void $ tryPutTMVar (edh'consumer'eol client) result
+                    readTMVar (edh'consumer'eol client) >>= \case
                       Right {} -> pure ()
                       Left !err ->
                         consoleWarn $
@@ -142,10 +138,9 @@ createClientClass
                               <> show port
                               <> "] incurred error:\n"
                               <> show err
-              runEdhTx etsCtor $
-                edhContIO $ do
-                  void $ forkFinally (consumerThread client) cleanupConsumer
-                  atomically $ ctorExit Nothing $ HostStore (toDyn client)
+              afterTxIO $
+                void $ forkFinally (consumerThread client) cleanupConsumer
+              return (Nothing, HostStore (toDyn client))
 
             consumerThread :: EdhClient -> IO ()
             consumerThread
@@ -199,11 +194,13 @@ createClientClass
                     !disposalsVar <- newTVarIO mempty
                     !chdVar <- newTVarIO mempty
 
-                    let edhHandler = pushEdhStack $ \ !etsEffs -> do
-                          -- prepare a dedicated scope atop world root scope, with net effects
-                          -- implanted, then call the configured service procedure from there
-                          let effsScope = contextScope $ edh'context etsEffs
-                              withSandbox !maybeSandbox = do
+                    let edhHandler = pushStackM $ do
+                          -- prepare a dedicated scope atop world root scope,
+                          -- with provisioned effects implanted, then call the
+                          -- configured service procedure from there
+                          !effsScope <-
+                            contextScope . edh'context <$> edhThreadState
+                          let withSandbox !maybeSandbox = do
                                 let !peer =
                                       Peer
                                         { edh'peer'ident = clientId,
@@ -214,15 +211,18 @@ createClientClass
                                           edh'peer'disposals = disposalsVar,
                                           edh'peer'channels = chdVar
                                         }
-                                !peerObj <- edhCreateHostObj peerClass peer
-                                !netEffs <- iopdToList esNetEffs
-                                (prepareEffStore etsEffs (edh'scope'entity effsScope) >>=) $
-                                  iopdUpdate $
-                                    (AttrBySym symNetPeer, EdhObject peerObj) : netEffs
+                                !peerObj <- createHostObjectM peerClass peer
+                                !netEffs <- iopdToListEdh esNetEffs
+                                let effArts =
+                                      ( AttrBySym symNetPeer,
+                                        EdhObject peerObj
+                                      ) :
+                                      netEffs
+                                prepareEffStoreM >>= iopdUpdateEdh effArts
+                                callM cnsmrProc []
 
-                                runEdhTx etsEffs $ edhMakeCall cnsmrProc [] haltEdhProgram
                           if useSandbox
-                            then mkScopeSandbox etsEffs effsScope $ withSandbox . Just
+                            then mkSandboxM effsScope >>= withSandbox . Just
                             else withSandbox Nothing
 
                     -- run the service procedure on a separate thread as another Edh program
@@ -233,7 +233,7 @@ createClientClass
                     -- mechanism, or exception handling, that expecting `ThreadTerminate` to be
                     -- thrown, the cleanup action is usually in a finally block in this way
                     void $
-                      forkFinally (runEdhProgram' cnsmrWorld edhHandler) $
+                      forkFinally (runProgramM' cnsmrWorld edhHandler) $
                         -- anyway after the service procedure done:
                         --   dispose of all dependent (channel or not) sinks
                         --   try mark client end-of-life with the result
@@ -273,46 +273,47 @@ createClientClass
                       -- mark eol on error
                       atomically $ void $ tryPutTMVar cnsmrEoL $ Left e
 
-      reprProc :: EdhHostProc
-      reprProc !exit !ets =
-        withThisHostObj ets $ \(EdhClient _consumer _world !addr !port _ _) ->
-          exitEdh ets exit $
-            EdhString $
-              T.pack $ "Client<" <> show addr <> ", " <> show port <> ">"
+      withThisClient :: forall r. (Object -> EdhClient -> Edh r) -> Edh r
+      withThisClient withClient = do
+        !this <- edh'scope'this . contextScope . edh'context <$> edhThreadState
+        case fromDynamic =<< dynamicHostData this of
+          Nothing -> throwEdhM EvalError "bug: this is not an Client"
+          Just !col -> withClient this col
 
-      addrsProc :: EdhHostProc
-      addrsProc !exit !ets = withThisHostObj ets $
-        \ !client -> readTMVar (edh'service'addrs client) >>= wrapAddrs []
+      reprProc :: Edh EdhValue
+      reprProc =
+        withThisClient $
+          \_this (EdhClient _consumer _world !addr !port _ _) ->
+            return $
+              EdhString $
+                T.pack $ "Client<" <> show addr <> ", " <> show port <> ">"
+
+      addrsProc :: Edh EdhValue
+      addrsProc = withThisClient $ \_this !client ->
+        inlineSTM (readTMVar $ edh'service'addrs client) >>= wrapAddrs []
         where
-          wrapAddrs :: [EdhValue] -> [AddrInfo] -> STM ()
+          wrapAddrs :: [EdhValue] -> [AddrInfo] -> Edh EdhValue
           wrapAddrs addrs [] =
-            exitEdh ets exit $ EdhArgsPack $ ArgsPack addrs odEmpty
+            return $ EdhArgsPack $ ArgsPack addrs odEmpty
           wrapAddrs !addrs (addr : rest) =
-            edhCreateHostObj addrClass addr
+            createHostObjectM addrClass addr
               >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
-      eolProc :: EdhHostProc
-      eolProc !exit !ets = withThisHostObj ets $ \ !client ->
-        tryReadTMVar (edh'consumer'eol client) >>= \case
-          Nothing -> exitEdh ets exit $ EdhBool False
-          Just (Left !e) ->
-            edh'exception'wrapper world (Just ets) e
-              >>= \ !exo -> exitEdh ets exit $ EdhObject exo
-          Just (Right ()) -> exitEdh ets exit $ EdhBool True
-        where
-          world = edh'prog'world $ edh'thread'prog ets
+      eolProc :: Edh EdhValue
+      eolProc = withThisClient $ \_this !client ->
+        inlineSTM (tryReadTMVar $ edh'consumer'eol client) >>= \case
+          Nothing -> return $ EdhBool False
+          Just (Left !e) -> throwHostM e
+          Just (Right ()) -> return $ EdhBool True
 
-      joinProc :: EdhHostProc
-      joinProc !exit !ets = withThisHostObj ets $ \ !client ->
-        readTMVar (edh'consumer'eol client) >>= \case
-          Left !e ->
-            edh'exception'wrapper world (Just ets) e
-              >>= \ !exo -> edhThrow ets $ EdhObject exo
-          Right () -> exitEdh ets exit nil
-        where
-          world = edh'prog'world $ edh'thread'prog ets
+      joinProc :: Edh EdhValue
+      joinProc = withThisClient $ \_this !client ->
+        inlineSTM (readTMVar $ edh'consumer'eol client) >>= \case
+          Left !e -> throwHostM e
+          Right () -> return nil
 
-      stopProc :: EdhHostProc
-      stopProc !exit !ets = withThisHostObj ets $ \ !client -> do
-        stopped <- tryPutTMVar (edh'consumer'eol client) $ Right ()
-        exitEdh ets exit $ EdhBool stopped
+      stopProc :: Edh EdhValue
+      stopProc = withThisClient $ \_this !client ->
+        inlineSTM $
+          fmap EdhBool $
+            tryPutTMVar (edh'consumer'eol client) $ Right ()

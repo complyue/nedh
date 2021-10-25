@@ -1,21 +1,19 @@
 module Language.Edh.Net
   ( installNetBatteries,
-    withPeerClass,
-    withAddrClass,
-    withNetSymbol,
+    getPeerClass,
+    getAddrClass,
+    serviceAddressFrom,
     -- TODO organize and doc the re-exports
-    module Language.Edh.Net.MicroProto,
     module Language.Edh.Net.Addr,
     module Language.Edh.Net.Peer,
-    module Language.Edh.Net.Server,
-    module Language.Edh.Net.Client,
+    module Language.Edh.Net.MicroProto,
   )
 where
 
 -- import           Debug.Trace
 
 import Control.Monad
-import Language.Edh.CHI
+import Language.Edh.MHI
 import Language.Edh.Net.Addr
 import Language.Edh.Net.Advertiser
 import Language.Edh.Net.Client
@@ -28,93 +26,80 @@ import Language.Edh.Net.WebSocket
 import Prelude
 
 installNetBatteries :: EdhWorld -> IO ()
-installNetBatteries !world =
-  void $
-    installEdhModule world "net/RT" $ \ !ets exit -> runEdhTx ets $
-      importEdhModule "net/effects" $ \ !moduEffs _ets ->
-        lookupEdhObjAttr moduEffs (AttrByName "netPeer") >>= \case
-          (_, EdhSymbol !symNetPeer) ->
-            prepareExpStore ets moduEffs $ \ !esNetEffs -> do
-              let !moduScope = contextScope $ edh'context ets
+installNetBatteries !world = void $
+  installEdhModuleM world "net/RT" $ do
+    !moduScope <- contextScope . edh'context <$> edhThreadState
 
-              !peerClass <- createPeerClass moduScope
-              !addrClass <- createAddrClass moduScope
+    moduEffs <- importModuleM "net/effects"
+    expNetEffs <- prepareExpStoreM moduEffs
+    getObjPropertyM moduEffs (AttrByName "netPeer") >>= \case
+      EdhSymbol !symNetPeer -> do
+        !addrClass <- createAddrClass
+        !peerClass <- createPeerClass
 
-              !serverClass <-
-                createServerClass
-                  consoleWarn
-                  addrClass
-                  peerClass
-                  symNetPeer
-                  esNetEffs
-                  moduScope
-              !clientClass <-
-                createClientClass
-                  consoleWarn
-                  addrClass
-                  peerClass
-                  symNetPeer
-                  esNetEffs
-                  moduScope
+        !serverClass <-
+          createServerClass
+            consoleWarn
+            addrClass
+            peerClass
+            symNetPeer
+            expNetEffs
+        !clientClass <-
+          createClientClass
+            consoleWarn
+            addrClass
+            peerClass
+            symNetPeer
+            expNetEffs
 
-              !wsServerClass <-
-                createWsServerClass
-                  consoleWarn
-                  addrClass
-                  peerClass
-                  symNetPeer
-                  esNetEffs
-                  moduScope
-              !httpServerClass <- createHttpServerClass addrClass moduScope
-              !htmlEscapeMth <-
-                mkHostProc moduScope EdhMethod "htmlEscape" $
-                  wrapHostProc htmlEscapeProc
+        !wsServerClass <-
+          createWsServerClass
+            consoleWarn
+            addrClass
+            peerClass
+            symNetPeer
+            expNetEffs
 
-              !snifferClass <- createSnifferClass addrClass moduScope
-              !advertiserClass <- createAdvertiserClass addrClass moduScope
+        !httpServerClass <- createHttpServerClass addrClass
+        !htmlEscapeMth <-
+          mkEdhProc EdhMethod "htmlEscape" $ wrapEdhProc htmlEscapeProc
 
-              let !moduArts =
-                    [ (AttrByName "Peer", EdhObject peerClass),
-                      (AttrByName "Addr", EdhObject addrClass),
-                      (AttrByName "Server", EdhObject serverClass),
-                      (AttrByName "Client", EdhObject clientClass),
-                      (AttrByName "WsServer", EdhObject wsServerClass),
-                      (AttrByName "HttpServer", EdhObject httpServerClass),
-                      (AttrByName "htmlEscape", htmlEscapeMth),
-                      (AttrByName "Sniffer", EdhObject snifferClass),
-                      (AttrByName "Advertiser", EdhObject advertiserClass)
-                    ]
-              iopdUpdate moduArts $ edh'scope'entity moduScope
-              prepareExpStore ets (edh'scope'this moduScope) $ \ !esExps ->
-                iopdUpdate moduArts esExps
+        !snifferClass <- createSnifferClass addrClass
+        !advertiserClass <- createAdvertiserClass addrClass
 
-              exit
-          _ ->
-            throwEdh
-              ets
-              EvalError
-              "bug: @netPeer symbol not imported into 'net/effects'"
+        let !moduArts =
+              [ (AttrByName "Addr", EdhObject addrClass),
+                (AttrByName "Peer", EdhObject peerClass),
+                (AttrByName "Server", EdhObject serverClass),
+                (AttrByName "Client", EdhObject clientClass),
+                (AttrByName "WsServer", EdhObject wsServerClass),
+                (AttrByName "HttpServer", EdhObject httpServerClass),
+                (AttrByName "htmlEscape", htmlEscapeMth),
+                (AttrByName "Sniffer", EdhObject snifferClass),
+                (AttrByName "Advertiser", EdhObject advertiserClass)
+              ]
+
+        iopdUpdateEdh moduArts $ edh'scope'entity moduScope
+        !esExps <- prepareExpStoreM (edh'scope'this moduScope)
+        iopdUpdateEdh moduArts esExps
+      _ ->
+        throwEdhM
+          EvalError
+          "bug: @netPeer symbol not imported into 'net/effects'"
   where
     !worldLogger = consoleLogger $ edh'world'console world
     consoleWarn !msg = worldLogger 30 (Just "<nedh>") msg
 
-withPeerClass :: (Object -> EdhTx) -> EdhTx
-withPeerClass !act = importEdhModule "net/RT" $ \ !moduRT !ets ->
-  lookupEdhObjAttr moduRT (AttrByName "Peer") >>= \case
-    (_, EdhObject !clsPeer) -> runEdhTx ets $ act clsPeer
-    _ -> error "bug: net/RT provides no Peer class"
+getAddrClass :: Edh Object
+getAddrClass =
+  importModuleM "net/RT" >>= \ !moduRT ->
+    getObjPropertyM moduRT (AttrByName "Addr") >>= \case
+      EdhObject !clsAddr -> return clsAddr
+      _ -> naM "bug: net/RT provides no Addr class"
 
-withAddrClass :: (Object -> EdhTx) -> EdhTx
-withAddrClass !act = importEdhModule "net/RT" $ \ !moduRT !ets ->
-  lookupEdhObjAttr moduRT (AttrByName "Addr") >>= \case
-    (_, EdhObject !clsAddr) -> runEdhTx ets $ act clsAddr
-    _ -> error "bug: net/RT provides no Addr class"
-
-withNetSymbol :: AttrName -> (Symbol -> EdhTx) -> EdhTx
-withNetSymbol !symName !act = importEdhModule "net/symbols" $
-  \ !moduSyms !ets ->
-    lookupEdhObjAttr moduSyms (AttrByName symName) >>= \case
-      (_, EdhSymbol !sym) -> runEdhTx ets $ act sym
-      _ ->
-        throwEdh ets EvalError $
-          "bug: net/symbols provides no symbol named '" <> symName <> "'"
+getPeerClass :: Edh Object
+getPeerClass =
+  importModuleM "net/RT" >>= \ !moduRT ->
+    getObjPropertyM moduRT (AttrByName "Peer") >>= \case
+      EdhObject !clsPeer -> return clsPeer
+      _ -> naM "bug: net/RT provides no Peer class"

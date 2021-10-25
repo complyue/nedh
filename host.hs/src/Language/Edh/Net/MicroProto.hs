@@ -23,7 +23,7 @@ import qualified Data.Text.Encoding            as TE
 import qualified Data.Text.Lazy.Encoding       as TLE
 import           Data.Int
 
-import           Language.Edh.CHI
+import           Language.Edh.MHI
 
 
 maxHeaderLength :: Int

@@ -2,41 +2,42 @@ module Language.Edh.Net.Addr where
 
 -- import           Debug.Trace
 
-import Control.Concurrent.STM
+import Control.Monad.IO.Class
 import Data.Dynamic
 import Data.Text (Text)
 import qualified Data.Text as T
-import GHC.Conc (unsafeIOToSTM)
-import Language.Edh.CHI
+import Language.Edh.MHI
 import Network.Socket
 import Prelude
 
-createAddrClass :: Scope -> STM Object
-createAddrClass !clsOuterScope =
-  mkHostClass clsOuterScope "Addr" (allocEdhObj addrAllocator) [] $
-    \ !clsScope -> do
-      !mths <-
-        sequence
-          [ (AttrByName nm,) <$> mkHostProc clsScope vc nm hp
-            | (nm, vc, hp) <-
-                [ ("__repr__", EdhMethod, wrapHostProc addrReprProc),
-                  ("host", EdhMethod, wrapHostProc addrHostProc),
-                  ("port", EdhMethod, wrapHostProc addrPortProc),
-                  ("info", EdhMethod, wrapHostProc addrInfoProc)
-                ]
-          ]
-      iopdUpdate mths $ edh'scope'entity clsScope
+createAddrClass :: Edh Object
+createAddrClass =
+  mkEdhClass "Addr" (allocObjM addrAllocator) [] $ do
+    !mths <-
+      sequence
+        [ (AttrByName nm,) <$> mkEdhProc vc nm hp
+          | (nm, vc, hp) <-
+              [ ("__repr__", EdhMethod, wrapEdhProc addrReprProc),
+                ("host", EdhMethod, wrapEdhProc addrHostProc),
+                ("port", EdhMethod, wrapEdhProc addrPortProc),
+                ("info", EdhMethod, wrapEdhProc addrInfoProc)
+              ]
+        ]
+
+    !clsScope <- contextScope . edh'context <$> edhThreadState
+    iopdUpdateEdh mths $ edh'scope'entity clsScope
   where
-    addrAllocator :: "host" ?: Text -> "port" ?: Int -> EdhObjectAllocator
+    addrAllocator ::
+      "host" ?: Text ->
+      "port" ?: Int ->
+      Edh (Maybe Unique, ObjectStore)
     addrAllocator
       (optionalArg -> !maybeHost)
-      (optionalArg -> !maybePort)
-      !ctorExit
-      !etsCtor =
+      (optionalArg -> !maybePort) =
         case (maybeHost, maybePort) of
-          (Nothing, Nothing) -> ctorExit Nothing $ HostStore (toDyn nil)
+          (Nothing, Nothing) -> return (Nothing, HostStore (toDyn nil))
           (!host, !port) ->
-            unsafeIOToSTM
+            liftIO
               ( getAddrInfo
                   ( Just
                       defaultHints
@@ -48,58 +49,58 @@ createAddrClass !clsOuterScope =
                   (show <$> port)
               )
               >>= \case
-                addr : _ -> ctorExit Nothing $ HostStore (toDyn addr)
-                _ -> throwEdh etsCtor UsageError "bad network address spec"
+                addr : _ -> return (Nothing, HostStore (toDyn addr))
+                _ -> throwEdhM UsageError "bad network address spec"
 
-    addrReprProc :: EdhHostProc
-    addrReprProc !exit !ets =
-      withThisHostObj' ets (exitEdh ets exit $ EdhString "Addr()") $
-        \(addr :: AddrInfo) -> exitEdh ets exit $ EdhString $ addrRepr addr
+    withThisAddr :: forall r. (Object -> AddrInfo -> Edh r) -> Edh r
+    withThisAddr withAddr = do
+      !this <- edh'scope'this . contextScope . edh'context <$> edhThreadState
+      case fromDynamic =<< dynamicHostData this of
+        Nothing -> throwEdhM EvalError "bug: this is not an Addr"
+        Just !col -> withAddr this col
 
-    addrHostProc :: EdhHostProc
-    addrHostProc !exit !ets =
-      withThisHostObj' ets (exitEdh ets exit $ EdhString "") $
-        \(addr :: AddrInfo) -> case addrAddress addr of
-          SockAddrInet _ !host -> case hostAddressToTuple host of
-            (n1, n2, n3, n4) ->
-              exitEdh ets exit $
-                EdhString $
-                  T.pack $
-                    show n1
-                      <> "."
-                      <> show n2
-                      <> "."
-                      <> show n3
-                      <> "."
-                      <> show n4
-          SockAddrInet6 _ _ (n1, n2, n3, n4) _ ->
-            exitEdh ets exit $
-              EdhString $
-                T.pack $
-                  show n1
-                    <> ":"
-                    <> show n2
-                    <> ":"
-                    <> show n3
-                    <> "::"
-                    <> show n4
-          _ -> exitEdh ets exit $ EdhString "<unsupported-addr>"
+    addrReprProc :: Edh EdhValue
+    addrReprProc = withThisAddr $ \_this addr ->
+      return $ EdhString $ addrRepr addr
 
-    addrPortProc :: EdhHostProc
-    addrPortProc !exit !ets =
-      withThisHostObj' ets (exitEdh ets exit $ EdhDecimal 0) $
-        \(addr :: AddrInfo) -> case addrAddress addr of
-          SockAddrInet !port _ ->
-            exitEdh ets exit $ EdhDecimal $ fromIntegral port
-          SockAddrInet6 !port _ _ _ ->
-            exitEdh ets exit $ EdhDecimal $ fromIntegral port
-          _ -> exitEdh ets exit $ EdhDecimal 0
+    addrHostProc :: Edh EdhValue
+    addrHostProc = withThisAddr $ \_this addr -> case addrAddress addr of
+      SockAddrInet _ !host -> case hostAddressToTuple host of
+        (n1, n2, n3, n4) ->
+          return $
+            EdhString $
+              T.pack $
+                show n1
+                  <> "."
+                  <> show n2
+                  <> "."
+                  <> show n3
+                  <> "."
+                  <> show n4
+      SockAddrInet6 _ _ (n1, n2, n3, n4) _ ->
+        return $
+          EdhString $
+            T.pack $
+              show n1
+                <> ":"
+                <> show n2
+                <> ":"
+                <> show n3
+                <> "::"
+                <> show n4
+      _ -> return $ EdhString "<unsupported-addr>"
 
-    addrInfoProc :: EdhHostProc
-    addrInfoProc !exit !ets =
-      withThisHostObj' ets (exitEdh ets exit $ EdhString "<bogus-addr>") $
-        \(addr :: AddrInfo) ->
-          exitEdh ets exit $ EdhString $ T.pack $ show addr
+    addrPortProc :: Edh EdhValue
+    addrPortProc = withThisAddr $ \_this addr -> case addrAddress addr of
+      SockAddrInet !port _ ->
+        return $ EdhDecimal $ fromIntegral port
+      SockAddrInet6 !port _ _ _ ->
+        return $ EdhDecimal $ fromIntegral port
+      _ -> return $ EdhDecimal 0
+
+    addrInfoProc :: Edh EdhValue
+    addrInfoProc = withThisAddr $ \_this addr ->
+      return $ EdhString $ T.pack $ show addr
 
 addrWithPort :: SockAddr -> PortNumber -> SockAddr
 addrWithPort (SockAddrInet _ !host) !port = SockAddrInet port host

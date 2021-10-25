@@ -28,6 +28,7 @@ library
     Language.Edh.Net.Advertiser
     Language.Edh.Net.Client
     Language.Edh.Net.Http
+    Language.Edh.Net.Mcast
     Language.Edh.Net.MicroProto
     Language.Edh.Net.Peer
     Language.Edh.Net.Server
