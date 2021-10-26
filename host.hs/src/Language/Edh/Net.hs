@@ -27,7 +27,7 @@ import Prelude
 
 installNetBatteries :: EdhWorld -> IO ()
 installNetBatteries !world = void $
-  installEdhModuleM world "net/RT" $ do
+  installModuleM world "net/RT" $ do
     !moduScope <- contextScope . edh'context <$> edhThreadState
 
     moduEffs <- importModuleM "net/effects"
