@@ -11,7 +11,7 @@ import qualified Data.HashSet as Set
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
-import Language.Edh.MHI
+import Language.Edh.EHI
 import Language.Edh.Net.MicroProto
 import Language.Edh.Net.Peer
 import Network.Socket

@@ -12,7 +12,7 @@ import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
-import Language.Edh.MHI
+import Language.Edh.EHI
 import Language.Edh.Net.Addr
 import Language.Edh.Net.Mcast
 import Network.Socket

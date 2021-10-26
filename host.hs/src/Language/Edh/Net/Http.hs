@@ -25,7 +25,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import Data.Text.Lazy.Builder
 import qualified Data.Text.Lazy.Encoding as TLE
-import Language.Edh.MHI
+import Language.Edh.EHI
 import Network.Socket
 import qualified Snap.Core as Snap
 import qualified Snap.Http.Server as Snap

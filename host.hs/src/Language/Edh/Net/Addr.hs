@@ -6,7 +6,7 @@ import Control.Monad.IO.Class
 import Data.Dynamic
 import Data.Text (Text)
 import qualified Data.Text as T
-import Language.Edh.MHI
+import Language.Edh.EHI
 import Network.Socket
 import Prelude
 
