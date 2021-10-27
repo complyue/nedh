@@ -32,7 +32,9 @@ export {
       , tagAttrs = scope( namespace @tag'attrs (** @tag'attrs) pass )
       , fragments = []
 
-      return interpreter @( @tag'name ++ "'tag" ) (callerScope, tagBlockExpr) {
+      return interpreter @( @tag'name ++ "'tag" ) (
+        callerScope: scope, tagBlockExpr
+      ) {
 
         effect {
 
