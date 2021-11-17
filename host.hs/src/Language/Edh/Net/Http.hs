@@ -133,7 +133,7 @@ edhHandleHttp !defMime world !handlerProc = do
       returnEdh = return
 
       runEdhHandler = runProgramM' world $
-        pushStackM $ do
+        runNested $ do
           !effsScope <- contextScope . edh'context <$> edhThreadState
           !sbScope <- mkSandboxM effsScope
           !readBlob <-

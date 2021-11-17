@@ -207,7 +207,7 @@ createServerClass
                     !disposalsVar <- newTVarIO mempty
                     !chdVar <- newTVarIO mempty
 
-                    let edhHandler = pushStackM $ do
+                    let edhHandler = runNested $ do
                           -- prepare a dedicated scope atop world root scope,
                           -- with provisioned effects implanted, then call the
                           -- configured service procedure from there
