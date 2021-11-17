@@ -26,8 +26,8 @@ import Language.Edh.Net.WebSocket
 import Prelude
 
 installNetBatteries :: EdhWorld -> IO ()
-installNetBatteries !world = void $
-  installModuleM world "net/RT" $ do
+installNetBatteries !world = runProgramM_ world $ do
+  installModuleM_ "net/RT" $ do
     !moduScope <- contextScope . edh'context <$> edhThreadState
 
     moduEffs <- importModuleM "net/effects"
