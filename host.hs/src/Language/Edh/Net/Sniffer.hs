@@ -6,7 +6,6 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
-import Data.Dynamic
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -68,7 +67,7 @@ createSnifferClass !addrClass =
       "service" !: EdhValue ->
       "addr" ?: Text ->
       "port" ?: Int ->
-      Edh (Maybe Unique, ObjectStore)
+      Edh ObjectStore
     snifferAllocator
       (mandatoryArg -> !service)
       (defaultArg "127.0.0.1" -> !ctorAddr)
@@ -96,7 +95,7 @@ createSnifferClass !addrClass =
                   -- mark end-of-life anyway finally
                   . tryPutTMVar (edh'sniffing'eol sniffer)
               )
-        return (Nothing, HostStore (toDyn sniffer))
+        pinAndStoreHostValue sniffer
         where
           sniffThread :: EdhSniffer -> IO ()
           sniffThread
@@ -190,7 +189,7 @@ createSnifferClass !addrClass =
                             Left (Left !ex) -> throwHostM ex
                             Right (!fromAddr, !payload) -> do
                               !addrObj <-
-                                createHostObjectM
+                                createArbiHostObjectM
                                   addrClass
                                   onAddr {addrAddress = fromAddr}
                               -- provide the effectful sourceAddr
@@ -252,49 +251,47 @@ createSnifferClass !addrClass =
 
     --
 
-    withThisSniffer :: forall r. (Object -> EdhSniffer -> Edh r) -> Edh r
-    withThisSniffer withSniffer = do
-      !this <- edh'scope'this . contextScope . edh'context <$> edhThreadState
-      case fromDynamic =<< dynamicHostData this of
-        Nothing -> throwEdhM EvalError "bug: this is not an Sniffer"
-        Just !col -> withSniffer this col
-
     reprProc :: Edh EdhValue
-    reprProc = withThisSniffer $ \_this (EdhSniffer _ _ !addr !port _ _) ->
-      return $
-        EdhString $
-          "Sniffer<addr= "
-            <> T.pack (show addr)
-            <> ", port= "
-            <> T.pack (show port)
-            <> ">"
+    reprProc =
+      thisHostObjectOf >>= \(EdhSniffer _ _ !addr !port _ _) ->
+        return $
+          EdhString $
+            "Sniffer<addr= "
+              <> T.pack (show addr)
+              <> ", port= "
+              <> T.pack (show port)
+              <> ">"
 
     addrsMth :: Edh EdhValue
-    addrsMth = withThisSniffer $ \_this !sniffer ->
-      inlineSTM (readTMVar $ edh'sniffing'addrs sniffer) >>= wrapAddrs []
+    addrsMth =
+      thisHostObjectOf >>= \ !sniffer ->
+        inlineSTM (readTMVar $ edh'sniffing'addrs sniffer) >>= wrapAddrs []
       where
         wrapAddrs :: [EdhValue] -> [AddrInfo] -> Edh EdhValue
         wrapAddrs addrs [] =
           return $ EdhArgsPack $ ArgsPack addrs odEmpty
         wrapAddrs !addrs (addr : rest) =
-          createHostObjectM addrClass addr
+          createArbiHostObjectM addrClass addr
             >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
     eolMth :: Edh EdhValue
-    eolMth = withThisSniffer $ \_this !sniffer ->
-      inlineSTM (tryReadTMVar $ edh'sniffing'eol sniffer) >>= \case
-        Nothing -> return $ EdhBool False
-        Just (Left !e) -> throwHostM e
-        Just (Right ()) -> return $ EdhBool True
+    eolMth =
+      thisHostObjectOf >>= \ !sniffer ->
+        inlineSTM (tryReadTMVar $ edh'sniffing'eol sniffer) >>= \case
+          Nothing -> return $ EdhBool False
+          Just (Left !e) -> throwHostM e
+          Just (Right ()) -> return $ EdhBool True
 
     joinMth :: Edh EdhValue
-    joinMth = withThisSniffer $ \_this !sniffer ->
-      inlineSTM (readTMVar $ edh'sniffing'eol sniffer) >>= \case
-        Left !e -> throwHostM e
-        Right () -> return nil
+    joinMth =
+      thisHostObjectOf >>= \ !sniffer ->
+        inlineSTM (readTMVar $ edh'sniffing'eol sniffer) >>= \case
+          Left !e -> throwHostM e
+          Right () -> return nil
 
     stopMth :: Edh EdhValue
-    stopMth = withThisSniffer $ \_this !sniffer ->
-      inlineSTM $
-        fmap EdhBool $
-          tryPutTMVar (edh'sniffing'eol sniffer) $ Right ()
+    stopMth =
+      thisHostObjectOf >>= \ !sniffer ->
+        inlineSTM $
+          fmap EdhBool $
+            tryPutTMVar (edh'sniffing'eol sniffer) $ Right ()

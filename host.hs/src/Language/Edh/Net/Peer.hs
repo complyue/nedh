@@ -5,7 +5,6 @@ module Language.Edh.Net.Peer where
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
-import Data.Dynamic
 import qualified Data.HashMap.Strict as Map
 import qualified Data.HashSet as Set
 import Data.Maybe
@@ -140,42 +139,39 @@ createPeerClass =
     !clsScope <- contextScope . edh'context <$> edhThreadState
     iopdUpdateEdh mths $ edh'scope'entity clsScope
   where
-    peerAllocator :: ArgsPack -> Edh (Maybe Unique, ObjectStore)
+    peerAllocator :: ArgsPack -> Edh ObjectStore
     -- not really constructable from Edh code, this only creates bogus peer obj
-    peerAllocator _ = return (Nothing, HostStore (toDyn nil))
-
-    withThisPeer :: forall r. (Object -> Peer -> Edh r) -> Edh r
-    withThisPeer withPeer = do
-      !this <- edh'scope'this . contextScope . edh'context <$> edhThreadState
-      case fromDynamic =<< dynamicHostData this of
-        Nothing -> throwEdhM EvalError "bug: this is not an Peer"
-        Just !col -> withPeer this col
+    peerAllocator _ = return $ storeHostValue nil
 
     eolProc :: Edh EdhValue
-    eolProc = withThisPeer $ \_this !peer ->
-      inlineSTM (tryReadTMVar $ edh'peer'eol peer) >>= \case
-        Nothing -> return $ EdhBool False
-        Just (Left !e) -> throwHostM e
-        Just (Right ()) -> return $ EdhBool True
+    eolProc =
+      thisHostObjectOf >>= \ !peer ->
+        inlineSTM (tryReadTMVar $ edh'peer'eol peer) >>= \case
+          Nothing -> return $ EdhBool False
+          Just (Left !e) -> throwHostM e
+          Just (Right ()) -> return $ EdhBool True
 
     joinProc :: Edh EdhValue
-    joinProc = withThisPeer $ \_this !peer ->
-      inlineSTM (readTMVar $ edh'peer'eol peer) >>= \case
-        Left !e -> throwHostM e
-        Right () -> return nil
+    joinProc =
+      thisHostObjectOf >>= \ !peer ->
+        inlineSTM (readTMVar $ edh'peer'eol peer) >>= \case
+          Left !e -> throwHostM e
+          Right () -> return nil
 
     stopProc :: Edh EdhValue
-    stopProc = withThisPeer $ \_this !peer -> do
-      !stopped <- inlineSTM $ tryPutTMVar (edh'peer'eol peer) $ Right ()
-      return $ EdhBool stopped
+    stopProc =
+      thisHostObjectOf >>= \ !peer -> do
+        !stopped <- inlineSTM $ tryPutTMVar (edh'peer'eol peer) $ Right ()
+        return $ EdhBool stopped
 
     armedChannelProc :: "chLctr" !: EdhValue -> Edh EdhValue
-    armedChannelProc (mandatoryArg -> !chLctr) = withThisPeer $ \_this !peer ->
-      {- HLINT ignore "Redundant <$>" -}
-      inlineSTM (Map.lookup chLctr <$> readTVar (edh'peer'channels peer))
-        >>= \case
-          Nothing -> return nil
-          Just !chSink -> return $ EdhSink chSink
+    armedChannelProc (mandatoryArg -> !chLctr) =
+      thisHostObjectOf >>= \ !peer ->
+        {- HLINT ignore "Redundant <$>" -}
+        inlineSTM (Map.lookup chLctr <$> readTVar (edh'peer'channels peer))
+          >>= \case
+            Nothing -> return nil
+            Just !chSink -> return $ EdhSink chSink
 
     armChannelProc ::
       "chLctr" !: EdhValue ->
@@ -186,7 +182,7 @@ createPeerClass =
       (mandatoryArg -> !chLctr)
       (optionalArg -> !maybeSink)
       (defaultArg True -> !dispose) =
-        withThisPeer $ \_this !peer -> inlineSTM $ do
+        thisHostObjectOf >>= \ !peer -> inlineSTM $ do
           !chSink <- maybe newSink return maybeSink
           modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
           when dispose $
@@ -195,7 +191,7 @@ createPeerClass =
 
     disposeProc :: "dependentSink" !: Sink -> Edh EdhValue
     disposeProc (mandatoryArg -> !sink) =
-      withThisPeer $ \_this !peer -> inlineSTM $ do
+      thisHostObjectOf >>= \ !peer -> inlineSTM $ do
         modifyTVar' (edh'peer'disposals peer) $ Set.insert sink
         tryReadTMVar (edh'peer'eol peer) >>= \case
           Just {} -> void $ postEvent sink EdhNil -- already eol, mark eos now
@@ -203,33 +199,34 @@ createPeerClass =
         return $ EdhSink sink
 
     readPeerSrcProc :: Edh EdhValue
-    readPeerSrcProc = withThisPeer $ \_this !peer -> readPeerSource peer
+    readPeerSrcProc = thisHostObjectOf >>= \ !peer -> readPeerSource peer
 
     readPeerCmdProc :: Edh EdhValue
-    readPeerCmdProc = withThisPeer $ \_this !peer -> readPeerCommand peer
+    readPeerCmdProc = thisHostObjectOf >>= \ !peer -> readPeerCommand peer
 
     postCmd :: EdhValue -> EdhValue -> Edh ()
-    postCmd !dirVal !cmdVal = withThisPeer $ \_this !peer -> do
-      !ets <- edhThreadState
-      !dir <- case edhUltimate dirVal of
-        EdhNil -> return ""
-        !chLctr -> edhValueReprM chLctr
-      case cmdVal of
-        EdhString !src ->
-          inlineSTM $ postPeerCommand ets peer (textPacket dir src)
-        EdhExpr _ !src ->
-          if src == ""
-            then
-              throwEdhM
-                UsageError
-                "missing source from the expr as command"
-            else inlineSTM $ postPeerCommand ets peer (textPacket dir src)
-        EdhBlob !payload ->
-          inlineSTM $
-            postPeerCommand ets peer (Packet ("blob:" <> dir) payload)
-        _ ->
-          throwEdhM UsageError $
-            "unsupported command type: " <> edhTypeNameOf cmdVal
+    postCmd !dirVal !cmdVal =
+      thisHostObjectOf >>= \ !peer -> do
+        !ets <- edhThreadState
+        !dir <- case edhUltimate dirVal of
+          EdhNil -> return ""
+          !chLctr -> edhValueReprM chLctr
+        case cmdVal of
+          EdhString !src ->
+            inlineSTM $ postPeerCommand ets peer (textPacket dir src)
+          EdhExpr _ !src ->
+            if src == ""
+              then
+                throwEdhM
+                  UsageError
+                  "missing source from the expr as command"
+              else inlineSTM $ postPeerCommand ets peer (textPacket dir src)
+          EdhBlob !payload ->
+            inlineSTM $
+              postPeerCommand ets peer (Packet ("blob:" <> dir) payload)
+          _ ->
+            throwEdhM UsageError $
+              "unsupported command type: " <> edhTypeNameOf cmdVal
 
     p2cProc :: "dir" ?: EdhValue -> "cmd" ?: EdhValue -> Edh EdhValue
     p2cProc (defaultArg nil -> !dirVal) (defaultArg nil -> !cmdVal) = do
@@ -243,17 +240,20 @@ createPeerClass =
         return nil
 
     identProc :: Edh EdhValue
-    identProc = withThisPeer $ \_this !peer ->
-      return $ EdhString $ edh'peer'ident peer
+    identProc =
+      thisHostObjectOf >>= \ !peer ->
+        return $ EdhString $ edh'peer'ident peer
 
     sandboxProc :: Edh EdhValue
-    sandboxProc = withThisPeer $ \_this !peer -> case edh'peer'sandbox peer of
-      Nothing -> return nil
-      Just !sbScope -> do
-        ets <- edhThreadState
-        let world = edh'prog'world $ edh'thread'prog ets
-        inlineSTM $ EdhObject <$> edh'scope'wrapper world sbScope
+    sandboxProc =
+      thisHostObjectOf >>= \ !peer -> case edh'peer'sandbox peer of
+        Nothing -> return nil
+        Just !sbScope -> do
+          ets <- edhThreadState
+          let world = edh'prog'world $ edh'thread'prog ets
+          inlineSTM $ EdhObject <$> edh'scope'wrapper world sbScope
 
     reprProc :: Edh EdhValue
-    reprProc = withThisPeer $ \_this !peer ->
-      return $ EdhString $ "peer:<" <> edh'peer'ident peer <> ">"
+    reprProc =
+      thisHostObjectOf >>= \ !peer ->
+        return $ EdhString $ "peer:<" <> edh'peer'ident peer <> ">"

@@ -7,7 +7,6 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
-import Data.Dynamic
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -68,7 +67,7 @@ createAdvertiserClass !addrClass =
       "addr" ?: Text ->
       "port" ?: Int ->
       "fromAddr" ?: Object ->
-      Edh (Maybe Unique, ObjectStore)
+      Edh ObjectStore
     advertiserAllocator
       (defaultArg "255.255.255.255" -> !ctorAddr)
       (defaultArg 3721 -> !ctorPort)
@@ -106,7 +105,7 @@ createAdvertiserClass !addrClass =
                   ( atomically . void
                       . tryPutTMVar (edh'advertising'eol advertiser)
                   )
-            return (Nothing, HostStore (toDyn advertiser))
+            pinAndStoreHostValue advertiser
 
           advtThread :: EdhAdvertiser -> IO ()
           advtThread
@@ -183,61 +182,60 @@ createAdvertiserClass !addrClass =
                   sendAllTo sock payload addr
                   advtTo addr sock
 
-    withThisAdv :: forall r. (Object -> EdhAdvertiser -> Edh r) -> Edh r
-    withThisAdv withAdv = do
-      !this <- edh'scope'this . contextScope . edh'context <$> edhThreadState
-      case fromDynamic =<< dynamicHostData this of
-        Nothing -> throwEdhM EvalError "bug: this is not an EdhAdvertiser"
-        Just !col -> withAdv this col
-
     reprProc :: Edh EdhValue
-    reprProc = withThisAdv $ \_this (EdhAdvertiser _ !addr !port _ !adAddr _) ->
-      return $
-        EdhString $
-          "Advertiser("
-            <> T.pack (show addr)
-            <> ", "
-            <> T.pack (show port)
-            <> ( case adAddr of
-                   Nothing -> ""
-                   Just !fromAddr -> ", " <> addrRepr fromAddr
-               )
-            <> ")"
+    reprProc =
+      thisHostObjectOf >>= \(EdhAdvertiser _ !addr !port _ !adAddr _) ->
+        return $
+          EdhString $
+            "Advertiser("
+              <> T.pack (show addr)
+              <> ", "
+              <> T.pack (show port)
+              <> ( case adAddr of
+                     Nothing -> ""
+                     Just !fromAddr -> ", " <> addrRepr fromAddr
+                 )
+              <> ")"
 
     addrsMth :: Edh EdhValue
-    addrsMth = withThisAdv $ \_this !advertiser ->
-      inlineSTM (readTMVar $ edh'ad'target'addrs advertiser) >>= wrapAddrs []
+    addrsMth =
+      thisHostObjectOf >>= \ !advertiser ->
+        inlineSTM (readTMVar $ edh'ad'target'addrs advertiser) >>= wrapAddrs []
       where
         wrapAddrs :: [EdhValue] -> [AddrInfo] -> Edh EdhValue
         wrapAddrs addrs [] =
           return $ EdhArgsPack $ ArgsPack addrs odEmpty
         wrapAddrs !addrs (addr : rest) =
-          createHostObjectM addrClass addr
+          createArbiHostObjectM addrClass addr
             >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
     -- post each cmd to ad queue with separate tx if not `ai` quoted
     postMth :: [EdhValue] -> Edh EdhValue
-    postMth !args = withThisAdv $ \_this !advertiser -> do
-      let q = edh'ad'source advertiser
-      forM_ args $ \val -> do
-        cmd <- edhValueReprM val
-        inlineSTM $ putTMVar q cmd
-      return nil
+    postMth !args =
+      thisHostObjectOf >>= \ !advertiser -> do
+        let q = edh'ad'source advertiser
+        forM_ args $ \val -> do
+          cmd <- edhValueReprM val
+          inlineSTM $ putTMVar q cmd
+        return nil
 
     eolMth :: Edh EdhValue
-    eolMth = withThisAdv $ \_this !advertiser ->
-      inlineSTM (tryReadTMVar $ edh'advertising'eol advertiser) >>= \case
-        Nothing -> return $ EdhBool False
-        Just (Left !e) -> throwHostM e
-        Just (Right ()) -> return $ EdhBool True
+    eolMth =
+      thisHostObjectOf >>= \ !advertiser ->
+        inlineSTM (tryReadTMVar $ edh'advertising'eol advertiser) >>= \case
+          Nothing -> return $ EdhBool False
+          Just (Left !e) -> throwHostM e
+          Just (Right ()) -> return $ EdhBool True
 
     joinMth :: Edh EdhValue
-    joinMth = withThisAdv $ \_this !advertiser ->
-      inlineSTM (readTMVar $ edh'advertising'eol advertiser) >>= \case
-        Left !e -> throwHostM e
-        Right () -> return nil
+    joinMth =
+      thisHostObjectOf >>= \ !advertiser ->
+        inlineSTM (readTMVar $ edh'advertising'eol advertiser) >>= \case
+          Left !e -> throwHostM e
+          Right () -> return nil
 
     stopMth :: Edh EdhValue
-    stopMth = withThisAdv $ \_this !advertiser ->
-      fmap EdhBool $
-        inlineSTM $ tryPutTMVar (edh'advertising'eol advertiser) $ Right ()
+    stopMth =
+      thisHostObjectOf >>= \ !advertiser ->
+        fmap EdhBool $
+          inlineSTM $ tryPutTMVar (edh'advertising'eol advertiser) $ Right ()

@@ -6,7 +6,6 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
-import Data.Dynamic
 import qualified Data.HashSet as Set
 import Data.Maybe
 import Data.Text (Text)
@@ -92,7 +91,7 @@ createClientClass
         "addrSpec" ?: EdhValue ->
         "port" ?: Int ->
         "useSandbox" ?: Bool ->
-        Edh (Maybe Unique, ObjectStore)
+        Edh ObjectStore
       clientAllocator
         (mandatoryArg -> !consumer)
         (defaultArg (EdhString "127.0.0.1") -> !addrSpec)
@@ -140,7 +139,7 @@ createClientClass
                               <> show err
               afterTxIO $
                 void $ forkFinally (consumerThread client) cleanupConsumer
-              return (Nothing, HostStore (toDyn client))
+              pinAndStoreHostValue client
 
             consumerThread :: EdhClient -> IO ()
             consumerThread
@@ -211,7 +210,7 @@ createClientClass
                                           edh'peer'disposals = disposalsVar,
                                           edh'peer'channels = chdVar
                                         }
-                                !peerObj <- createHostObjectM peerClass peer
+                                !peerObj <- createArbiHostObjectM peerClass peer
                                 !netEffs <- iopdToListEdh esNetEffs
                                 let effArts =
                                       ( AttrBySym symNetPeer,
@@ -273,47 +272,43 @@ createClientClass
                       -- mark eol on error
                       atomically $ void $ tryPutTMVar cnsmrEoL $ Left e
 
-      withThisClient :: forall r. (Object -> EdhClient -> Edh r) -> Edh r
-      withThisClient withClient = do
-        !this <- edh'scope'this . contextScope . edh'context <$> edhThreadState
-        case fromDynamic =<< dynamicHostData this of
-          Nothing -> throwEdhM EvalError "bug: this is not an Client"
-          Just !col -> withClient this col
-
       reprProc :: Edh EdhValue
       reprProc =
-        withThisClient $
-          \_this (EdhClient _consumer _world !addr !port _ _) ->
-            return $
-              EdhString $
-                T.pack $ "Client<" <> show addr <> ", " <> show port <> ">"
+        thisHostObjectOf >>= \(EdhClient _consumer _world !addr !port _ _) ->
+          return $
+            EdhString $
+              T.pack $ "Client<" <> show addr <> ", " <> show port <> ">"
 
       addrsProc :: Edh EdhValue
-      addrsProc = withThisClient $ \_this !client ->
-        inlineSTM (readTMVar $ edh'service'addrs client) >>= wrapAddrs []
+      addrsProc =
+        thisHostObjectOf >>= \ !client ->
+          inlineSTM (readTMVar $ edh'service'addrs client) >>= wrapAddrs []
         where
           wrapAddrs :: [EdhValue] -> [AddrInfo] -> Edh EdhValue
           wrapAddrs addrs [] =
             return $ EdhArgsPack $ ArgsPack addrs odEmpty
           wrapAddrs !addrs (addr : rest) =
-            createHostObjectM addrClass addr
+            createArbiHostObjectM addrClass addr
               >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
       eolProc :: Edh EdhValue
-      eolProc = withThisClient $ \_this !client ->
-        inlineSTM (tryReadTMVar $ edh'consumer'eol client) >>= \case
-          Nothing -> return $ EdhBool False
-          Just (Left !e) -> throwHostM e
-          Just (Right ()) -> return $ EdhBool True
+      eolProc =
+        thisHostObjectOf >>= \ !client ->
+          inlineSTM (tryReadTMVar $ edh'consumer'eol client) >>= \case
+            Nothing -> return $ EdhBool False
+            Just (Left !e) -> throwHostM e
+            Just (Right ()) -> return $ EdhBool True
 
       joinProc :: Edh EdhValue
-      joinProc = withThisClient $ \_this !client ->
-        inlineSTM (readTMVar $ edh'consumer'eol client) >>= \case
-          Left !e -> throwHostM e
-          Right () -> return nil
+      joinProc =
+        thisHostObjectOf >>= \ !client ->
+          inlineSTM (readTMVar $ edh'consumer'eol client) >>= \case
+            Left !e -> throwHostM e
+            Right () -> return nil
 
       stopProc :: Edh EdhValue
-      stopProc = withThisClient $ \_this !client ->
-        inlineSTM $
-          fmap EdhBool $
-            tryPutTMVar (edh'consumer'eol client) $ Right ()
+      stopProc =
+        thisHostObjectOf >>= \ !client ->
+          inlineSTM $
+            fmap EdhBool $
+              tryPutTMVar (edh'consumer'eol client) $ Right ()

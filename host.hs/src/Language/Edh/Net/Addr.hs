@@ -3,7 +3,6 @@ module Language.Edh.Net.Addr where
 -- import           Debug.Trace
 
 import Control.Monad.IO.Class
-import Data.Dynamic
 import Data.Text (Text)
 import qualified Data.Text as T
 import Language.Edh.EHI
@@ -30,12 +29,12 @@ createAddrClass =
     addrAllocator ::
       "host" ?: Text ->
       "port" ?: Int ->
-      Edh (Maybe Unique, ObjectStore)
+      Edh ObjectStore
     addrAllocator
       (optionalArg -> !maybeHost)
       (optionalArg -> !maybePort) =
         case (maybeHost, maybePort) of
-          (Nothing, Nothing) -> return (Nothing, HostStore (toDyn nil))
+          (Nothing, Nothing) -> return $ storeHostValue nil
           (!host, !port) ->
             liftIO
               ( getAddrInfo
@@ -49,58 +48,55 @@ createAddrClass =
                   (show <$> port)
               )
               >>= \case
-                addr : _ -> return (Nothing, HostStore (toDyn addr))
+                addr : _ -> pinAndStoreHostValue addr
                 _ -> throwEdhM UsageError "bad network address spec"
 
-    withThisAddr :: forall r. (Object -> AddrInfo -> Edh r) -> Edh r
-    withThisAddr withAddr = do
-      !this <- edh'scope'this . contextScope . edh'context <$> edhThreadState
-      case fromDynamic =<< dynamicHostData this of
-        Nothing -> throwEdhM EvalError "bug: this is not an Addr"
-        Just !col -> withAddr this col
-
     addrReprProc :: Edh EdhValue
-    addrReprProc = withThisAddr $ \_this addr ->
-      return $ EdhString $ addrRepr addr
+    addrReprProc =
+      thisHostObjectOf @AddrInfo >>= \addr ->
+        return $ EdhString $ addrRepr addr
 
     addrHostProc :: Edh EdhValue
-    addrHostProc = withThisAddr $ \_this addr -> case addrAddress addr of
-      SockAddrInet _ !host -> case hostAddressToTuple host of
-        (n1, n2, n3, n4) ->
+    addrHostProc =
+      thisHostObjectOf @AddrInfo >>= \addr -> case addrAddress addr of
+        SockAddrInet _ !host -> case hostAddressToTuple host of
+          (n1, n2, n3, n4) ->
+            return $
+              EdhString $
+                T.pack $
+                  show n1
+                    <> "."
+                    <> show n2
+                    <> "."
+                    <> show n3
+                    <> "."
+                    <> show n4
+        SockAddrInet6 _ _ (n1, n2, n3, n4) _ ->
           return $
             EdhString $
               T.pack $
                 show n1
-                  <> "."
+                  <> ":"
                   <> show n2
-                  <> "."
+                  <> ":"
                   <> show n3
-                  <> "."
+                  <> "::"
                   <> show n4
-      SockAddrInet6 _ _ (n1, n2, n3, n4) _ ->
-        return $
-          EdhString $
-            T.pack $
-              show n1
-                <> ":"
-                <> show n2
-                <> ":"
-                <> show n3
-                <> "::"
-                <> show n4
-      _ -> return $ EdhString "<unsupported-addr>"
+        _ -> return $ EdhString "<unsupported-addr>"
 
     addrPortProc :: Edh EdhValue
-    addrPortProc = withThisAddr $ \_this addr -> case addrAddress addr of
-      SockAddrInet !port _ ->
-        return $ EdhDecimal $ fromIntegral port
-      SockAddrInet6 !port _ _ _ ->
-        return $ EdhDecimal $ fromIntegral port
-      _ -> return $ EdhDecimal 0
+    addrPortProc =
+      thisHostObjectOf @AddrInfo >>= \addr -> case addrAddress addr of
+        SockAddrInet !port _ ->
+          return $ EdhDecimal $ fromIntegral port
+        SockAddrInet6 !port _ _ _ ->
+          return $ EdhDecimal $ fromIntegral port
+        _ -> return $ EdhDecimal 0
 
     addrInfoProc :: Edh EdhValue
-    addrInfoProc = withThisAddr $ \_this addr ->
-      return $ EdhString $ T.pack $ show addr
+    addrInfoProc =
+      thisHostObjectOf @AddrInfo >>= \addr ->
+        return $ EdhString $ T.pack $ show addr
 
 addrWithPort :: SockAddr -> PortNumber -> SockAddr
 addrWithPort (SockAddrInet _ !host) !port = SockAddrInet port host

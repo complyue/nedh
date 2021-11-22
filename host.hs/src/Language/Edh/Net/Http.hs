@@ -14,7 +14,6 @@ import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy as BL
 import Data.Char
-import Data.Dynamic
 import Data.Functor
 import Data.List
 import Data.Map.Strict as Map
@@ -47,7 +46,7 @@ parseRoutes ::
   Edh (Snap.Snap ())
 parseRoutes !maybeRoutes !maybeFront !defMime = case maybeRoutes of
   Nothing -> withFront
-  (Just (Dict _ !dsRoutes)) -> iopdToListEdh dsRoutes >>= go []
+  (Just (Dict !dsRoutes)) -> iopdToListEdh dsRoutes >>= go []
   where
     withFront = case maybeFront of
       Nothing -> return Snap.pass
@@ -251,7 +250,7 @@ createHttpServerClass !addrClass =
       "routes" ?: Dict ->
       "front" ?: EdhValue ->
       "defaultMime" ?: Text ->
-      Edh (Maybe Unique, ObjectStore)
+      Edh ObjectStore
     serverAllocator
       (mandatoryArg -> !resource'modules)
       (defaultArg "127.0.0.1" -> !ctorAddr)
@@ -304,7 +303,7 @@ createHttpServerClass !addrClass =
                       -- mark server end-of-life anyway finally
                       . tryPutTMVar (edh'http'server'eol server)
                   )
-            return (Nothing, HostStore (toDyn server))
+            pinAndStoreHostValue server
 
           serverThread :: EdhWorld -> EdhHttpServer -> IO ()
           serverThread
@@ -389,57 +388,55 @@ createHttpServerClass !addrClass =
                 logSnapError payload =
                   atomically $ logger 40 (Just "snap-http") (TE.decodeUtf8 payload)
 
-    withThisServer :: forall r. (Object -> EdhHttpServer -> Edh r) -> Edh r
-    withThisServer withServer = do
-      !this <- edh'scope'this . contextScope . edh'context <$> edhThreadState
-      case fromDynamic =<< dynamicHostData this of
-        Nothing -> throwEdhM EvalError "bug: this is not an Server"
-        Just !col -> withServer this col
-
     reprProc :: Edh EdhValue
-    reprProc = withThisServer $
-      \_this (EdhHttpServer !modus _ !addr !port !port'max _ _) ->
-        return $
-          EdhString $
-            "HttpServer("
-              <> T.pack (show modus)
-              <> ", "
-              <> T.pack (show addr)
-              <> ", "
-              <> T.pack (show port)
-              <> ", port'max="
-              <> T.pack (show port'max)
-              <> ")"
+    reprProc =
+      thisHostObjectOf
+        >>= \(EdhHttpServer !modus _ !addr !port !port'max _ _) ->
+          return $
+            EdhString $
+              "HttpServer("
+                <> T.pack (show modus)
+                <> ", "
+                <> T.pack (show addr)
+                <> ", "
+                <> T.pack (show port)
+                <> ", port'max="
+                <> T.pack (show port'max)
+                <> ")"
 
     addrsProc :: Edh EdhValue
-    addrsProc = withThisServer $ \_this !server ->
-      inlineSTM (readTMVar $ edh'http'serving'addrs server) >>= wrapAddrs []
+    addrsProc =
+      thisHostObjectOf >>= \ !server ->
+        inlineSTM (readTMVar $ edh'http'serving'addrs server) >>= wrapAddrs []
       where
         wrapAddrs :: [EdhValue] -> [AddrInfo] -> Edh EdhValue
         wrapAddrs addrs [] =
           return $ EdhArgsPack $ ArgsPack addrs odEmpty
         wrapAddrs !addrs (addr : rest) =
-          createHostObjectM addrClass addr
+          createArbiHostObjectM addrClass addr
             >>= \ !addrObj -> wrapAddrs (EdhObject addrObj : addrs) rest
 
     eolProc :: Edh EdhValue
-    eolProc = withThisServer $ \_this !server ->
-      inlineSTM (tryReadTMVar $ edh'http'server'eol server) >>= \case
-        Nothing -> return $ EdhBool False
-        Just (Left !e) -> throwHostM e
-        Just (Right ()) -> return $ EdhBool True
+    eolProc =
+      thisHostObjectOf >>= \ !server ->
+        inlineSTM (tryReadTMVar $ edh'http'server'eol server) >>= \case
+          Nothing -> return $ EdhBool False
+          Just (Left !e) -> throwHostM e
+          Just (Right ()) -> return $ EdhBool True
 
     joinProc :: Edh EdhValue
-    joinProc = withThisServer $ \_this !server ->
-      inlineSTM (readTMVar $ edh'http'server'eol server) >>= \case
-        Left !e -> throwHostM e
-        Right () -> return nil
+    joinProc =
+      thisHostObjectOf >>= \ !server ->
+        inlineSTM (readTMVar $ edh'http'server'eol server) >>= \case
+          Left !e -> throwHostM e
+          Right () -> return nil
 
     stopProc :: Edh EdhValue
-    stopProc = withThisServer $ \_this !server ->
-      inlineSTM $
-        fmap EdhBool $
-          tryPutTMVar (edh'http'server'eol server) $ Right ()
+    stopProc =
+      thisHostObjectOf >>= \ !server ->
+        inlineSTM $
+          fmap EdhBool $
+            tryPutTMVar (edh'http'server'eol server) $ Right ()
 
 serveStaticArtifacts ::
   Snap.MonadSnap m => Snap.MimeMap -> FilePath -> [Text] -> m ()
