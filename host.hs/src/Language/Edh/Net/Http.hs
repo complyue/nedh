@@ -226,7 +226,7 @@ data EdhHttpServer = EdhHttpServer
 
 createHttpServerClass :: Object -> Edh Object
 createHttpServerClass !addrClass =
-  mkEdhClass "HttpServer" (allocObjM serverAllocator) [] $ do
+  mkEdhClass' "HttpServer" serverAllocator [] $ do
     !mths <-
       sequence
         [ (AttrByName nm,) <$> mkEdhProc vc nm hp

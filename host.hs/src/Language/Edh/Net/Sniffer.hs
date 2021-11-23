@@ -47,7 +47,7 @@ data EdhSniffer = EdhSniffer
 
 createSnifferClass :: Object -> Edh Object
 createSnifferClass !addrClass =
-  mkEdhClass "Sniffer" (allocObjM snifferAllocator) [] $ do
+  mkEdhClass' "Sniffer" snifferAllocator [] $ do
     !mths <-
       sequence
         [ (AttrByName nm,) <$> mkEdhProc vc nm hp

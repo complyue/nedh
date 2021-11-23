@@ -60,7 +60,7 @@ createWsServerClass
   !peerClass
   !symNetPeer
   !esNetEffs =
-    mkEdhClass "WsServer" (allocObjM serverAllocator) [] $ do
+    mkEdhClass' "WsServer" serverAllocator [] $ do
       !mths <-
         sequence $
           [ (AttrByName nm,) <$> mkEdhProc vc nm hp

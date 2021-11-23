@@ -50,7 +50,7 @@ createServerClass
   !peerClass
   !symNetPeer
   !esNetEffs =
-    mkEdhClass "Server" (allocObjM serverAllocator) [] $ do
+    mkEdhClass' "Server" serverAllocator [] $ do
       !mths <-
         sequence $
           [ (AttrByName nm,) <$> mkEdhProc vc nm hp

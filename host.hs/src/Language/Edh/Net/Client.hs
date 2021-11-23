@@ -70,7 +70,7 @@ createClientClass
   !peerClass
   !symNetPeer
   !esNetEffs =
-    mkEdhClass "Client" (allocObjM clientAllocator) [] $ do
+    mkEdhClass' "Client" clientAllocator [] $ do
       !mths <-
         sequence
           [ (AttrByName nm,) <$> mkEdhProc vc nm hp

@@ -46,7 +46,7 @@ data EdhAdvertiser = EdhAdvertiser
 
 createAdvertiserClass :: Object -> Edh Object
 createAdvertiserClass !addrClass =
-  mkEdhClass "Advertiser" (allocObjM advertiserAllocator) [] $ do
+  mkEdhClass' "Advertiser" advertiserAllocator [] $ do
     !mths <-
       sequence
         [ (AttrByName nm,) <$> mkEdhProc vc nm hp

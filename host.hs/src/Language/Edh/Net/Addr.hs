@@ -11,7 +11,7 @@ import Prelude
 
 createAddrClass :: Edh Object
 createAddrClass =
-  mkEdhClass "Addr" (allocObjM addrAllocator) [] $ do
+  mkEdhClass' "Addr" addrAllocator [] $ do
     !mths <-
       sequence
         [ (AttrByName nm,) <$> mkEdhProc vc nm hp
