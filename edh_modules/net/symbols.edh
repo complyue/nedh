@@ -1,16 +1,6 @@
 
 export {
 
-  # conventional Nedh channels for console IO
-  conin := 0
-  conout := 1
-  conmsg := 2
-
-  # identifier for the effect to send commands to remote site's stdio out
-  symbol @sendConOut
-  # identifier for the effect to send commands to remote site's stdio err
-  symbol @sendConMsg
-
   # conventional Nedh channel for error reporting
   errChan := 'err'
 

@@ -5,18 +5,6 @@
 import * './symbols'
 
 
-export method @sendConOut( d, *ds ) {
-  peer = behave @netPeer
-  peer.p2c( conout, d )
-  for d from ds do peer.p2c( conout, d )
-}
-
-export method @sendConMsg( d, *ds ) {
-  peer = behave @netPeer
-  peer.p2c( conmsg, d )
-  for d from ds do peer.p2c( conmsg, d )
-}
-
 export method @sendCmd ( c, *cs ) {
   peer = behave @netPeer
   peer.postCommand( c )

@@ -75,27 +75,11 @@ producer serveClients( outlet, **kwargs, ) {
 
     {
 
-      peer.p2c(
-        2, # direct to channel `conmsg := 2`
-        # we use the interpolated expr form to compose the remote command,
-        # and here we use operator (+) instead of the more idiomatic (++)
-        # (in Edh) for string concatenation, in case the client is not
-        # speaking Edh, or at least it does not support (++) as string
-        # concat op, e.g. a Python client
-        expr "Good day, " + {$ repr( peer ) $},
-      )
-
       while peer.eol() is false case peer.readCommand() of {@
         # note this is a scoped block, so attributes assigned within this block will be discarded on leaving this block scope, not affecting the outer, module scope at all.
 
         { cmdVal } -> {
-          # serving as a simple expression evaluator, post the result
-          # back as client's console output, i.e. `conout := 1`
           console.debug<| 'Got cmd from ' ++ peer ++ '\n  ' ++ cmdVal
-          peer.p2c(
-            1, # direct to channel conout := 1
-            repr( cmdVal ),
-          )
         }
 
         # note a command resulting in nil is ignored here
@@ -123,24 +107,16 @@ producer serveClients( outlet, **kwargs, ) {
 }
 
 
-method trackClientLife( peer ) {
-  # wait eol of the client, catch and report any exception
-  peer.join() $=> { exc } -> {
-    console.warn<| 'Demo client ' ++ peer ++ ' caused some trouble: ' ++ exc
+for@ peer from serveClients( addr= '127.0.0.1', port= 3721, ) do {
+  console.info<| 'Tracking demo client - ' ++peer
+
+  go { # wait eol of the client, catch and report any exception
+    peer.join() $=> { exc } -> {
+      console.warn<| 'Demo client ' ++peer++ ' caused some trouble: ' ++exc
+    }
+    console.info<| 'Demo client disconnected - ' ++ peer
   }
-  console.info<| 'Demo client disconnected - ' ++ peer
-}
 
-for clientPeer from serveClients( addr= '127.0.0.1', port= 3721, ) do {
-  console.info<| 'Tracking demo client - ' ++ clientPeer
-
-  clientPeer.postCommand(
-    repr( 'Note that you are tracked, ' ++ clientPeer ),
-    # direct this command to the cli peer's conmsg channel
-    conmsg
-  )
-
-  go trackClientLife( clientPeer )
 }
 
 console.print( 'Demo server done.' )

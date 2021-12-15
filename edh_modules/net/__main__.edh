@@ -1,7 +1,5 @@
 
 import * 'net'
-import * 'net/ncs'
-import * 'net/ncc'
 
 
 {import _ 'repl'}.runREPL()
