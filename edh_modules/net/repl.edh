@@ -50,7 +50,7 @@ export class WebRepl {
 
   method replWith( scopeOrObj, prompt= None ) {
     case scopeOrObj of {
-      { scope() = inScope } -> pass
+      { scope() as inScope } -> pass
       ;| type(scopeOrObj) is "Object" -> inScope = scope(ofObj= scopeOrObj)
       _ -> error( 'Unexpected scope or object: ' ++ desc(scopeOrObj) )
     }
@@ -123,7 +123,7 @@ export class WebRepl {
 
     {
       case this.sessions[ sessionId ] of {
-        { ReplSession() = session } -> {
+        { ReplSession() as session } -> {
           session.runREPL( peer )
         }
         _ -> peer.postCommand( `No such session - ` ++ sessionId )
