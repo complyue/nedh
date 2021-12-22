@@ -10,9 +10,6 @@ export {
   # effectful identifier of the peer object
   symbol @netPeer
 
-  # effectful identifier of the local event sink for data intaking
-  symbol @dataSink
-
   # effectful identifier of the method procedure for normal command sending
   symbol @sendCmd
 

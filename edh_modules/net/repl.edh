@@ -45,7 +45,7 @@ export class WebRepl {
 
 
   interpreter replHere( callerScope: scope, prompt= None ) {
-    this.replWith( callerScope: scope, prompt and callerScope.eval( prompt ) )
+    this.replWith( callerScope, prompt and callerScope.eval( prompt ) )
   }
 
   method replWith( scopeOrObj, prompt= None ) {
@@ -146,7 +146,7 @@ data ReplSession (
   baseUrl, inScope: scope(),
   prompt= None,
   sid= str$ UUID(),
-  cmdIn= sink,
+  cmdIn= chan,
 ) {
 
   property$
@@ -158,12 +158,12 @@ data ReplSession (
 
   method runSession()
   # use a scoped for loop here, so the loop vars are in isolated scopes across iterations
-  for@ ( cmdSrc, cmdOut ) from this.cmdIn do { exc } -> {
+  for@ ( cmdSrc: 'String', cmdOut: 'Chan' ) from this.cmdIn do { exc } -> {
     # wild exception catching is never a good idea, here the speciality of REPL may justify it
     if not cmdOut.eos then cmdOut <- exc
   } <=$ case this.inScope.eval( parseEdh( cmdSrc ) ) of {
     { continue } -> {
-      return void this.cmdIn <- cmdOut <- nil
+      return void { this.cmdIn <- nil cmdOut <- nil }
     }
 
     { Command(cmd, apk= cmdArgs) } -> case cmd of {
@@ -206,19 +206,20 @@ so the caller can continue.
     # make sure this repl terminates when the session is finished, it can be finished by another web client without this one even submitted anything
     perceive this.cmdIn nil -> break
 
-    # show results
-    perceive cmdOut = sink { cmdResult } -> {
-      ;| type(cmdResult) is "String" -> peer.postCommand( cmdResult )
-      ;| peer.eol() is false -> {
-        peer.postCommand( 'Recovered from error: ' ++ desc( cmdResult ) )
-      }
-    }
+    # allocate a channel for this repl
+    cmdOut = chan
 
     # pump input commands to be executed
     while peer.eol() is false case peer.readSource() of {
-      { cmdSrc } | not null( cmdSrc ) -> this.cmdIn <- ( cmdSrc, cmdOut )
+      { cmdSrc } | not null( cmdSrc ) -> {
+        this.cmdIn <- ( cmdSrc, cmdOut )
+        case <-cmdOut of { cmdResult } -> {
+          ;| type(cmdResult) is "String" -> peer.postCommand( cmdResult )
+          ;| peer.eol() is false -> peer.postCommand(
+            'Recovered from error: ' ++ desc( cmdResult )
+          )
+        }
+      }
     }
 
   }
-
-}

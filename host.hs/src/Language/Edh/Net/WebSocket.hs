@@ -43,8 +43,8 @@ data EdhWsServer = EdhWsServer
     edh'ws'serving'addrs :: !(TMVar [AddrInfo]),
     -- end-of-life status
     edh'ws'server'eol :: !(TMVar (Either SomeException ())),
-    -- each connected peer is sunk into this
-    edh'ws'serving'clients :: !Sink
+    -- callback for client connection
+    edh'ws'client'cb :: !EdhValue
   }
 
 createWsServerClass ::
@@ -73,7 +73,13 @@ createWsServerClass
                 ]
           ]
             ++ [ (AttrByName nm,) <$> mkEdhProperty nm getter setter
-                 | (nm, getter, setter) <- [("clients", clientsProc, Nothing)]
+                 | (nm, getter, setter) <-
+                     [ ( "ccb",
+                         ccbProc,
+                         -- TODO add setter
+                         Nothing
+                       )
+                     ]
                ]
 
       !clsScope <- contextScope . edh'context <$> edhThreadState
@@ -84,7 +90,7 @@ createWsServerClass
         "addr" ?: Text ->
         "port" ?: Int ->
         "port'max" ?: Int ->
-        "clients" ?: Sink ->
+        "ccb" ?: EdhValue ->
         "useSandbox" ?: Bool ->
         Edh ObjectStore
       serverAllocator
@@ -92,32 +98,30 @@ createWsServerClass
         (defaultArg "127.0.0.1" -> !ctorAddr)
         (defaultArg 3721 -> !ctorPort)
         (optionalArg -> port'max)
-        (optionalArg -> maybeClients)
+        (defaultArg edhNone -> ccbCtor)
         (defaultArg True -> !useSandbox) = do
           !world <- edh'prog'world <$> edhProgramState
-          !server <- inlineSTM $ do
-            !servAddrs <- newEmptyTMVar
-            !servEoL <- newEmptyTMVar
-            !clients <- maybe newSink return maybeClients
-            return
-              EdhWsServer
-                { edh'ws'service'proc = service,
-                  edh'ws'service'world = world,
-                  edh'ws'server'addr = ctorAddr,
-                  edh'ws'server'port = fromIntegral ctorPort,
-                  edh'ws'server'port'max =
-                    fromIntegral $ fromMaybe ctorPort port'max,
-                  edh'ws'serving'addrs = servAddrs,
-                  edh'ws'server'eol = servEoL,
-                  edh'ws'serving'clients = clients
-                }
+          !server <- do
+            inlineSTM $ do
+              !servAddrs <- newEmptyTMVar
+              !servEoL <- newEmptyTMVar
+              return
+                EdhWsServer
+                  { edh'ws'service'proc = service,
+                    edh'ws'service'world = world,
+                    edh'ws'server'addr = ctorAddr,
+                    edh'ws'server'port = fromIntegral ctorPort,
+                    edh'ws'server'port'max =
+                      fromIntegral $ fromMaybe ctorPort port'max,
+                    edh'ws'serving'addrs = servAddrs,
+                    edh'ws'server'eol = servEoL,
+                    edh'ws'client'cb = ccbCtor
+                  }
           let finalCleanup !result = atomically $ do
                 -- fill empty addrs if the listening has ever failed
                 void $ tryPutTMVar (edh'ws'serving'addrs server) []
                 -- mark server end-of-life anyway finally
                 void $ tryPutTMVar (edh'ws'server'eol server) result
-                -- mark eos for clients sink anyway finally
-                void $ postEvent (edh'ws'serving'clients server) nil
 
           afterTxIO $ do
             void $ forkFinally (serverThread server) finalCleanup
@@ -133,7 +137,7 @@ createWsServerClass
                   !portMax
                   !servAddrs
                   !servEoL
-                  !clients
+                  !ccb
                 ) =
                 do
                   servThId <- myThreadId
@@ -220,7 +224,7 @@ createWsServerClass
                       Left !err -> WS.rejectRequest pConn err
                       Right (!rqURI, !rqParams) -> do
                         !wsc <- WS.acceptRequest pConn
-                        !pktSink <- newEmptyTMVarIO
+                        !pktBChan <- newEmptyTMVarIO
                         !poq <- newEmptyTMVarIO
                         !disposalsVar <- newTVarIO mempty
                         !chdVar <- newTVarIO mempty
@@ -238,7 +242,7 @@ createWsServerClass
                                               edh'peer'sandbox = maybeSandbox,
                                               edh'peer'eol = clientEoL,
                                               edh'peer'posting = putTMVar poq,
-                                              edh'peer'hosting = takeTMVar pktSink,
+                                              edh'peer'hosting = takeTMVar pktBChan,
                                               edh'peer'disposals = disposalsVar,
                                               edh'peer'channels = chdVar
                                             }
@@ -253,8 +257,13 @@ createWsServerClass
                                           ]
                                             ++ netEffs
                                     prepareEffStoreM >>= iopdUpdateEdh effArts
-                                    inlineSTM $
-                                      void $ postEvent clients $ EdhObject peerObj
+                                    case edhUltimate ccb of
+                                      EdhNil -> pure ()
+                                      _ ->
+                                        void $
+                                          callM'
+                                            ccb
+                                            (ArgsPack [EdhObject peerObj] odEmpty)
                                     callM servProc []
 
                               if useSandbox
@@ -271,13 +280,12 @@ createWsServerClass
                         void $
                           forkFinally (runProgramM' servWorld edhHandler) $
                             -- anyway after the service procedure done:
-                            --   dispose of all dependent (channel or not) sinks
+                            --   dispose of all dependent channels
                             --   try mark client end-of-life with the result
-                            \ !result -> atomically $ do
-                              !sinks2Dispose <- readTVar disposalsVar
-                              sequence_ $
-                                flip postEvent EdhNil <$> Set.toList sinks2Dispose
-                              void $ tryPutTMVar clientEoL $ void result
+                            \ !result -> do
+                              !chs2Dispose <- readTVarIO disposalsVar
+                              sequence_ $ closeBChanIO <$> Set.toList chs2Dispose
+                              void $ atomically $ tryPutTMVar clientEoL $ void result
 
                         -- pump commands in,
                         -- making this thread the only one reading the handle
@@ -290,7 +298,7 @@ createWsServerClass
                               -- immediately following packet
                               writeIORef incomingDir ""
                               atomically
-                                ( (Right <$> putTMVar pktSink (Packet dir payload))
+                                ( (Right <$> putTMVar pktBChan (Packet dir payload))
                                     `orElse` (Left <$> readTMVar clientEoL)
                                 )
                                 >>= \case
@@ -393,10 +401,8 @@ createWsServerClass
                           -- mark eol on error
                           atomically $ void $ tryPutTMVar clientEoL $ Left e
 
-      clientsProc :: Edh EdhValue
-      clientsProc =
-        thisHostObjectOf >>= \ !server ->
-          return $ EdhSink $ edh'ws'serving'clients server
+      ccbProc :: Edh EdhValue
+      ccbProc = edh'ws'client'cb <$> thisHostObjectOf
 
       reprProc :: Edh EdhValue
       reprProc =

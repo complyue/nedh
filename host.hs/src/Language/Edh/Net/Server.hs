@@ -33,8 +33,8 @@ data EdhServer = EdhServer
     edh'serving'addrs :: !(TMVar [AddrInfo]),
     -- end-of-life status
     edh'server'eol :: !(TMVar (Either SomeException ())),
-    -- each connected peer is sunk into this
-    edh'serving'clients :: !Sink
+    -- callback for client connection
+    edh'client'cb :: !EdhValue
   }
 
 createServerClass ::
@@ -63,7 +63,13 @@ createServerClass
                 ]
           ]
             ++ [ (AttrByName nm,) <$> mkEdhProperty nm getter setter
-                 | (nm, getter, setter) <- [("clients", clientsProc, Nothing)]
+                 | (nm, getter, setter) <-
+                     [ ( "ccb",
+                         ccbProc,
+                         -- TODO add setter
+                         Nothing
+                       )
+                     ]
                ]
 
       !clsScope <- contextScope . edh'context <$> edhThreadState
@@ -74,7 +80,7 @@ createServerClass
         "addr" ?: Text ->
         "port" ?: Int ->
         "port'max" ?: Int ->
-        "clients" ?: Sink ->
+        "ccb" ?: EdhValue ->
         "useSandbox" ?: Bool ->
         Edh ObjectStore
       serverAllocator
@@ -82,31 +88,29 @@ createServerClass
         (defaultArg "127.0.0.1" -> !ctorAddr)
         (defaultArg 3721 -> !ctorPort)
         (defaultArg ctorPort -> port'max)
-        (optionalArg -> maybeClients)
+        (defaultArg edhNone -> ccbCtor)
         (defaultArg True -> !useSandbox) = do
           !world <- edh'prog'world <$> edhProgramState
-          !server <- inlineSTM $ do
-            !servAddrs <- newEmptyTMVar
-            !servEoL <- newEmptyTMVar
-            !clients <- maybe newSink return maybeClients
-            return
-              EdhServer
-                { edh'service'proc = service,
-                  edh'service'world = world,
-                  edh'server'addr = ctorAddr,
-                  edh'server'port = fromIntegral ctorPort,
-                  edh'server'port'max = fromIntegral port'max,
-                  edh'serving'addrs = servAddrs,
-                  edh'server'eol = servEoL,
-                  edh'serving'clients = clients
-                }
+          !server <- do
+            inlineSTM $ do
+              !servAddrs <- newEmptyTMVar
+              !servEoL <- newEmptyTMVar
+              return
+                EdhServer
+                  { edh'service'proc = service,
+                    edh'service'world = world,
+                    edh'server'addr = ctorAddr,
+                    edh'server'port = fromIntegral ctorPort,
+                    edh'server'port'max = fromIntegral port'max,
+                    edh'serving'addrs = servAddrs,
+                    edh'server'eol = servEoL,
+                    edh'client'cb = ccbCtor
+                  }
           let finalCleanup !result = atomically $ do
                 -- fill empty addrs if the listening has ever failed
                 void $ tryPutTMVar (edh'serving'addrs server) []
                 -- mark server end-of-life anyway finally
                 void $ tryPutTMVar (edh'server'eol server) result
-                -- mark eos for clients sink anyway finally
-                void $ postEvent (edh'serving'clients server) nil
           afterTxIO $ do
             void $ forkFinally (serverThread server) finalCleanup
           pinAndStoreHostValue server
@@ -121,7 +125,7 @@ createServerClass
                   !portMax
                   !servAddrs
                   !servEoL
-                  !clients
+                  !ccb
                 ) =
                 do
                   !servThId <- myThreadId
@@ -201,7 +205,7 @@ createServerClass
                     Socket ->
                     IO ()
                   servClient !clientEoL !clientId !sock = do
-                    !pktSink <- newEmptyTMVarIO
+                    !pktBChan <- newEmptyTMVarIO
                     !poq <- newEmptyTMVarIO
                     !disposalsVar <- newTVarIO mempty
                     !chdVar <- newTVarIO mempty
@@ -219,7 +223,7 @@ createServerClass
                                           edh'peer'sandbox = maybeSandbox,
                                           edh'peer'eol = clientEoL,
                                           edh'peer'posting = putTMVar poq,
-                                          edh'peer'hosting = takeTMVar pktSink,
+                                          edh'peer'hosting = takeTMVar pktBChan,
                                           edh'peer'disposals = disposalsVar,
                                           edh'peer'channels = chdVar
                                         }
@@ -231,8 +235,13 @@ createServerClass
                                       ) :
                                       netEffs
                                 prepareEffStoreM >>= iopdUpdateEdh effArts
-                                inlineSTM $
-                                  void $ postEvent clients $ EdhObject peerObj
+                                case edhUltimate ccb of
+                                  EdhNil -> pure ()
+                                  _ ->
+                                    void $
+                                      callM'
+                                        ccb
+                                        (ArgsPack [EdhObject peerObj] odEmpty)
                                 callM servProc []
 
                           if useSandbox
@@ -249,13 +258,12 @@ createServerClass
                     void $
                       forkFinally (runProgramM' servWorld edhHandler) $
                         -- anyway after the service procedure done:
-                        --   dispose of all dependent (channel or not) sinks
+                        --   dispose of all dependent channels
                         --   try mark client end-of-life with the result
-                        \ !result -> atomically $ do
-                          !sinks2Dispose <- readTVar disposalsVar
-                          sequence_ $
-                            flip postEvent EdhNil <$> Set.toList sinks2Dispose
-                          void $ tryPutTMVar clientEoL $ void result
+                        \ !result -> do
+                          !chs2Dispose <- readTVarIO disposalsVar
+                          sequence_ $ closeBChanIO <$> Set.toList chs2Dispose
+                          void $ atomically $ tryPutTMVar clientEoL $ void result
 
                     -- pump commands in,
                     -- making this thread the only one reading the handle
@@ -266,7 +274,7 @@ createServerClass
                         receivePacketStream
                           clientId
                           (recv sock)
-                          pktSink
+                          pktBChan
                           clientEoL
 
                     let serializeCmdsOut :: IO ()
@@ -286,10 +294,8 @@ createServerClass
                       -- mark eol on error
                       atomically $ void $ tryPutTMVar clientEoL $ Left e
 
-      clientsProc :: Edh EdhValue
-      clientsProc =
-        thisHostObjectOf >>= \ !server ->
-          return $ EdhSink $ edh'serving'clients server
+      ccbProc :: Edh EdhValue
+      ccbProc = edh'client'cb <$> thisHostObjectOf
 
       reprProc :: Edh EdhValue
       reprProc =

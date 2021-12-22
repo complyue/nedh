@@ -234,13 +234,12 @@ createClientClass
                     void $
                       forkFinally (runProgramM' cnsmrWorld edhHandler) $
                         -- anyway after the service procedure done:
-                        --   dispose of all dependent (channel or not) sinks
+                        --   dispose of all dependent channels
                         --   try mark client end-of-life with the result
-                        \ !result -> atomically $ do
-                          !sinks2Dispose <- readTVar disposalsVar
-                          sequence_ $
-                            flip postEvent EdhNil <$> Set.toList sinks2Dispose
-                          void $ tryPutTMVar cnsmrEoL $ void result
+                        \ !result -> do
+                          !chs2Dispose <- readTVarIO disposalsVar
+                          sequence_ $ closeBChanIO <$> Set.toList chs2Dispose
+                          void $ atomically $ tryPutTMVar cnsmrEoL $ void result
 
                     -- pump commands in, making this thread the only one reading
                     -- the handle

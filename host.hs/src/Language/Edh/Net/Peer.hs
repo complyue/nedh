@@ -26,11 +26,11 @@ data Peer = Peer
     edh'peer'posting :: !(Packet -> STM ()),
     -- | intake for incoming packets
     edh'peer'hosting :: !(STM Packet),
-    -- | sinks to be cut-off (i.e. marked eos) on eol of this peer
-    edh'peer'disposals :: !(TVar (Set.HashSet Sink)),
+    -- | channels to be cut-off (i.e. marked eos) on eol of this peer
+    edh'peer'disposals :: !(TVar (Set.HashSet BChan)),
     -- | registry of comm channels associated with this peer,
     -- identified by arbitrary Edh values
-    edh'peer'channels :: !(TVar (Map.HashMap EdhValue Sink))
+    edh'peer'channels :: !(TVar (Map.HashMap EdhValue BChan))
   }
 
 postPeerCommand :: EdhThreadState -> Peer -> Packet -> STM ()
@@ -54,7 +54,7 @@ readPeerSource peer@(Peer _ _ !eol _ !ho _ _) =
 -- | Read next command from peer
 --
 -- Note a command may target a specific channel, thus get posted to that
---      channel's sink, and nil will be returned from here for it.
+--      channel, and nil will be returned from here for it.
 readPeerCommand :: Peer -> Edh EdhValue
 readPeerCommand peer@(Peer _ _ !eol _ !ho _ _) =
   inlineSTM ((Right <$> ho) `orElse` (Left <$> readTMVar eol)) >>= \case
@@ -104,10 +104,10 @@ landPeerCmd
           Nothing ->
             throwEdhM UsageError $
               "missing command channel: " <> T.pack (show lctr)
-          Just !chSink -> do
+          Just !chan -> do
             -- post the cmd to channel, but evals to nil as for
             -- `peer.readCommand()` wrt this cmd packet
-            void $ inlineSTM $ postEvent chSink val
+            void $ writeChanM chan val
 
 createPeerClass :: Edh Object
 createPeerClass =
@@ -171,32 +171,35 @@ createPeerClass =
         inlineSTM (Map.lookup chLctr <$> readTVar (edh'peer'channels peer))
           >>= \case
             Nothing -> return nil
-            Just !chSink -> return $ EdhSink chSink
+            Just !chan -> return $ EdhChan chan
 
     armChannelProc ::
       "chLctr" !: EdhValue ->
-      "chSink" ?: Sink ->
+      "chan" ?: BChan ->
       "dispose" ?: Bool ->
       Edh EdhValue
     armChannelProc
       (mandatoryArg -> !chLctr)
-      (optionalArg -> !maybeSink)
+      (optionalArg -> !maybeChan)
       (defaultArg True -> !dispose) =
-        thisHostObjectOf >>= \ !peer -> inlineSTM $ do
-          !chSink <- maybe newSink return maybeSink
-          modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chSink
-          when dispose $
-            modifyTVar' (edh'peer'disposals peer) $ Set.insert chSink
-          return $ EdhSink chSink
+        thisHostObjectOf >>= \ !peer -> do
+          !chan <- maybe newChanM return maybeChan
+          inlineSTM $ do
+            modifyTVar' (edh'peer'channels peer) $ Map.insert chLctr chan
+            when dispose $
+              modifyTVar' (edh'peer'disposals peer) $ Set.insert chan
+          return $ EdhChan chan
 
-    disposeProc :: "dependentSink" !: Sink -> Edh EdhValue
-    disposeProc (mandatoryArg -> !sink) =
-      thisHostObjectOf >>= \ !peer -> inlineSTM $ do
-        modifyTVar' (edh'peer'disposals peer) $ Set.insert sink
-        tryReadTMVar (edh'peer'eol peer) >>= \case
-          Just {} -> void $ postEvent sink EdhNil -- already eol, mark eos now
+    disposeProc :: "dependentChan" !: BChan -> Edh EdhValue
+    disposeProc (mandatoryArg -> !chan) =
+      thisHostObjectOf >>= \ !peer -> do
+        !maybeEoL <- inlineSTM $ do
+          modifyTVar' (edh'peer'disposals peer) $ Set.insert chan
+          tryReadTMVar (edh'peer'eol peer)
+        case maybeEoL of
+          Just {} -> void $ writeChanM chan EdhNil -- already eol, mark eos now
           _ -> pure ()
-        return $ EdhSink sink
+        return $ EdhChan chan
 
     readPeerSrcProc :: Edh EdhValue
     readPeerSrcProc = thisHostObjectOf >>= \ !peer -> readPeerSource peer
