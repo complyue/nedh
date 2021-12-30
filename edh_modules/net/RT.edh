@@ -61,7 +61,7 @@ export {
      # `nil` is returned when no channel has been armed with the specified
      # channel locator
      #}
-    method armedChannel( chLctr ) : 'Chan' | nil pass
+    method armedChannel( chLctr ): 'Chan' | nil pass
 
     {##
      # arm a new channel with the specified locator
@@ -69,7 +69,7 @@ export {
      # previously armed channel with the same locator will be replaced, the newly
      # armed channel is returned
      #}
-    method armChannel( chLctr, chan= 'Chan' ) pass
+    method armChannel( chLctr, ch: 'Chan' = chan ): 'Chan' pass
 
 
     {##
