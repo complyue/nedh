@@ -30,7 +30,7 @@ class EdhServer:
         server_port: int = 3721,
         server_port_max: Optional[int] = None,
         init: Optional[Callable] = None,
-        clients: Optional[EventSink] = None,
+        ccb: Optional[Callable[["Peer"], None]] = None,
         net_opts: Optional[Dict] = None,
     ):
         loop = asyncio.get_running_loop()
@@ -40,16 +40,14 @@ class EdhServer:
         self.server_port = server_port
         self.server_port_max = server_port_max
         self.init = init
-        self.clients = clients or EventSink()
+        self.ccb = ccb
 
         self.server_sockets = loop.create_future()
         self.eol = eol
         self.net_opts = net_opts or {}
 
-        # mark end-of-stream for clients, end-of-life for server, finally
+        # mark end-of-stream for server finally
         def server_cleanup(svr_fut):
-            self.clients.publish(EndOfStream)
-
             if not self.server_sockets.done():
                 # fill empty addrs if the connection has ever failed
                 self.server_sockets.set_result([])
@@ -169,7 +167,10 @@ class EdhServer:
 
             asyncio.create_task(pumpCmdsOut())
 
-            self.clients.publish(peer)
+            if self.ccb is not None:
+                maybe_coro = self.ccb(peer)
+                if inspect.isawaitable(maybe_coro):
+                    await maybe_coro
 
             # pump commands in,
             # this task is the only one reading the socket

@@ -25,7 +25,7 @@ class Peer:
         eol: asyncio.Future,
         posting: Callable[[Packet], Awaitable],
         hosting: Callable[[], Awaitable[Packet]],
-        channels: Dict[Any, EventSink] = None,
+        channels: Dict[Any, BChan] = None,
     ):
         # identity of peer
         self.ident = ident
@@ -45,7 +45,7 @@ class Peer:
                 pass
 
             for ch in self.channels.values():
-                ch.publish(EndOfStream)
+                ch.close()
 
         asyncio.create_task(peer_cleanup())
 
@@ -59,23 +59,23 @@ class Peer:
         if not self.eol.done():
             self.eol.set_result(None)
 
-    def armed_channel(self, ch_lctr: object) -> EventSink:
+    def armed_channel(self, ch_lctr: object) -> Optional[BChan]:
         return self.channels.get(ch_lctr, None)
 
-    def ensure_channel(self, ch_lctr: object) -> EventSink:
-        ch_sink = self.channels.get(ch_lctr, None)
-        if ch_sink is None:
-            ch_sink = EventSink()
-            self.channels[ch_lctr] = ch_sink
-        return ch_sink
+    def ensure_channel(self, ch_lctr: object) -> BChan:
+        ch = self.channels.get(ch_lctr, None)
+        if ch is None:
+            ch = BChan()
+            self.channels[ch_lctr] = ch
+        return ch
 
     def arm_channel(
-        self, ch_lctr: object, ch_sink: Optional[EventSink] = None
-    ) -> EventSink:
-        if ch_sink is None:
-            ch_sink = EventSink()
-        self.channels[ch_lctr] = ch_sink
-        return ch_sink
+        self, ch_lctr: object, ch: Optional[BChan] = None
+    ) -> BChan:
+        if ch is None:
+            ch = BChan()
+        self.channels[ch_lctr] = ch
+        return ch
 
     async def post_command(
         self, cmd: Union[str, bytes, bytearray, memoryview], dir_: object = ""
@@ -97,8 +97,8 @@ class Peer:
         """
         Read next command from peer
 
-        Note a command may target a specific channel, thus get posted to that
-             channel's sink, and None will be returned from here for it.
+        Note a command may target a specific channel, thus get sent to that
+             channel and `None` will be returned from here for it.
         """
         eol = self.eol
         pkt = await read_stream(eol, self.hosting())
@@ -115,10 +115,10 @@ class Peer:
             if len(blob_dir) < 1:
                 return pkt.payload
             ch_lctr = await run_py(blob_dir, self.ident, cmd_globals, cmd_locals)
-            ch_sink = self.channels.get(ch_lctr, None)
-            if ch_sink is None:
+            ch = self.channels.get(ch_lctr, None)
+            if ch is None:
                 raise RuntimeError(f"Missing command channel: {ch_lctr!r}")
-            ch_sink.publish(pkt.payload)
+            await ch.put(pkt.payload)
             return None
         # interpret as textual command
         src = pkt.payload.decode("utf-8")
@@ -127,10 +127,10 @@ class Peer:
             if len(pkt.dir) < 1:
                 return cmd_val
             ch_lctr = await run_py(pkt.dir, self.ident, cmd_globals, cmd_locals)
-            ch_sink = self.channels.get(ch_lctr, None)
-            if ch_sink is None:
+            ch = self.channels.get(ch_lctr, None)
+            if ch is None:
                 raise RuntimeError(f"Missing command channel: {ch_lctr!r}")
-            ch_sink.publish(cmd_val)
+            await ch.put(cmd_val)
             return None
         except Exception as exc:
             if not eol.done():

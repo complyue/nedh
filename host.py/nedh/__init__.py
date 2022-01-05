@@ -21,8 +21,8 @@ __all__ = [
     'EdhServer',
 
     # exports from .symbols
-    'CONIN', 'CONOUT', 'CONMSG', 'sendConOut', 'sendConMsg', 'ERR_CHAN',
-    'DATA_CHAN', 'netPeer', 'dataSink', 'sendCmd', 'sendData',
+    'ERR_CHAN', 'DATA_CHAN', 'netPeer', 'sendCmd', 'sendData',
+    'disconnectPeer',
 
 ]
 

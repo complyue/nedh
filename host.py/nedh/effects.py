@@ -7,20 +7,6 @@ from edh import *
 from .symbols import *
 
 
-async def sendConOut_(d, *ds):
-    peer = effect(netPeer)
-    peer.p2c(CONOUT, d)
-    for d in ds:
-        peer.p2c(CONOUT, d)
-
-
-async def sendConMsg_(d, *ds):
-    peer = effect(netPeer)
-    peer.p2c(CONMSG, d)
-    for d in ds:
-        peer.p2c(CONMSG, d)
-
-
 async def sendCmd_(c, *cs):
     peer = effect(netPeer)
     peer.postCommand(c)
@@ -36,9 +22,6 @@ async def sendData_(d, *ds):
 
 
 __all_symbolic__ = {
-    sendConOut: sendConOut_,
-    sendConMsg: sendConMsg_,
     sendCmd: sendCmd_,
     sendData: sendData_,
 }
-
