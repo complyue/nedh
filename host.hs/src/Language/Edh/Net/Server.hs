@@ -260,10 +260,10 @@ createServerClass
                         -- anyway after the service procedure done:
                         --   dispose of all dependent channels
                         --   try mark client end-of-life with the result
-                        \ !result -> do
-                          !chs2Dispose <- readTVarIO disposalsVar
-                          sequence_ $ closeBChanIO <$> Set.toList chs2Dispose
-                          void $ atomically $ tryPutTMVar clientEoL $ void result
+                        \ !result -> atomically $ do
+                          !chs2Dispose <- readTVar disposalsVar
+                          sequence_ $ closeBChan <$> Set.toList chs2Dispose
+                          void $ tryPutTMVar clientEoL $ void result
 
                     -- pump commands in,
                     -- making this thread the only one reading the handle
