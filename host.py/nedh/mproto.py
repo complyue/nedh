@@ -39,11 +39,10 @@ async def sendPacket(
     pkt_len = len(pkt.payload)
     pkt_hdr = f"[{pkt_len!r}#{pkt.dir!s}]"
     if len(pkt_hdr) > MAX_HEADER_LENGTH:
-        raise EdhPeerError(self.peer_site, "sending out long packet header")
-    outlet = outlet
-    await outlet.drain()
+        raise EdhPeerError(peer_site, "sending out long packet header")
     outlet.write(pkt_hdr.encode("utf-8"))
     outlet.write(pkt.payload)
+    await outlet.drain()
 
 
 PacketSink = Callable[[Packet], Awaitable]
