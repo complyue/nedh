@@ -204,7 +204,7 @@ so the caller can continue.
 ''' ) )
 
     # make sure this repl terminates when the session is finished, it can be finished by another web client without this one even submitted anything
-    perceive this.cmdIn nil -> break
+    perceive nil this.cmdIn break
 
     # allocate a channel for this repl
     cmdOut = chan
