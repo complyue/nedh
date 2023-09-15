@@ -1,0 +1,67 @@
+
+import * 'net'
+
+# %%
+taskDispatcher = chan
+resultCollector = chan
+
+go for@ result from resultCollector do {
+  console.info<| 'Got result -- ' ++ result
+}
+
+
+# %%
+
+go factotum( ['python', '-m', 'nedh.factotum', ],
+  workDir='/tmp',
+) $@ {@
+
+  # resultCollector should only be closed after enough results have been collected back
+  perceive nil resultCollector break
+
+  peer = perform @netPeer
+  peer =: Peer()
+  console.info<| 'Started factotum with - ' ++ peer
+
+  peer.armChannel( dataChan, resultCollector, dispose=false )
+
+  go {
+
+    while peer.eol() is false case peer.readCommand() of {@
+      { cmdVal } | not null(cmdVal) -> {
+        console.warn<| 'Unexpected cmd result from ' ++ peer ++ '\n  '
+        ++ desc(cmdVal)
+      }
+    @}
+
+  } $=> { exc } -> {
+    console.error<| 'Error with - ' ++ peer ++ ' : ' ++ desc(exc)
+  }
+
+  for factotumTask from taskDispatcher
+  do peer.postCommand( factotumTask )
+
+@}
+
+
+# %%
+taskDispatcher<- { expr
+  peer.p2c(DATA_CHAN, repr(
+      f"Factotum calculated 3*7={3*7} in dir [{os.getcwd()}]"
+  ) )
+}
+
+
+# %%
+taskDispatcher<- { expr
+  peer.p2c(DATA_CHAN, 3*7 )
+}
+
+
+# %%
+for _ from console.everySeconds(10) do break
+
+
+# %%
+resultCollector<- nil
+taskDispatcher<- nil

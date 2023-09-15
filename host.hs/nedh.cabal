@@ -34,6 +34,7 @@ library
     Language.Edh.Net.Server
     Language.Edh.Net.Sniffer
     Language.Edh.Net.WebSocket
+    Language.Edh.Net.Factotum
   hs-source-dirs:     src
   default-language:   Haskell2010
   default-extensions:

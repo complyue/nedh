@@ -17,6 +17,7 @@ import Language.Edh.EHI
 import Language.Edh.Net.Addr
 import Language.Edh.Net.Advertiser
 import Language.Edh.Net.Client
+import Language.Edh.Net.Factotum
 import Language.Edh.Net.Http
 import Language.Edh.Net.MicroProto
 import Language.Edh.Net.Peer
@@ -64,6 +65,11 @@ installNetBatteries !world = runProgramM_ world $ do
         !htmlEscapeMth <-
           mkEdhProc EdhMethod "htmlEscape" $ wrapEdhProc htmlEscapeProc
 
+        !factotumMth <-
+          mkEdhProc EdhIntrpr "factotum" $
+            wrapEdhProc $
+              factotumProc peerClass symNetPeer expNetEffs
+
         !snifferClass <- createSnifferClass addrClass
         !advertiserClass <- createAdvertiserClass addrClass
 
@@ -75,6 +81,7 @@ installNetBatteries !world = runProgramM_ world $ do
                 (AttrByName "WsServer", EdhObject wsServerClass),
                 (AttrByName "HttpServer", EdhObject httpServerClass),
                 (AttrByName "htmlEscape", htmlEscapeMth),
+                (AttrByName "factotum", factotumMth),
                 (AttrByName "Sniffer", EdhObject snifferClass),
                 (AttrByName "Advertiser", EdhObject advertiserClass)
               ]

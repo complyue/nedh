@@ -363,6 +363,29 @@ TODO formalize/elaborate the specification.
 
 
   {##
+   # run a subprocess to do things
+   #
+   # the `factoScript` is idiomatically provided as a scoped block, like:
+
+   ```
+    factotum( ['python', '-m', 'nedh.factotum', ],
+      workDir='/tmp',
+    ) $@ {@
+
+      peer = perform @netPeer
+      peer =: Peer()
+
+      ...
+    @}
+   ```
+   #}
+  interpreter factotum(
+    cmdl, factoScript,
+    workDir=NA,
+  ) pass
+
+
+  {##
    # A network client connects to some service over the network and will consume the service via the connection
    #
    # the `Client` class specializes on TCP connections
