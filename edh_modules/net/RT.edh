@@ -68,8 +68,19 @@ export {
      #
      # previously armed channel with the same locator will be replaced, the newly
      # armed channel is returned
+     #
+     # when this peer reaches EoL, the chan will be closed unless `dispose=false`
+     # is specified when armed by this method
      #}
-    method armChannel( chLctr, ch: 'Chan' = chan ): 'Chan' pass
+    method armChannel( chLctr, ch: 'Chan' = chan, dispose= true, ): 'Chan' pass
+
+
+    {##
+     # when this peer reaches EoL, close the chan specified
+     #
+     # it'll be closed immediately if this peer already reached EoL
+     #}
+    method dispose( dependentChan: 'Chan' ) pass
 
 
     {##
