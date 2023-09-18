@@ -50,6 +50,12 @@ go factotum( ['python', '-m', 'nedh.factotum', ],
 
 # %%
 taskDispatcher<- { expr
+  factotumHello(f"You (pid={factotumPid}) work for me (pid={ownerPid})!")
+}
+
+
+# %%
+taskDispatcher<- { expr
   peer.p2c(DATA_CHAN, repr(
       f"Factotum calculated 3*7={3*7} in dir [{os.getcwd()}]"
   ) )

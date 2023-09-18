@@ -15,6 +15,10 @@ factotumPid = os.getpid()
 logger = logging.getLogger(f"Factotum[{factotumPid}<-*{ownerPid}]")
 
 
+def factotumHello(msg):
+    print(f"I ({sys.executable}) got a msg from factotum owner:\n   {msg}")
+
+
 async def _run_():
     if len(sys.argv) == 2:
         commSockFd = sys.argv[1]
@@ -37,6 +41,7 @@ async def _run_():
     eol = peer.eol
     try:
         while True:
+            # Note: `factoScript`s from the owner process run as if here
             cmd_val = await peer.read_command()
             if cmd_val is EndOfStream:
                 break
