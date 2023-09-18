@@ -365,19 +365,9 @@ TODO formalize/elaborate the specification.
   {##
    # run a subprocess to do things
    #
-   # the `factoScript` is idiomatically provided as a scoped block, like:
-
-   ```
-    factotum( ['python', '-m', 'nedh.factotum', ],
-      workDir='/tmp',
-    ) $@ {@
-
-      peer = perform @netPeer
-      peer =: Peer()
-
-      ...
-    @}
-   ```
+   # the `factoScript` will be run in a nested scope, with a `@netPeer` in effect,
+   # which is used to communicate with the subprocess; after the script finished,
+   # the subprocess will be killed
    #}
   interpreter factotum(
     cmdl, factoScript,

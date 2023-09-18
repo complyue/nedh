@@ -68,7 +68,7 @@ installNetBatteries !world = runProgramM_ world $ do
         !factotumMth <-
           mkEdhProc EdhIntrpr "factotum" $
             wrapEdhProc $
-              factotumProc peerClass symNetPeer expNetEffs
+              factotumProc peerClass symNetPeer
 
         !snifferClass <- createSnifferClass addrClass
         !advertiserClass <- createAdvertiserClass addrClass

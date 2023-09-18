@@ -1,5 +1,6 @@
 
 import * 'net'
+effect import * 'net/effects'
 
 # %%
 taskDispatcher = chan
@@ -14,16 +15,19 @@ go for@ result from resultCollector do {
 
 go factotum( ['python', '-m', 'nedh.factotum', ],
   workDir='/tmp',
-) $@ {@
+) $@ {
 
-  # resultCollector should only be closed after enough results have been collected back
+  # resultCollector should (only) be closed after enough results have been collected back
   perceive nil resultCollector break
 
   peer = perform @netPeer
   peer =: Peer()
-  console.info<| 'Started factotum with - ' ++ peer
+  console.info<| 'Started factotum as - ' ++ peer
 
-  peer.armChannel( dataChan, resultCollector, dispose=false )
+  peer.armChannel( dataChan, resultCollector,
+    # the result channel can be shared by multiple factotum workers
+    dispose= false, # don't close it along with this factotum peer
+  )
 
   go {
 
@@ -41,7 +45,7 @@ go factotum( ['python', '-m', 'nedh.factotum', ],
   for factotumTask from taskDispatcher
   do peer.postCommand( factotumTask )
 
-@}
+}
 
 
 # %%

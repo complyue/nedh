@@ -26,7 +26,6 @@ import Prelude
 factotumProc ::
   Object ->
   Symbol ->
-  EntityStore ->
   "cmdl" !: ExprDefi ->
   "factoScript" !: ExprDefi ->
   "workDir" ?: ExprDefi ->
@@ -34,7 +33,6 @@ factotumProc ::
 factotumProc
   !peerClass
   !symNetPeer
-  !esNetEffs
   (mandatoryArg -> !cmdlExpr)
   (mandatoryArg -> !factoScript)
   (optionalArg -> !workDirExpr) = do
@@ -74,13 +72,6 @@ factotumProc
               edh'peer'channels = chdVar
             }
     !peerObj <- createArbiHostObjectM peerClass peer
-    !netEffs <- iopdToListEdh esNetEffs
-    let effArts =
-          ( AttrBySym symNetPeer,
-            EdhObject peerObj
-          ) :
-          netEffs
-    prepareEffStoreM >>= iopdUpdateEdh effArts
 
     let commThread = do
           void $
@@ -117,7 +108,11 @@ factotumProc
           !chs2Dispose <- readTVar disposalsVar
           sequence_ $ closeBChan <$> Set.toList chs2Dispose
 
-    !result <- evalExprDefiM factoScript
+    !result <- runNested $ do
+      defineEffectM (AttrBySym symNetPeer) (EdhObject peerObj)
+      runNested $ evalExprDefiM factoScript
+
+    -- TODO do this in a `finally` block
     void $ tryPutTMVarEdh factoEoL $ Right ()
 
     liftIO $ touchForeignPtr spTracker -- GC will kill the subprocess, keep it until here
@@ -133,6 +128,7 @@ confirmKill :: ProcessID -> IO ()
 -- assuming failure means the process by this pid doesn't exist (anymore)
 -- todo improve such confirmation criteria
 confirmKill !pid = handle (\(_ :: SomeException) -> return ()) $ do
+  void $ getProcessStatus False True pid -- prevent it from becoming a zombie
   signalProcess killProcess pid
   threadDelay 100000 -- wait 0.1 second before checking it's actually killed
   signalProcess nullSignal pid
