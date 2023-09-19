@@ -3,6 +3,26 @@ import * 'net'
 effect import * 'net/effects'
 
 # %%
+facto = Factotum( [ 'python', '-m', 'nedh.factotum', ],
+  workDir='/tmp',
+)
+defer facto.stop() # or the subprocess will leak
+
+
+# %%
+facto.eval( expr 3*7 )
+
+# %%
+facto.eval( '3*7' )
+
+# %%
+facto.eval( expr ownerPid )
+
+# %%
+facto.eval( expr factotumPid )
+
+
+# %%
 taskDispatcher = chan
 resultCollector = chan
 
@@ -13,7 +33,7 @@ go for@ result from resultCollector do {
 
 # %%
 
-go factotum( ['python', '-m', 'nedh.factotum', ],
+go factotum( [ 'python', '-m', 'nedh.factotum', ],
   workDir='/tmp',
 ) $@ {
 

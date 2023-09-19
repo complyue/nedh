@@ -48,7 +48,8 @@ factotumProc
       Nothing -> return Nothing
       Just wdx ->
         evalExprDefiM wdx >>= \case
-          EdhString wds -> return $ Just wds
+          EdhString wds | not (T.null wds) -> return $ Just wds
+          EdhNamedValue _ EdhNil -> return Nothing
           badWorkDir ->
             edhValueReprM badWorkDir >>= \badRepr ->
               throwEdhM UsageError $ "invalid factotum workDir: " <> badRepr

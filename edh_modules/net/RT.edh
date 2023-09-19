@@ -371,7 +371,7 @@ TODO formalize/elaborate the specification.
    #}
   interpreter factotum(
     cmdl, factoScript,
-    workDir=NA,
+    workDir= None,
   ) pass
 
 

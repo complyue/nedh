@@ -1,0 +1,74 @@
+
+import (factotum, Peer, **) 'net/RT'
+import * './symbols'
+
+export {
+
+  class Factotum {
+
+    method __init__(
+      cmdl= ['python', '-m', 'nedh.factotum'],
+      workDir= None,
+    ) {
+      this.downlink = chan
+      this.uplink = chan
+
+      this.peer = None
+
+      go factotum( cmdl, workDir= workDir, ) $@ {
+
+        perceive nil this.uplink break
+
+        peer = perform @netPeer
+        peer =: Peer()
+        this.peer = peer
+
+        peer.armChannel( dataChan, this.uplink )
+
+        go {
+
+          while peer.eol() is false case peer.readCommand() of {@
+            { cmdVal } | not null(cmdVal) -> {
+              console.warn<| 'Unexpected cmd result from ' ++ peer ++ '\n  '
+              ++ desc(cmdVal)
+            }
+          @}
+
+        } $=> { exc } -> {
+          console.error<| 'Error with - ' ++ peer ++ ' : ' ++ desc(exc)
+        }
+
+        for factotumTask from this.downlink
+        do peer.postCommand( expr
+          peer.p2c(DATA_CHAN, repr({$ factotumTask $}))
+        )
+
+      }
+    }
+
+    method eval(factotumExpr) {
+      if not (
+        this.downlink <- case type(factotumExpr) of {
+          'Expr' -> factotumExpr
+          'String' -> parseEdh(factotumExpr)
+          {badType} -> throw UsageError(
+            'Unsupported factotum expr type: ' ++ badType
+          )
+        }
+      ) then throw UsageError('Factotum already stopped!')
+      return <-this.uplink
+    }
+
+    method stop() ai {
+      this.downlink<- nil
+      this.uplink<- nil
+    }
+
+    property$
+    method stopped() this.uplink.eos
+
+    method __repr__() 'Factotum{'++ this.peer ++'}'
+
+  }
+
+}

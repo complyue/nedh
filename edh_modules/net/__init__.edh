@@ -4,4 +4,6 @@ export {
   import * 'net/RT'
   import * './symbols'
 
+  import * './factotum'
+
 }
