@@ -47,15 +47,13 @@ export {
     }
 
     method eval(factotumExpr) {
-      if not (
-        this.downlink <- case type(factotumExpr) of {
+      if not ( this.downlink <- case type(factotumExpr) of {
           'Expr' -> factotumExpr
           'String' -> parseEdh(factotumExpr)
           {badType} -> throw UsageError(
             'Unsupported factotum expr type: ' ++ badType
           )
-        }
-      ) then throw UsageError('Factotum already stopped!')
+      } ) then throw UsageError('Factotum already stopped!')
       return <-this.uplink
     }
 
