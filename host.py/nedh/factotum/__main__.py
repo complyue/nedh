@@ -20,12 +20,9 @@ def factotumHello(msg):
 
 
 async def _run_():
-    if len(sys.argv) == 2:
-        commSockFd = sys.argv[1]
-    else:
-        raise RuntimeError("Not expected factotum worker cmdl: " + sys.argv)
+    commSockFd = os.environ["FACTO_SOCK_FD"]
 
-    peer = await takeEdhFd(int(commSockFd))
+    peer = await takeSockFd(int(commSockFd))
     peer.ensure_channel(DATA_CHAN)
 
     import nedh.effects

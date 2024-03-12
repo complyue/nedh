@@ -1,0 +1,38 @@
+#
+# Factotum worker process entry module
+#
+
+import * 'net'
+
+console.debug<| 'Factotum got FACTO_SOCK_FD=[' ++ console.env('FACTO_SOCK_FD') ++ ']'
+
+# take the factotum connection file describer, make it a peer for comm
+peer = takeSockFd( parseInt(console.env('FACTO_SOCK_FD')) )
+peer =: Peer()
+console.debug<| 'Took factotum connection to owner: ' ++ peer
+defer {
+  console.debug<| 'Disconnecting factotum socket to owner ' ++ peer
+}
+
+effect {
+  ; @netPeer = peer
+}
+
+method factotumHello(msg) {
+  console.print("I got a msg from factotum owner:\n   " ++ msg)
+}
+
+{
+
+  while peer.eol() is false case peer.readCommand() of {
+    # sequence of commands each resulting in nil are expected and let pass here
+    { cmdVal } -> {
+      console.warn<| 'Unexpected cmd from ' ++ peer ++ '\n  ' ++ cmdVal
+      cmdVal = nil # clear it
+    }
+  }
+
+} @=> { exc } -> {
+  console.error<| 'Exception by factotum ' ++ peer
+  ++ ' error: ' ++ exc
+}

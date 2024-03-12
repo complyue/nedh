@@ -3,6 +3,7 @@ module Language.Edh.Net
     getPeerClass,
     getAddrClass,
     serviceAddressFrom,
+    takeSockFd,
     -- TODO organize and doc the re-exports
     module Language.Edh.Net.Addr,
     module Language.Edh.Net.Peer,
@@ -69,6 +70,10 @@ installNetBatteries !world = runProgramM_ world $ do
           mkEdhProc EdhIntrpr "factotum" $
             wrapEdhProc $
               factotumProc peerClass symNetPeer
+        !takeSockFdMth <-
+          mkEdhProc EdhMethod "takeSockFd" $
+            wrapEdhProc $
+              takeSockFd peerClass
 
         !snifferClass <- createSnifferClass addrClass
         !advertiserClass <- createAdvertiserClass addrClass
@@ -82,6 +87,7 @@ installNetBatteries !world = runProgramM_ world $ do
                 (AttrByName "HttpServer", EdhObject httpServerClass),
                 (AttrByName "htmlEscape", htmlEscapeMth),
                 (AttrByName "factotum", factotumMth),
+                (AttrByName "takeSockFd", takeSockFdMth),
                 (AttrByName "Sniffer", EdhObject snifferClass),
                 (AttrByName "Advertiser", EdhObject advertiserClass)
               ]

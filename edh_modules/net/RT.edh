@@ -376,6 +376,12 @@ TODO formalize/elaborate the specification.
 
 
   {##
+   # Take a socket connection by file-descriptor number
+   #}
+  method takeSockFd( sockFd ) pass
+
+
+  {##
    # A network client connects to some service over the network and will consume the service via the connection
    #
    # the `Client` class specializes on TCP connections

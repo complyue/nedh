@@ -8,8 +8,11 @@ __all__ = [
     # exports from .client
     'EdhClient',
 
+    # exports from .facto
+    'Factotum',
+
     # exports from .fdsock
-    'takeEdhFd',
+    'takeSockFd',
 
     # exports from .mproto
     'Packet', 'textPacket', 'sendPacket', 'receivePacketStream',
@@ -27,6 +30,7 @@ __all__ = [
 ]
 
 from .client import *
+from .facto import *
 from .fdsock import *
 from .mproto import *
 from .peer import *

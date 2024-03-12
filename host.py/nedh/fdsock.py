@@ -2,7 +2,7 @@
 Python Client speaking Nedh by taking over a socket from an inherited fd
 
 """
-__all__ = ["takeEdhFd"]
+__all__ = ["takeSockFd"]
 
 from typing import *
 import asyncio
@@ -20,11 +20,11 @@ from .peer import *
 logger = log.get_logger(__name__)
 
 
-async def takeEdhFd(wsc_fd: int, net_opts: Optional[Dict] = None):
+async def takeSockFd(sock_fd: int, net_opts: Optional[Dict] = None):
     loop = asyncio.get_running_loop()
 
     # prepare the peer object
-    ident = f"<fd:{wsc_fd}>"
+    ident = f"<fd:{sock_fd}>"
 
     eol = loop.create_future()
 
@@ -57,7 +57,7 @@ async def takeEdhFd(wsc_fd: int, net_opts: Optional[Dict] = None):
         try:
 
             # take over the network connection
-            sock = socket.socket(fileno=wsc_fd)
+            sock = socket.socket(fileno=sock_fd)
             intake, outlet = await asyncio.open_connection(
                 sock=sock,
                 **net_opts or {},
