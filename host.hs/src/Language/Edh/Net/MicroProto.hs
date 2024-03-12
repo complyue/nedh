@@ -5,7 +5,7 @@ import           Prelude
 -- import           Debug.Trace
 
 import           Control.Exception
-import           Control.Monad.Reader
+import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
 
