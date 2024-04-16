@@ -124,6 +124,8 @@ class EdhClient:
                         pkt = await read_stream(eol, poq.get())
                         if pkt is EndOfStream:
                             break
+                        if eol.done():
+                            break
                         await sendPacket(ident, outlet, pkt)
                 except Exception as exc:
                     logger.error("Nedh client error.", exc_info=True)
